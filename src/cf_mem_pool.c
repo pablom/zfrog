@@ -17,6 +17,9 @@
 static void	pool_region_create(struct cf_mem_pool *pool, size_t elms);
 static void	pool_region_destroy( struct cf_mem_pool *pool );
 
+/****************************************************************
+ *  Helper function init memory pool
+ ****************************************************************/
 void cf_mem_pool_init(struct cf_mem_pool *pool, const char *name, size_t len, size_t elm)
 {
     log_debug("cf_mem_pool_init(%p, %s, %zu, %zu)", pool, name, len, elm);
@@ -36,7 +39,9 @@ void cf_mem_pool_init(struct cf_mem_pool *pool, const char *name, size_t len, si
 
 	pool_region_create(pool, elm);
 }
-
+/****************************************************************
+ *  Helper function to clean up memory pool
+ ****************************************************************/
 void cf_mem_pool_cleanup(struct cf_mem_pool *pool)
 {
 	pool->lock = 0;
@@ -53,7 +58,9 @@ void cf_mem_pool_cleanup(struct cf_mem_pool *pool)
 
 	pool_region_destroy(pool);
 }
-
+/****************************************************************
+ *  Helper function to get memory free chunck from memory pool
+ ****************************************************************/
 void* cf_mem_pool_get( struct cf_mem_pool *pool )
 {
     uint8_t *ptr = NULL;
@@ -85,7 +92,9 @@ void* cf_mem_pool_get( struct cf_mem_pool *pool )
 
     return ptr;
 }
-
+/****************************************************************
+ *  Helper function to return memory chunck back to memory pool
+ ****************************************************************/
 void cf_mem_pool_put( struct cf_mem_pool *pool, void *ptr )
 {
     struct cf_mem_pool_entry *entry = NULL;

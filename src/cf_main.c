@@ -374,19 +374,13 @@ static void cf_server_start( void )
     cf_log(LOG_NOTICE, "lua built-in enabled");
 #endif
 
-#ifdef CF_SINGLE_BINARY
-    if( (rcall = cf_runtime_getcall("cf_preload")) != NULL )
-    {
-        cf_runtime_execute( rcall );
-        mem_free( rcall );
-    }
-#endif
-
+#ifndef CF_SINGLE_BINARY
     if( (rcall = cf_runtime_getcall("cf_parent_configure")) != NULL )
     {
         cf_runtime_execute( rcall );
         mem_free( rcall );
     }
+#endif
 
     cf_platform_proctitle("zfrog [parent]");
     cf_msg_init();

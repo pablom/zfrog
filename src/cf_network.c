@@ -56,7 +56,7 @@ void net_send_queue( struct connection *c, const void *data, size_t len )
 
 			len -= avail;
 			d += avail;
-			if (len == 0)
+            if( len == 0 )
 				return;
 		}
 	}

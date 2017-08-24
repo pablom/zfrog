@@ -1,7 +1,5 @@
 // cf_utils.c
 
-#include <sys/time.h>
-
 #include <ctype.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -10,6 +8,7 @@
 #include <time.h>
 #include <limits.h>
 #include <fcntl.h>
+#include <sys/time.h>
 #include <sys/ioctl.h>
 
 #include "zfrog.h"
@@ -466,74 +465,77 @@ void cf_ms2ts( struct timespec *ts, uint64_t ms )
  ****************************************************************/
 int cf_base64_encode( uint8_t *data, size_t len, char **out )
 {
-    uint32_t b;
-    struct cf_buf *res = NULL;
-    size_t plen, idx;
-    uint8_t n, *pdata;
-    int	i, padding;
+    uint8_t	n = 0;
+    size_t nb = 0;
+    const uint8_t *ptr = data;
+    uint32_t bytes = 0;
+    struct cf_buf result;
 
-    if( (len % 3) != 0 )
+    cf_buf_init( &result, (len / 3) * 4);
+
+    while( len > 0 )
     {
-		padding = 3 - (len % 3);
-		plen = len + padding;
-        if( plen < len )
-            cf_fatal("plen wrapped");
-
-        pdata = mem_malloc(plen);
-		memcpy(pdata, data, len);
-		memset(pdata + len, 0, padding);
-    }
-    else
-    {
-		plen = len;
-		padding = 0;
-		pdata = data;
-	}
-
-    res = cf_buf_alloc(plen);
-
-	i = 2;
-	b = 0;
-
-    for(idx = 0; idx < plen; idx++)
-    {
-		b |= (pdata[idx] << (i * 8));
-        if( i-- == 0 )
+        if( len > 2 )
         {
-            for(i = 3; i >= 0; i--)
+            nb = 3;
+            bytes = *ptr++ << 16;
+            bytes |= *ptr++ << 8;
+            bytes |= *ptr++;
+        }
+        else if( len > 1 )
+        {
+            nb = 2;
+            bytes = *ptr++ << 16;
+            bytes |= *ptr++ << 8;
+        }
+        else if( len == 1 )
+        {
+            nb = 1;
+            bytes = *ptr++ << 16;
+        }
+        else
+        {
+            cf_buf_cleanup(&result);
+            return CF_RESULT_ERROR;
+        }
+
+        n = (bytes >> 18) & 0x3f;
+        cf_buf_append(&result, &(b64table[n]), 1);
+        n = (bytes >> 12) & 0x3f;
+        cf_buf_append(&result, &(b64table[n]), 1);
+
+        if( nb > 1 )
+        {
+            n = (bytes >> 6) & 0x3f;
+            cf_buf_append(&result, &(b64table[n]), 1);
+
+            if( nb > 2 )
             {
-				n = (b >> (6 * i)) & 0x3f;
-                if (n >= sizeof(b64table))
-                {
-                    log_debug("unable to encode %d", n);
-                    cf_buf_free(res);
-                    return CF_RESULT_ERROR;
-				}
+                n = bytes & 0x3f;
+                cf_buf_append(&result, &(b64table[n]), 1);
+            }
+        }
 
-                if( idx >= len && i < padding )
-					break;
+        len -= nb;
+    }
 
-                cf_buf_append(res, &(b64table[n]), 1);
-			}
+    switch( nb )
+    {
+    case 1:
+        cf_buf_appendf(&result, "==");
+        break;
+    case 2:
+        cf_buf_appendf(&result, "=");
+        break;
+    case 3:
+        break;
+    default:
+        cf_buf_cleanup(&result);
+        return CF_RESULT_ERROR;
+    }
 
-			b = 0;
-			i = 2;
-		}
-	}
-
-    for( i = 0; i < padding; i++ )
-        cf_buf_append(res, (uint8_t *)"=", 1);
-
-    if( pdata != data )
-        mem_free(pdata);
-
-    pdata = cf_buf_release(res, &plen);
-    if( (plen + 1) < plen )
-        cf_fatal("plen wrapped");
-
-    *out = mem_malloc(plen + 1);
-    cf_strlcpy(*out, (char *)pdata, plen + 1);
-    mem_free(pdata);
+    /* result.data gets taken over so no need to cleanup result */
+    *out = cf_buf_stringify(&result, NULL);
 
     return CF_RESULT_OK;
 }
@@ -614,7 +616,7 @@ int cf_base64_decode( char *in, size_t ilen, uint8_t **out, size_t *olen )
     return CF_RESULT_OK;
 }
 
-void* cf_mem_find(void *src, size_t slen, void *needle, size_t len)
+void* cf_mem_find( void *src, size_t slen, void *needle, size_t len )
 {
     size_t pos = 0;
 
@@ -746,6 +748,21 @@ int cf_proc_pidpath( pid_t pid, void *buf, size_t len )
     errno = ENOSYS;
     return CF_RESULT_ERROR;
 #endif
+
+    return CF_RESULT_OK;
+}
+/****************************************************************
+ *  Helper function set socket options
+ ****************************************************************/
+int cf_sockopt( int fd, int what, int opt )
+{
+    int	on = 1;
+
+    if( setsockopt(fd, what, opt, (const char *)&on, sizeof(on)) == -1 )
+    {
+        cf_log(LOG_ERR, "setsockopt(): %s", errno_s);
+        return CF_RESULT_ERROR;
+    }
 
     return CF_RESULT_OK;
 }
