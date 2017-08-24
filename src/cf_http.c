@@ -189,6 +189,9 @@ int http_request_new( struct connection *c, const char *host,
         return CF_RESULT_ERROR;
 	}
 
+    if( hp != NULL )
+        *hp = ':';
+
     if( p != NULL )
 		*p = '?';
 
@@ -1129,8 +1132,9 @@ void http_populate_cookies(struct http_request *req)
 
     mem_free(header);
 }
-
-
+/****************************************************************
+ *  Helper function to parse (populate) POSt options
+ ****************************************************************/
 void http_populate_post( struct http_request *req )
 {
     ssize_t ret;
@@ -1179,7 +1183,9 @@ void http_populate_post( struct http_request *req )
     if( body != NULL )
         cf_buf_free(body);
 }
-
+/****************************************************************
+ *  Helper function to parse GET options
+ ****************************************************************/
 void http_populate_get( struct http_request *req )
 {
     int	i, v;
@@ -1202,7 +1208,7 @@ void http_populate_get( struct http_request *req )
 	mem_free(query);
 }
 
-void http_populate_multipart_form(struct http_request *req)
+void http_populate_multipart_form( struct http_request *req )
 {
     int	h, blen;
     struct cf_buf *in, *out;
@@ -1256,6 +1262,27 @@ void http_populate_multipart_form(struct http_request *req)
 
     cf_buf_free(in);
     cf_buf_free(out);
+}
+
+int http_body_rewind( struct http_request *req )
+{
+    if( req->http_body_fd != -1 )
+    {
+
+        if( lseek(req->http_body_fd, 0, SEEK_SET) == -1)
+        {
+            cf_log(LOG_ERR, "lseek(%s) failed: %s", req->http_body_path, errno_s);
+            return CF_RESULT_ERROR;
+        }
+    }
+    else {
+        cf_buf_reset(req->http_body);
+    }
+
+    req->http_body_offset = 0;
+    req->http_body_length = req->content_length;
+
+    return CF_RESULT_OK;
 }
 
 ssize_t http_body_read( struct http_request *req, void *out, size_t len )
@@ -1341,6 +1368,11 @@ int http_state_run( struct http_state *states, uint8_t elm, struct http_request 
     return CF_RESULT_OK;
 }
 
+int http_state_exists( struct http_request *req )
+{
+    return (req->hdlr_extra != NULL);
+}
+
 void* http_state_create(struct http_request *req, size_t len)
 {
     if( req->hdlr_extra != NULL )
@@ -1355,11 +1387,6 @@ void* http_state_create(struct http_request *req, size_t len)
     }
 
     return req->hdlr_extra;
-}
-
-int http_state_exists( struct http_request *req )
-{
-    return (req->hdlr_extra != NULL);
 }
 
 void * http_state_get( struct http_request *req )
@@ -1461,7 +1488,7 @@ static int multipart_parse_headers(struct http_request *req, struct cf_buf *in, 
         if( c != 2 )
 			continue;
 
-		/* Ignore other headers for now. */
+        /* Ignore other headers for now */
         if( strcasecmp(args[0], "content-disposition") )
 			continue;
 
@@ -1648,26 +1675,7 @@ static int http_body_recv(struct netbuf *nb)
     return CF_RESULT_OK;
 }
 
-int http_body_rewind( struct http_request *req )
-{
-    if( req->http_body_fd != -1 )
-    {
 
-        if( lseek(req->http_body_fd, 0, SEEK_SET) == -1)
-        {
-            cf_log(LOG_ERR, "lseek(%s) failed: %s", req->http_body_path, errno_s);
-            return CF_RESULT_ERROR;
-        }
-    }
-    else {
-        cf_buf_reset(req->http_body);
-    }
-
-    req->http_body_offset = 0;
-    req->http_body_length = req->content_length;
-
-    return CF_RESULT_OK;
-}
 
 static void http_error_response(struct connection *c, int status)
 {

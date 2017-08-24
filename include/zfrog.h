@@ -730,6 +730,7 @@ void cf_init_pkcs11_module(void);
 
 int cf_cloexec_ioctl(int fd, int set);
 int cf_get_backlog_size(void);
+int cf_sockopt( int fd, int what, int opt );
 
 size_t cf_random_buffer( unsigned char [], size_t, int );
 const char * cf_file_extension( const char * );
