@@ -8,10 +8,6 @@
     #include "cf_http.h"
 #endif
 
-#ifdef CF_PYTHON
-    #include "cf_python.h"
-#endif
-
 static void	native_runtime_execute(void *);
 static int	native_runtime_onload(void *, int);
 static void	native_runtime_connect(void *, struct connection *);
@@ -37,10 +33,6 @@ struct cf_runtime cf_native_runtime =
     .execute = native_runtime_execute
 };
 
-void cf_runtime_execute(struct cf_runtime_call *rcall)
-{
-    rcall->runtime->execute(rcall->addr);
-}
 
 struct cf_runtime_call * cf_runtime_getcall(const char *symbol)
 {
@@ -56,6 +48,11 @@ struct cf_runtime_call * cf_runtime_getcall(const char *symbol)
 	rcall->runtime = runtime;
 
     return rcall;
+}
+
+void cf_runtime_execute(struct cf_runtime_call *rcall)
+{
+    rcall->runtime->execute(rcall->addr);
 }
 
 int cf_runtime_onload(struct cf_runtime_call *rcall, int action)

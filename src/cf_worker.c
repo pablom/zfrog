@@ -186,8 +186,10 @@ struct cf_worker* cf_worker_data( uint8_t id )
 
     return WORKER(id);
 }
-
-void cf_worker_shutdown(void)
+/****************************************************************
+ *  Shutdown workers
+ ****************************************************************/
+void cf_worker_shutdown( void )
 {
     struct cf_worker *kw = NULL;
     uint16_t id, done;
@@ -213,8 +215,10 @@ void cf_worker_shutdown(void)
         cf_log(LOG_NOTICE, "failed to deleted shm segment: %s", errno_s);
 	}
 }
-
-void cf_worker_dispatch_signal(int sig)
+/****************************************************************
+ *  Dispatch signal to all workers
+ ****************************************************************/
+void cf_worker_dispatch_signal( int sig )
 {
     uint16_t id;
     struct cf_worker *kw = NULL;
@@ -230,7 +234,7 @@ void cf_worker_dispatch_signal(int sig)
 /****************************************************************
  *  Worker drop priv helper function
  ****************************************************************/
-void cf_worker_privdrop(void)
+void cf_worker_privdrop( void )
 {
     rlim_t fd;
     struct rlimit rl;
@@ -505,6 +509,9 @@ void cf_worker_entry( struct cf_worker *kw )
 #endif
 
     log_debug("worker %d shutting down", kw->id);
+
+    /* Cleanup memory pools */
+    mem_cleanup();
     exit( 0 );
 }
 /****************************************************************
