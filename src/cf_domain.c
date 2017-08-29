@@ -217,7 +217,7 @@ void cf_domain_free( struct cf_domain *dom )
     mem_free(dom);
 }
 
-void cf_domain_tls_start( struct cf_domain *dom )
+void cf_domain_tls_init( struct cf_domain *dom )
 {
 #ifndef CF_NO_TLS
     BIO	*in = NULL;
@@ -233,7 +233,7 @@ void cf_domain_tls_start( struct cf_domain *dom )
     EC_KEY *ecdh = NULL;
 #endif
 
-    log_debug("cf_domain_tls_start(%s)", dom->domain);
+    log_debug("cf_domain_tls_init(%s)", dom->domain);
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     if( (method = TLS_method()) == NULL )
@@ -261,7 +261,7 @@ void cf_domain_tls_start( struct cf_domain *dom )
 
     /* Create SSL context */
     if( (dom->ssl_ctx = SSL_CTX_new( method )) == NULL )
-        cf_fatal("cf_domain_tls_start(): SSL_ctx_new(): %s", ssl_errno_s);
+        cf_fatal("cf_domain_tls_init(): SSL_ctx_new(): %s", ssl_errno_s);
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_VERSION) )

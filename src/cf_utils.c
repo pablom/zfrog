@@ -463,7 +463,7 @@ void cf_ms2ts( struct timespec *ts, uint64_t ms )
 /****************************************************************
  *  Helper function BASE64 encode binary buffer
  ****************************************************************/
-int cf_base64_encode( uint8_t *data, size_t len, char **out )
+int cf_base64_encode( const void *data, size_t len, char **out )
 {
     uint8_t	n = 0;
     size_t nb = 0;

@@ -103,8 +103,8 @@ static int configure_socket_backlog(char *);
     static int configure_lua_import(char *);
 #endif
 
-static void	domain_tls_start(void);
-static void	cf_parse_config_file(const char *);
+static void	domain_tls_init( void );
+static void	parse_config_file( const char * );
 
 static struct {
     const char	*name;
@@ -189,9 +189,9 @@ static struct cf_domain	*current_domain = NULL;
 void cf_parse_config(void)
 {
 #ifndef CF_SINGLE_BINARY
-    cf_parse_config_file( config_file );
+    parse_config_file( config_file );
 #else
-    cf_parse_config_file(NULL);
+    parse_config_file(NULL);
 #endif
 
     if( !cf_module_loaded() )
@@ -215,7 +215,7 @@ void cf_parse_config(void)
 	}
 }
 
-static void cf_parse_config_file( const char *fpath )
+static void parse_config_file( const char *fpath )
 {
     FILE *fp = NULL;
     int	i, lineno;
@@ -261,7 +261,7 @@ static void cf_parse_config_file( const char *fpath )
 #endif
 
         if( !strcmp(p, "}") && current_domain != NULL )
-            domain_tls_start();
+            domain_tls_init();
 
         if( !strcmp(p, "}") )
         {
@@ -305,13 +305,13 @@ static void cf_parse_config_file( const char *fpath )
 	fclose(fp);
 }
 
-static int configure_include(char *path)
+static int configure_include( char *path )
 {
-    cf_parse_config_file(path);
+    parse_config_file(path);
     return CF_RESULT_OK;
 }
 
-static int configure_bind(char *options)
+static int configure_bind( char *options )
 {
     char *argv[4];
 
@@ -634,7 +634,7 @@ static int configure_http_header_max(char *option)
     return CF_RESULT_OK;
 }
 
-static int configure_http_body_max(char *option)
+static int configure_http_body_max( char *option )
 {
     int	err;
 
@@ -648,7 +648,7 @@ static int configure_http_body_max(char *option)
     return CF_RESULT_OK;
 }
 
-static int configure_http_body_disk_offload(char *option)
+static int configure_http_body_disk_offload( char *option )
 {
     int	err;
 
@@ -662,7 +662,7 @@ static int configure_http_body_disk_offload(char *option)
     return CF_RESULT_OK;
 }
 
-static int configure_http_body_disk_path(char *path)
+static int configure_http_body_disk_path( char *path )
 {
     if( strcmp(http_body_disk_path, HTTP_BODY_DISK_PATH) )
         mem_free(http_body_disk_path);
@@ -685,7 +685,7 @@ static int configure_http_hsts_enable( char *option )
     return CF_RESULT_OK;
 }
 
-static int configure_http_keepalive_time(char *option)
+static int configure_http_keepalive_time( char *option )
 {
     int	err;
 
@@ -699,7 +699,7 @@ static int configure_http_keepalive_time(char *option)
     return CF_RESULT_OK;
 }
 
-static int configure_http_request_limit(char *option)
+static int configure_http_request_limit( char *option )
 {
     int	err;
 
@@ -713,7 +713,7 @@ static int configure_http_request_limit(char *option)
     return CF_RESULT_OK;
 }
 
-static int configure_validator(char *name)
+static int configure_validator( char *name )
 {
     uint8_t type;
     char *tname, *value;
@@ -759,7 +759,7 @@ static int configure_validator(char *name)
     return CF_RESULT_OK;
 }
 
-static int configure_params(char *options)
+static int configure_params( char *options )
 {
     struct cf_module_handle	*hdlr = NULL;
     char *argv[3];
@@ -812,7 +812,7 @@ static int configure_params(char *options)
     return CF_RESULT_ERROR;
 }
 
-static int configure_validate(char *options)
+static int configure_validate( char *options )
 {
     struct cf_handler_params *p = NULL;
     struct cf_validator	*val = NULL;
@@ -843,7 +843,7 @@ static int configure_validate(char *options)
     return CF_RESULT_OK;
 }
 
-static int configure_authentication(char *options)
+static int configure_authentication( char *options )
 {
     char *argv[3];
 
@@ -874,7 +874,7 @@ static int configure_authentication(char *options)
     return CF_RESULT_OK;
 }
 
-static int configure_authentication_type(char *option)
+static int configure_authentication_type( char *option )
 {
     if( current_auth == NULL )
     {
@@ -898,7 +898,7 @@ static int configure_authentication_type(char *option)
     return CF_RESULT_OK;
 }
 
-static int configure_authentication_value(char *option)
+static int configure_authentication_value( char *option )
 {
     if( current_auth == NULL )
     {
@@ -913,7 +913,7 @@ static int configure_authentication_value(char *option)
     return CF_RESULT_OK;
 }
 
-static int configure_authentication_validator(char *validator)
+static int configure_authentication_validator( char *validator )
 {
     struct cf_validator *val = NULL;
 
@@ -934,7 +934,7 @@ static int configure_authentication_validator(char *validator)
     return CF_RESULT_OK;
 }
 
-static int configure_authentication_uri(char *uri)
+static int configure_authentication_uri( char *uri )
 {
     if( current_auth == NULL )
     {
@@ -1082,7 +1082,7 @@ static int configure_set_affinity( char *option )
     return CF_RESULT_OK;
 }
 
-static int configure_socket_backlog(char *option)
+static int configure_socket_backlog( char *option )
 {
     int	err;
 
@@ -1096,9 +1096,9 @@ static int configure_socket_backlog(char *option)
     return CF_RESULT_OK;
 }
 
-static void domain_tls_start( void )
+static void domain_tls_init( void )
 {
-    cf_domain_tls_start( current_domain );
+    cf_domain_tls_init( current_domain );
 	current_domain = NULL;
 }
 

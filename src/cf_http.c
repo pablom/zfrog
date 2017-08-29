@@ -1675,8 +1675,6 @@ static int http_body_recv(struct netbuf *nb)
     return CF_RESULT_OK;
 }
 
-
-
 static void http_error_response(struct connection *c, int status)
 {
     log_debug("http_error_response(%p, %d)", c, status);
