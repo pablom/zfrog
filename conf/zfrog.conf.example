@@ -120,6 +120,9 @@ load contrib/examples/generic/example.module	example_load
 # Load a python file (if built with CF_PYTHON=1)
 #python_import src/index.py example_load
 
+# Load a lua file (if built with CF_LUA=1)
+#lua_import src/index.lua example_load
+
 # Validators
 #	validator	name	type	regex|function
 #

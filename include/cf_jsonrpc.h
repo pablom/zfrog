@@ -21,13 +21,13 @@ struct jsonrpc_request
 	struct jsonrpc_log	log;
 	struct cf_buf		buf;
 	struct http_request	*http;
-	yajl_gen		gen;
-	yajl_val		json;
-	yajl_val		id;
-	char			*method;
-	yajl_val		params;
+    yajl_gen            gen;
+    yajl_val            json;
+    yajl_val            id;
+    char                *method;
+    yajl_val            params;
 	unsigned int		flags;
-	int			log_levels;
+    int                 log_levels;
 };
 
 #define YAJL_GEN_CONST_STRING(CTX, STR)	\

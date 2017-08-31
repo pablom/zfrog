@@ -1,0 +1,13 @@
+obj/
+zfrog
+zfrog_cli
+features
+zfrog.config
+zfrog.creator
+zfrog.files
+zfrog.includes
+zfrog.creator.user
+lib/
+include/jansson/
+include/openssl/
+include/yajl/

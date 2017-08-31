@@ -37,13 +37,13 @@ S_SRC_CSTL = src/cstl/cf_cstl_memory.c src/cstl/cf_cstl_pair.c src/cstl/cf_cstl_
 ###########################################################################
 S_SRC_CLI= src/cf_cli.c
 
-CFLAGS += -Wall -Werror -Wmissing-declarations -Wshadow -Wstrict-prototypes
-CFLAGS += -Wpointer-arith -Wcast-qual -Wsign-compare -Wshadow -pedantic
-CFLAGS += -Iinclude -Iinclude/cstl
-CFLAGS += -m64
+CFLAGS  += -Wall -Werror -Wmissing-declarations -Wshadow -Wstrict-prototypes
+CFLAGS  += -Wpointer-arith -Wcast-qual -Wsign-compare -Wshadow -pedantic
+CFLAGS  += -Iinclude -Iinclude/cstl
+CFLAGS  += -m64
 LDFLAGS += -m64
 
-LDFLAGS_CLI=$(LDFLAGS) -lcrypto
+LDFLAGS_CLI=$(LDFLAGS) -Llib -lcrypto
 
 ifeq ($(CF_SINGLE_BINARY), 1)
     CFLAGS+=-DCF_SINGLE_BINARY
