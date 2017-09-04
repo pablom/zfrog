@@ -98,6 +98,8 @@ void cf_module_load(const char *path, const char *onload, int type)
 
     if( onload != NULL )
     {
+        /* remember the onload callback */
+        module->onload = mem_strdup( onload );
         module->ocb = mem_malloc(sizeof(*module->ocb));
         module->ocb->runtime = module->runtime;
         module->ocb->addr = module->fun->getsym(module, onload);
@@ -311,7 +313,7 @@ struct cf_module_handle * cf_module_handler_find(const char *domain, const char 
 }
 #endif /* CF_NO_HTTP */
 
-void* cf_module_getsym(const char *symbol, struct cf_runtime **runtime)
+void* cf_module_getsym( const char *symbol, struct cf_runtime **runtime )
 {
     void *ptr = NULL;
     struct cf_module *module = NULL;
@@ -333,26 +335,26 @@ void* cf_module_getsym(const char *symbol, struct cf_runtime **runtime)
     return NULL;
 }
 
-static void * native_getsym(struct cf_module *module, const char *symbol)
+static void * native_getsym( struct cf_module *module, const char *symbol )
 {
     return dlsym(module->handle, symbol);
 }
 
-static void native_free(struct cf_module *module)
+static void native_free( struct cf_module *module )
 {
     mem_free(module->path);
     dlclose(module->handle);
     mem_free(module);
 }
 
-static void native_reload(struct cf_module *module)
+static void native_reload( struct cf_module *module )
 {
     if( dlclose(module->handle) )
         cf_fatal("cannot close existing module: %s", dlerror());
     module->fun->load(module, module->onload);
 }
 
-static void native_load(struct cf_module *module, const char *onload)
+static void native_load( struct cf_module *module, const char *onload )
 {
     module->handle = dlopen(module->path, RTLD_NOW | RTLD_GLOBAL);
     if( module->handle == NULL )

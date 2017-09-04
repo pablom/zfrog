@@ -1,6 +1,6 @@
 *.o
-*.pem
+.flavor
 .objs
-nohttp.so
+memtag.so
 assets.h
 cert

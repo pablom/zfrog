@@ -591,13 +591,18 @@ void cf_ms2ts( struct timespec *ts, uint64_t ms );
 
 void cf_log_init(void);
 
-void *mem_malloc(size_t);
 void cf_parse_config(void);
+
+void *mem_malloc(size_t);
 void *mem_calloc(size_t, size_t);
 void *mem_realloc(void *, size_t);
 void mem_free(void *);
 void mem_init(void);
 void mem_cleanup(void);
+void mem_untag(void *);
+void* mem_lookup(uint32_t);
+void mem_tag(void *, uint32_t);
+void* mem_malloc_tagged(size_t, uint32_t);
 
 
 void *cf_mem_pool_get(struct cf_mem_pool *);

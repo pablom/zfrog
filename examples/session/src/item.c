@@ -334,9 +334,7 @@ int session_state_query(struct http_request *req)
 
 int session_state_wait( struct http_request *req )
 {
-    return session_wait(req, REQ_STATE_READ,
-                           REQ_STATE_DONE,
-                           REQ_STATE_ERROR);
+    return session_wait(req, REQ_STATE_READ, REQ_STATE_DONE, REQ_STATE_ERROR);
 }
 
 int session_state_read(struct http_request *req)

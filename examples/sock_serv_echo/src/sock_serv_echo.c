@@ -14,7 +14,7 @@ void connection_setup(struct connection *);
 int connection_handle(struct connection *);
 int connection_recv_data(struct netbuf *);
 
-void connection_setup(struct connection *c)
+void connection_setup( struct connection *c )
 {
 	cf_log(LOG_NOTICE, "%p: new connection", c);
 
@@ -25,10 +25,10 @@ void connection_setup(struct connection *c)
 	 */
     net_recv_queue(c, NETBUF_SEND_PAYLOAD_MAX, NETBUF_CALL_CB_ALWAYS, connection_recv_data);
 
-	/* We are responsible for setting the connection state. */
+    /* We are responsible for setting the connection state */
 	c->state = CONN_STATE_ESTABLISHED;
 
-	/* Override the handle function, called when new events occur. */
+    /* Override the handle function, called when new events occur */
 	c->handle = connection_handle;
 }
 
@@ -41,21 +41,21 @@ void connection_setup(struct connection *c)
  * in c->state and perform the required actions like writing / reading using
  * net_send_flush() or net_recv_flush() if CONN_SEND_POSSIBLE or
  * CONN_READ_POSSIBLE are set respectively. Returning CF_RESULT_ERROR from
- * this callback will disconnect the connection alltogether.
+ * this callback will disconnect the connection alltogether
  */
-int connection_handle(struct connection *c)
+int connection_handle( struct connection *c )
 {
 	cf_log(LOG_NOTICE, "connection_handle: %p", c);
 	return cf_connection_handle(c);
 }
 
 /*
- * This function is called everytime we get up to 128 bytes of data.
- * The connection can be found under nb->owner.
- * The data received can be found under nb->buf.
- * The length of the received data can be found under s_off.
+ * This function is called everytime we get up to 128 bytes of data
+ * The connection can be found under nb->owner
+ * The data received can be found under nb->buf
+ * The length of the received data can be found under s_off
  */
-int connection_recv_data(struct netbuf *nb)
+int connection_recv_data( struct netbuf *nb )
 {
 	struct connection *c = (struct connection *)nb->owner;
 

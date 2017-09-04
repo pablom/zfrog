@@ -472,11 +472,27 @@ static void cli_build( int argc, char **argv )
     char pwd[PATH_MAX], *src_path, *assets_header;
     char* build_appl_path = NULL;
 
+    /* Get current working folder */
     if( getcwd(pwd, sizeof(pwd)) == NULL ) {
         cli_fatal("could not get cwd: %s", errno_s);
     }
 
-    if( argc > 0 ) /* Try to use application name */
+    /* Try to use two incoming arguments: first working folder, second application name */
+    if( argc > 1 )
+    {
+        if( !cli_dir_exists( argv[0] ) )
+            cli_fatal("missing application folder");
+
+        /* Change working dir */
+        if( chdir(argv[0]) == -1 )
+            cli_fatal("couldn't change directory to %s", argv[0]);
+
+        build_appl_path = cli_strdup( argv[0] );
+
+        /* Get application name */
+        appl = argv[1];
+    }
+    else if( argc > 0 ) /* Try to use application name */
     {
         /* Get application name */
         appl = argv[0];

@@ -80,9 +80,9 @@ static inline void cf_worker_acceptlock_release(void);
 #endif
 
 static struct cf_worker *cf_workers;
-static int	worker_no_lock;
-static int	shm_accept_key;
-static struct wlock	*accept_lock;
+static int              worker_no_lock;
+static int              shm_accept_key;
+static struct wlock     *accept_lock;
 
 extern volatile sig_atomic_t	sig_recv;
 struct cf_worker *worker = NULL;
@@ -301,7 +301,7 @@ void cf_worker_entry( struct cf_worker *kw )
     uint64_t now, next_lock, netwait;
     struct cf_runtime_call *rcall = NULL;
 #ifndef CF_NO_TLS
-    u_int64_t last_seed = 0;
+    uint64_t last_seed = 0;
 #endif
     worker = kw;
 
