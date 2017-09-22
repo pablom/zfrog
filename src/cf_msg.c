@@ -29,12 +29,12 @@ static void msg_type_shutdown(struct cf_msg *msg, const void *data);
     static void	msg_type_websocket(struct cf_msg *, const void *);
 #endif /* CF_NO_HTTP */
 
-void cf_msg_init(void)
+void cf_msg_init( void )
 {
 	TAILQ_INIT(&msg_types);
 }
 
-void cf_msg_parent_init(void)
+void cf_msg_parent_init( void )
 {
     uint8_t i;
     struct cf_worker* kw = NULL;
@@ -124,9 +124,11 @@ void cf_msg_send( uint16_t dst, uint8_t id, const void *data, uint32_t len )
 	m.src = worker->id;
 
 	net_send_queue(worker->msg[1], &m, sizeof(m));
+
     if( data != NULL && len > 0 ) {
         net_send_queue(worker->msg[1], data, len);
     }
+
 	net_send_flush(worker->msg[1]);
 }
 
@@ -134,7 +136,8 @@ static int msg_recv_packet( struct netbuf *nb )
 {
     struct cf_msg *msg = (struct cf_msg *)nb->buf;
 
-    if( msg->length > 0 ) {
+    if( msg->length > 0 )
+    {
         net_recv_expand(nb->owner, msg->length, msg_recv_data);
         return CF_RESULT_OK;
     }
@@ -206,7 +209,7 @@ static void msg_type_shutdown( struct cf_msg *msg, const void *data )
 }
 
 #ifndef CF_NO_HTTP
-static void msg_type_accesslog(struct cf_msg *msg, const void *data)
+static void msg_type_accesslog( struct cf_msg *msg, const void *data )
 {
     if( cf_accesslog_write(data, msg->length) == -1 )
         cf_log(LOG_WARNING, "failed to write to accesslog");

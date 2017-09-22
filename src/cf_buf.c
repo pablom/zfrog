@@ -7,6 +7,9 @@
 
 #include "zfrog.h"
 
+/****************************************************************
+ *  Allocate buffer with initial size
+ ****************************************************************/
 struct cf_buf* cf_buf_alloc( size_t initial_size )
 {
     struct cf_buf *buf = mem_malloc( sizeof(*buf) );
@@ -14,7 +17,9 @@ struct cf_buf* cf_buf_alloc( size_t initial_size )
 	buf->flags = CF_BUF_OWNER_API;
     return buf;
 }
-
+/****************************************************************
+ *  Initial buffer structure
+ ****************************************************************/
 void cf_buf_init( struct cf_buf *buf, size_t initial )
 {
     if( initial > 0 )
@@ -26,22 +31,28 @@ void cf_buf_init( struct cf_buf *buf, size_t initial )
 	buf->offset = 0;
 	buf->flags = 0;
 }
-
-void cf_buf_cleanup(struct cf_buf *buf)
+/****************************************************************
+ *  Cleanup structure elements
+ ****************************************************************/
+void cf_buf_cleanup( struct cf_buf *buf )
 {
 	mem_free(buf->data);
 	buf->data = NULL;
 	buf->offset = 0;
 	buf->length = 0;
 }
-
-void cf_buf_free(struct cf_buf *buf)
+/****************************************************************
+ *  Cleanup & delete structure
+ ****************************************************************/
+void cf_buf_free( struct cf_buf *buf )
 {
     cf_buf_cleanup(buf);
     if( buf->flags & CF_BUF_OWNER_API )
 		mem_free(buf);
 }
-
+/****************************************************************
+ *  Helper function to append data to buffer structure
+ ****************************************************************/
 void cf_buf_append( struct cf_buf *buf, const void *d, size_t len )
 {
     if( (buf->offset + len) < len )
@@ -56,8 +67,10 @@ void cf_buf_append( struct cf_buf *buf, const void *d, size_t len )
 	memcpy((buf->data + buf->offset), d, len);
 	buf->offset += len;
 }
-
-void cf_buf_appendv(struct cf_buf *buf, const char *fmt, va_list args)
+/****************************************************************
+ *  Append (formatted) data to buffer structure
+ ****************************************************************/
+void cf_buf_appendv( struct cf_buf *buf, const char *fmt, va_list args )
 {
     int l;
     va_list	copy;
@@ -85,8 +98,10 @@ void cf_buf_appendv(struct cf_buf *buf, const char *fmt, va_list args)
 
     va_end(copy);
 }
-
-void cf_buf_appendf(struct cf_buf *buf, const char *fmt, ...)
+/****************************************************************
+ *  Append (formatted) data to buffer structure
+ ****************************************************************/
+void cf_buf_appendf( struct cf_buf *buf, const char *fmt, ... )
 {
     va_list args;
 
@@ -94,8 +109,10 @@ void cf_buf_appendf(struct cf_buf *buf, const char *fmt, ...)
     cf_buf_appendv(buf, fmt, args);
     va_end( args );
 }
-
-char* cf_buf_stringify(struct cf_buf *buf, size_t *len)
+/****************************************************************
+ *  Return data from buffer structure as string
+ ****************************************************************/
+char* cf_buf_stringify( struct cf_buf *buf, size_t *len )
 {
     char c;
 
@@ -107,8 +124,10 @@ char* cf_buf_stringify(struct cf_buf *buf, size_t *len)
 
 	return ((char *)buf->data);
 }
-
-uint8_t* cf_buf_release(struct cf_buf *buf, size_t *len)
+/****************************************************************
+ *  Detach data buffer from structure
+ ****************************************************************/
+uint8_t* cf_buf_release( struct cf_buf *buf, size_t *len )
 {
     uint8_t *p = NULL;
 
@@ -120,8 +139,10 @@ uint8_t* cf_buf_release(struct cf_buf *buf, size_t *len)
 
     return p;
 }
-
-void cf_buf_replace_string(struct cf_buf *b, char *src, void *dst, size_t len)
+/****************************************************************
+ *  Helper function to replace string in buffer
+ ****************************************************************/
+void cf_buf_replace_string( struct cf_buf *b, char *src, void *dst, size_t len )
 {
     char *key, *end, *tmp, *p;
     size_t blen, off2, nlen;

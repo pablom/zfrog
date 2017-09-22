@@ -57,7 +57,7 @@ static void	cf_server_sslstart(void);
 /****************************************************************
  *  Helper function return usage information
  ****************************************************************/
-static void usage(void)
+static void usage( void )
 {
 #if !defined(CF_SINGLE_BINARY)
     fprintf(stderr, "Usage: zfrog [options]\n");
@@ -86,7 +86,7 @@ static void usage(void)
 /****************************************************************
  *  Helper function return version number
  ****************************************************************/
-static void version(void)
+static void version( void )
 {
     printf("%d.%d.%d-%s ", CF_VERSION_MAJOR, CF_VERSION_MINOR, CF_VERSION_PATCH, CF_VERSION_STATE);
 

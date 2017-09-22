@@ -79,7 +79,7 @@ static ECDSA_METHOD	keymgr_ecdsa =
 	NULL
 };
 
-static RSA_METHOD	keymgr_rsa =
+static RSA_METHOD keymgr_rsa =
 {
     "zfrog RSA keymgr method",
 	NULL,

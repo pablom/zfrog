@@ -45,7 +45,7 @@ void cf_module_cleanup(void)
     }
 }
 
-void cf_module_load(const char *path, const char *onload, int type)
+void cf_module_load( const char *path, const char *onload, int type )
 {
 #if !defined(CF_SINGLE_BINARY)
     struct stat	st;
@@ -110,7 +110,7 @@ void cf_module_load(const char *path, const char *onload, int type)
     }
 }
 
-void cf_module_onload(void)
+void cf_module_onload( void )
 {
 #if !defined(CF_SINGLE_BINARY)
     struct cf_module *module = NULL;
@@ -199,7 +199,7 @@ void cf_module_reload( int cbs )
 #endif
 }
 
-int cf_module_loaded(void)
+int cf_module_loaded( void )
 {
     if( TAILQ_EMPTY(&modules) )
         return 0;

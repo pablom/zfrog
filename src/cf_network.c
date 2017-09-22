@@ -18,12 +18,12 @@
 
 struct cf_mem_pool nb_pool;
 
-void net_init(void)
+void net_init( void )
 {
     cf_mem_pool_init(&nb_pool, "nb_pool", sizeof(struct netbuf), 1000);
 }
 
-void net_cleanup(void)
+void net_cleanup( void )
 {
     log_debug("net_cleanup()");
     cf_mem_pool_cleanup(&nb_pool);
@@ -102,7 +102,7 @@ void net_send_stream( struct connection *c, void *data, size_t len, int (*cb)(st
 		*out = nb;
 }
 
-void net_recv_reset(struct connection *c, size_t len, int (*cb)(struct netbuf *))
+void net_recv_reset( struct connection *c, size_t len, int (*cb)(struct netbuf *) )
 {
     log_debug("net_recv_reset(): %p %zu", c, len);
 
@@ -257,7 +257,7 @@ void net_remove_netbuf( struct netbuf_head *list, struct netbuf *nb )
     }
     else if( nb->cb != NULL )
     {
-		(void)nb->cb(nb);
+        nb->cb(nb);
 	}
 
 	TAILQ_REMOVE(list, nb, list);
@@ -265,6 +265,9 @@ void net_remove_netbuf( struct netbuf_head *list, struct netbuf *nb )
 }
 
 #ifndef CF_NO_TLS
+/****************************************************************
+ *  Write data to TLS socket connection
+ ****************************************************************/
 int net_write_tls( struct connection *c, size_t len, size_t *written )
 {
     int	r;
@@ -314,7 +317,9 @@ int net_write_tls( struct connection *c, size_t len, size_t *written )
     *written = (size_t)r;
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Read data from TLS socket connection
+ ****************************************************************/
 int net_read_tls( struct connection *c, size_t *bytes )
 {
     int r;
@@ -360,7 +365,9 @@ int net_read_tls( struct connection *c, size_t *bytes )
     return CF_RESULT_OK;
 }
 #endif
-
+/****************************************************************
+ *  Write data to clear socket connection
+ ****************************************************************/
 int net_write(struct connection *c, size_t len, size_t *written)
 {
     ssize_t	r;
@@ -386,8 +393,10 @@ int net_write(struct connection *c, size_t len, size_t *written)
     *written = (size_t)r;
     return CF_RESULT_OK;
 }
-
-int net_read(struct connection *c, size_t *bytes )
+/****************************************************************
+ *  Read data from clear socket connection
+ ****************************************************************/
+int net_read( struct connection *c, size_t *bytes )
 {
     ssize_t	r;
 
@@ -412,32 +421,44 @@ int net_read(struct connection *c, size_t *bytes )
     *bytes = (size_t)r;
     return CF_RESULT_OK;
 }
-
-uint16_t net_read16(uint8_t *b)
+/****************************************************************
+ *  Convert 2 bytes integer from buffer to host integer type
+ ****************************************************************/
+uint16_t net_read16( uint8_t *b )
 {
     uint16_t r = *(uint16_t *)b;
     return ntohs(r);
 }
-
-uint32_t net_read32(uint8_t *b)
+/****************************************************************
+ *  Convert 4 bytes integer from buffer to host integer type
+ ****************************************************************/
+uint32_t net_read32( uint8_t *b )
 {
     uint32_t r = *(uint32_t *)b;
     return ntohl(r);
 }
-
-void net_write16(uint8_t *p, uint16_t n)
+/****************************************************************
+ *  Write 2 bytes integer to buffer (network) from
+ *  host integer type
+ ****************************************************************/
+void net_write16( uint8_t *p, uint16_t n )
 {
     uint16_t r = htons(n);
 	memcpy(p, &r, sizeof(r));
 }
-
-void net_write32(uint8_t *p, uint32_t n)
+/****************************************************************
+ *  Write 4 bytes integer to buffer (network) from
+ *  host integer type
+ ****************************************************************/
+void net_write32( uint8_t *p, uint32_t n )
 {
     uint32_t r = htonl(n);
 	memcpy(p, &r, sizeof(r));
 }
-
-uint64_t net_read64(uint8_t *b)
+/****************************************************************
+ *  Convert 8 bytes integer from buffer to host integer type
+ ****************************************************************/
+uint64_t net_read64( uint8_t *b )
 {
     uint64_t r = *(uint64_t *)b;
 
@@ -449,8 +470,11 @@ uint64_t net_read64(uint8_t *b)
     return (be64toh(r));
 #endif
 }
-
-void net_write64(uint8_t *p, uint64_t n)
+/****************************************************************
+ *  Write 8 bytes integer to buffer (network) from
+ *  host integer type
+ ****************************************************************/
+void net_write64( uint8_t *p, uint64_t n )
 {
 #ifdef __sparc
     uint64_t r = n;
