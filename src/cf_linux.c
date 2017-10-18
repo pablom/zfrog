@@ -176,6 +176,7 @@ int cf_platform_event_wait( uint64_t timer )
             if( events[i].events & EPOLLOUT && !(c->flags & CONN_WRITE_BLOCK) )
 				c->flags |= CONN_WRITE_POSSIBLE;
 
+            /* Catch data from socket */
             if( c->handle != NULL && !c->handle(c) )
                 cf_connection_disconnect(c);
 

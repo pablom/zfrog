@@ -79,7 +79,7 @@ static void usage( void )
 	fprintf(stderr, "\t-h\tthis help text\n");
 	fprintf(stderr, "\t-n\tdo not chroot\n");
 	fprintf(stderr, "\t-r\tdo not drop privileges\n");
-    fprintf(stderr, "\t-v\tdisplay zrog build information\n");
+    fprintf(stderr, "\t-v\tdisplay zfrog build information\n");
 
 	exit(1);
 }
@@ -135,7 +135,7 @@ static void version( void )
 }
 
 #ifndef CF_NO_TLS
-int cf_tls_sni_cb(SSL *ssl, int *ad, void *arg)
+int cf_tls_sni_cb( SSL *ssl, int *ad, void *arg )
 {
     struct cf_domain *dom = NULL;
     const char *sname = NULL;
@@ -163,7 +163,7 @@ int cf_tls_sni_cb(SSL *ssl, int *ad, void *arg)
     return SSL_TLSEXT_ERR_NOACK;
 }
 
-void cf_tls_info_callback(const SSL *ssl, int flags, int ret)
+void cf_tls_info_callback( const SSL *ssl, int flags, int ret )
 {
     struct connection *c = NULL;
 
@@ -296,7 +296,7 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
 /****************************************************************
  *  Helper function to close all listener objects
  ****************************************************************/
-void cf_listener_cleanup(void)
+void cf_listener_cleanup( void )
 {
     struct listener	*l = NULL;
 
@@ -592,6 +592,7 @@ int main( int argc, char *argv[] )
     else
         signal(SIGINT, SIG_IGN);
 
+    /* Start server */
     cf_server_start();
 
     cf_log(LOG_NOTICE, "server shutting down");

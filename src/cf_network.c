@@ -222,8 +222,7 @@ int net_recv_flush( struct connection *c )
         if( !(c->flags & CONN_READ_POSSIBLE) )
 			break;
 
-        log_debug("net_recv(%ld/%ld bytes), progress with %d",
-		    c->rnb->s_off, c->rnb->b_len, r);
+        log_debug("net_recv(%ld/%ld bytes), progress with %d", c->rnb->s_off, c->rnb->b_len, r);
 
         c->rnb->s_off += r;
         if( c->rnb->s_off == c->rnb->b_len || (c->rnb->flags & NETBUF_CALL_CB_ALWAYS) )
@@ -394,7 +393,7 @@ int net_write(struct connection *c, size_t len, size_t *written)
     return CF_RESULT_OK;
 }
 /****************************************************************
- *  Read data from clear socket connection
+ *  Read data from clear data socket connection
  ****************************************************************/
 int net_read( struct connection *c, size_t *bytes )
 {

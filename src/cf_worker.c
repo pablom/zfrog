@@ -148,7 +148,7 @@ void cf_worker_init(void)
 /****************************************************************
  *  Fork new one worker
  ****************************************************************/
-void cf_worker_spawn( uint16_t id, uint16_t cpu)
+void cf_worker_spawn( uint16_t id, uint16_t cpu )
 {
     struct cf_worker *kw = NULL;
 
