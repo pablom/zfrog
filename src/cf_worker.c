@@ -657,7 +657,7 @@ static void worker_unlock(void)
 
 
 #ifndef CF_NO_TLS
-static void worker_entropy_recv(struct cf_msg *msg, const void *data)
+static void worker_entropy_recv( struct cf_msg *msg, const void *data )
 {
     if( msg->length != 1024 ) {
         cf_log(LOG_WARNING, "short entropy response (got:%u - wanted:1024)", msg->length);

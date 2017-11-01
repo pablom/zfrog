@@ -1,4 +1,5 @@
 #include <time.h>
+#include <locale.h>
 #include <xlocale.h>
 #include <yajl/yajl_gen.h>
 #include <yajl/yajl_tree.h>
@@ -8,13 +9,14 @@
 
 int	v1(struct http_request *);
 
+/*---------------------------------------------------------------------------*/
 static int write_string(struct jsonrpc_request *req, void *ctx)
 {
 	const unsigned char *str = (unsigned char *)ctx;
 
 	return yajl_gen_string(req->gen, str, strlen((const char *)str));
 }
-
+/*---------------------------------------------------------------------------*/
 static int write_string_array_params(struct jsonrpc_request *req, void *ctx)
 {
 	int status = 0;
@@ -36,7 +38,7 @@ static int write_string_array_params(struct jsonrpc_request *req, void *ctx)
 
 	return status;
 }
-
+/*---------------------------------------------------------------------------*/
 int v1( struct http_request *http_req )
 {
 	struct jsonrpc_request	req;
@@ -115,3 +117,4 @@ int v1( struct http_request *http_req )
 	
 	return jsonrpc_error(&req, JSONRPC_METHOD_NOT_FOUND, NULL);
 }
+/*---------------------------------------------------------------------------*/

@@ -107,8 +107,8 @@ static int process(const char *template, struct cf_mustach_itf *itf, void *closu
 #endif
 			beg++; len--;
 		default:
-			while (len && isspace(beg[0])) { beg++; len--; }
-			while (len && isspace(beg[len-1])) len--;
+            while( len && isspace(beg[0]) ) { beg++; len--; }
+            while(len && isspace(beg[len-1]) ) len--;
             if( len == 0 )
                 return CF_MUSTACH_ERROR_EMPTY_TAG;
             if( len > NAME_LENGTH_MAX )

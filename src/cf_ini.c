@@ -11,9 +11,11 @@
 
 #define HANDLER(u, s, n, v) handler(u, s, n, v, lineno)
 
-/* Return pointer to first char (of chars) or inline comment in given string,
-   or pointer to null at end of string if neither found. Inline comment must
-   be prefixed by a whitespace character to register as a comment. */
+/************************************************************************
+* Return pointer to first char (of chars) or inline comment in given
+* string, or pointer to null at end of string if neither found.
+* Inline comment must
+************************************************************************/
 static char* find_chars_or_comment( char *s, const char *chars )
 {
     int was_space = 0;
@@ -25,7 +27,9 @@ static char* find_chars_or_comment( char *s, const char *chars )
 
     return (char *)s;
 }
-
+/************************************************************************
+ *  Parse stream as input .ini configuration data
+ ************************************************************************/
 int cf_ini_parse_stream( ini_reader reader, void *stream, ini_handler handler, void *user )
 {
     char *line = NULL;
@@ -122,12 +126,16 @@ int cf_ini_parse_stream( ini_reader reader, void *stream, ini_handler handler, v
 
     return error;
 }
-
-int cf_ini_parse_file(FILE *file, ini_handler handler, void *user)
+/************************************************************************
+ *  Parse input .ini configuration file
+ ************************************************************************/
+int cf_ini_parse_file( FILE *file, ini_handler handler, void *user)
 {
     return cf_ini_parse_stream((ini_reader)fgets, file, handler, user);
 }
-
+/************************************************************************
+ *  Parse input .ini configuration file
+ ************************************************************************/
 int cf_ini_parse( const char *filename, ini_handler handler, void *user )
 {
     FILE *file = NULL;
