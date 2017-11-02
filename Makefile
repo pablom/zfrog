@@ -22,12 +22,14 @@ TARGET = $(shell uname -s | tr '[A-Z]' '[a-z]' 2>/dev/null || echo unknown)
 
 CFLAGS  += -Wall -Werror -Wmissing-declarations -Wshadow -Wstrict-prototypes
 CFLAGS  += -Wpointer-arith -Wcast-qual -Wsign-compare -Wshadow -pedantic
-CFLAGS  += -Iinclude -Iinclude/cstl
+CFLAGS  += -Iinclude -Iinclude/cstl 
+CFLAGS  += -I$(OBJDIR)/include
 CFLAGS  += -m64
 
 LDFLAGS += -m64
+LDFLAGS += -L$(OBJDIR)/lib
 
-LDFLAGS_CLI = $(LDFLAGS) -Llib -lcrypto
+LDFLAGS_CLI = $(LDFLAGS)
 
 DEPS =
 
@@ -51,27 +53,8 @@ S_SRC_CSTL = src/cstl/cf_cstl_memory.c src/cstl/cf_cstl_pair.c src/cstl/cf_cstl_
              src/cstl/cf_cstl_iterator.c src/cstl/cf_cstl_algorithm.c src/cstl/cf_cstl_stack.c \
              src/cstl/cf_cstl_queue.c src/cstl/cf_cstl_tree.c
 
-#   Add specific os support
-ifeq ($(TARGET), linux)
-        S_SRC += src/cf_linux.c
-        CFLAGS += -D_GNU_SOURCE=1 -std=c99
-        LDFLAGS += -rdynamic -ldl
-else ifeq ($(TARGET), darwin)
-        S_SRC += src/cf_bsd.c
-else ifeq ($(TARGET), sunos)
-        CC=gcc
-        S_SRC += src/cf_solaris.c
-        SUN_VERSION=$(shell uname -r | sed -e 's/\.\([0-9]\{1,1\}\)$/0\1/' -e 's/\.//')
-        #CFLAGS += -D_GNU_SOURCE=1 -std=gnu99
-        CFLAGS += -D_PTHREADS -D_POSIX_C_SOURCE=200112L
-        LDFLAGS += -ldl -lsocket -lnsl
-else ifeq ($(TARGET), freebsd)
-        S_SRC += src/cf_bsd.c
-else ifeq ($(TARGET), aix)
-        S_SRC += src/cf_aix.c
-endif
 
-
+# Single binary configuration
 ifeq ($(CF_SINGLE_BINARY), 1)
     CFLAGS+=-DCF_SINGLE_BINARY
     FEATURES+=-DCF_SINGLE_BINARY
@@ -81,32 +64,46 @@ endif
 #   Debug support
 ###########################################################################
 ifeq ($(CF_DEBUG), 1)
-    CFLAGS+=-DCF_DEBUG -g
-    CFLAGS+=-O0
-    FEATURES+=-DCF_DEBUG
+    CFLAGS += -DCF_DEBUG -g
+    CFLAGS += -O0
+    FEATURES += -DCF_DEBUG
 else
-    CFLAGS+=-O3
+    CFLAGS += -O3
 endif
 ###########################################################################
 #   HTTP support
 ###########################################################################
 ifeq ($(CF_NO_HTTP), 1)
-    CFLAGS+=-DCF_NO_HTTP
-    FEATURES+=-DCF_NO_HTTP
+    CFLAGS += -DCF_NO_HTTP
+    FEATURES += -DCF_NO_HTTP
 else
-    S_SRC+= src/cf_auth.c src/cf_accesslog.c src/cf_http.c \
-            src/cf_validator.c src/cf_websocket.c
+    S_SRC+= src/cf_auth.c src/cf_accesslog.c src/cf_http.c src/cf_websocket.c\
+            src/cf_validator.c
 endif
 ###########################################################################
 #   TLS support
 ###########################################################################
 ifeq ($(CF_NO_TLS), 1)
-    CFLAGS+=-DCF_NO_TLS
-    FEATURES+=-DCF_NO_TLS
+    CFLAGS += -DCF_NO_TLS
+    FEATURES += -DCF_NO_TLS
 else
     S_SRC += src/cf_keymgr.c src/cf_pkcs11.c
-    CFLAGS += -Iinclude/pkcs11
-    LDFLAGS += -Llib -lssl -lcrypto
+    ifneq ($(WITH_OPENSSL),)
+        CFLAGS  += -I$(WITH_OPENSSL)/include
+        LDFLAGS += -L$(WITH_OPENSSL)/lib -lssl -lcrypto
+        LDFLAGS_CLI += -L$(WITH_OPENSSL)/lib -lssl -lcrypto
+    else
+        ifneq ($(OPENSSL_SO),)
+            LDFLAGS += -L$(OBJDIR)/lib -lssl -lcrypto
+            LDFLAGS_CLI += -L$(OBJDIR)/lib -lssl -lcrypto
+        else
+			LDFLAGS += -lssl -lcrypto
+			LDFLAGS_CLI += -lssl -lcrypto
+#            LDFLAGS += $(OBJDIR)/lib/libssl.a $(OBJDIR)/lib/libcrypto.a
+#            LDFLAGS_CLI += $(OBJDIR)/lib/libssl.a $(OBJDIR)/lib/libcrypto.a
+            DEPS += $(OBJDIR)/lib/libssl.a
+        endif
+    endif
 endif
 ###########################################################################
 #   Tasks support
@@ -122,9 +119,19 @@ endif
 ###########################################################################
 ifeq ($(CF_JSONRPC), 1)
     S_SRC += src/cf_jsonrpc.c
-    LDFLAGS += -lyajl
-    CFLAGS+=-DCF_JSONRPC
-    FEATURES+=-DCF_JSONRPC
+    CFLAGS += -DCF_JSONRPC
+    FEATURES += -DCF_JSONRPC
+    ifneq ($(WITH_YAJL),)
+        CFLAGS  += -I$(WITH_YAJL)/include
+        LDFLAGS += -L$(WITH_YAJL)/lib -lyajl
+    else
+        ifneq ($(YAJL_SO),)
+            LDFLAGS += -lyajl
+        else
+            LDFLAGS += -lyajl_s
+        endif
+        DEPS += $(OBJDIR)/lib/libyajl_s.a
+    endif
 endif
 ###########################################################################
 #   PostgreSQL support
@@ -176,6 +183,7 @@ ifeq ($(CF_LUA), 1)
 		LDFLAGS += -L$(WITH_LUAJIT)/lib -lluajit
 	else
 		DEPS += $(OBJDIR)/lib/libluajit-5.1.a
+		LDFLAGS += -lm $(OBJDIR)/lib/libluajit-5.1.a
 	endif
 endif
 ###########################################################################
@@ -201,6 +209,41 @@ ifeq ($(CF_TMUSTACHE), 1)
     CFLAGS += -DCF_TMUSTACHE
     S_SRC += src/cf_mustach.c
 endif
+
+###########################################################################
+#   Linux (i686)
+###########################################################################
+ifeq ($(TARGET), linux)
+        S_SRC += src/cf_linux.c
+        CFLAGS += -D_GNU_SOURCE=1 -std=c99
+        LDFLAGS += -rdynamic -ldl
+###########################################################################
+#   MacOS
+###########################################################################
+else ifeq ($(TARGET), darwin)
+        S_SRC += src/cf_bsd.c
+###########################################################################
+#   Solaris (Sparc)
+###########################################################################
+else ifeq ($(TARGET), sunos)
+        CC=gcc
+        S_SRC += src/cf_solaris.c
+        SUN_VERSION=$(shell uname -r | sed -e 's/\.\([0-9]\{1,1\}\)$/0\1/' -e 's/\.//')
+        #CFLAGS += -D_GNU_SOURCE=1 -std=gnu99
+        CFLAGS += -D_PTHREADS -D_POSIX_C_SOURCE=200112L
+        LDFLAGS += -ldl -lsocket -lnsl
+###########################################################################
+#   FreeBSD
+###########################################################################
+else ifeq ($(TARGET), freebsd)
+        S_SRC += src/cf_bsd.c
+###########################################################################
+#   AIX (power pc)
+###########################################################################
+else ifeq ($(TARGET), aix)
+        S_SRC += src/cf_aix.c
+endif
+
 
 ###########################################################################
 S_OBJS= $(S_SRC:src/%.c=$(OBJDIR)/%.o)
@@ -254,17 +297,22 @@ clean:
 	rm -rf $(ZFROG) $(ZFROG_CLI) $(OBJDIR)
 
 
-# Dependencies
-
+###########################################################################
+#  Dependencies build section
+###########################################################################
 LUAJIT  := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/LuaJIT*.tar.gz)))
 OPENSSL := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/openssl*.tar.gz)))
+YAJL    := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/yajl*.tar.gz)))
 
 OPENSSL_OPTS = no-shared no-psk no-srp no-dtls no-idea --prefix=$(abspath $(OBJDIR))
 
-$(OBJDIR)/$(LUAJIT):  deps/$(LUAJIT).tar.gz
+$(OBJDIR)/$(LUAJIT):  deps/$(LUAJIT).tar.gz | $(OBJDIR)
 	@tar -C $(OBJDIR) -xf $<
 
-$(OBJDIR)/$(OPENSSL): deps/$(OPENSSL).tar.gz
+$(OBJDIR)/$(OPENSSL): deps/$(OPENSSL).tar.gz | $(OBJDIR)
+	@tar -C $(OBJDIR) -xf $<
+
+$(OBJDIR)/$(YAJL):  deps/$(YAJL).tar.gz | $(OBJDIR)
 	@tar -C $(OBJDIR) -xf $<
 
 $(OBJDIR)/lib/libluajit-5.1.a: $(OBJDIR)/$(LUAJIT)
@@ -283,8 +331,13 @@ endif
 	@$(MAKE) -C $< install_sw
 	@touch $@
 
-.PHONY: all clean
-.PHONY: $(OBJDIR)/version.o
+$(OBJDIR)/lib/libyajl_s.a: $(OBJDIR)/$(YAJL)
+	@echo Building Yet Another JSON Library...
+	@$(SHELL) -c "cd $< && ./configure -p $(abspath $(OBJDIR))"
+	@$(MAKE) -C $< install
+	@touch $@
+
+.PHONY: all clean install uninstall
 
 .SUFFIXES:
 .SUFFIXES: .c .o .lua

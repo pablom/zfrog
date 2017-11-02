@@ -60,7 +60,9 @@ uint64_t  http_body_max = HTTP_BODY_MAX_LEN;
 uint64_t  http_body_disk_offload = HTTP_BODY_DISK_OFFLOAD;
 char      *http_body_disk_path = HTTP_BODY_DISK_PATH;
 
-
+/****************************************************************
+ *  HTTP global init
+ ****************************************************************/
 void http_init( void )
 {
     int	prealloc, l;
@@ -86,7 +88,9 @@ void http_init( void )
     cf_mem_pool_init(&http_path_pool, "http_path_pool", HTTP_URI_LEN, prealloc);
     cf_mem_pool_init(&http_body_path, "http_body_path", HTTP_BODY_PATH_MAX, prealloc);
 }
-
+/****************************************************************
+ *  HTTP global cleanup
+ ****************************************************************/
 void http_cleanup(void)
 {
     if( header_buf != NULL )
@@ -108,7 +112,9 @@ void http_cleanup(void)
     cf_mem_pool_cleanup( &http_path_pool );
     cf_mem_pool_cleanup( &http_body_path );
 }
-
+/****************************************************************
+ *  Set HTTP server version string
+ ****************************************************************/
 void http_server_version( const char *version )
 {
     int l = snprintf(http_version, sizeof(http_version), "server: %s\r\n", version);
@@ -117,8 +123,9 @@ void http_server_version( const char *version )
 
     http_version_len = l;
 }
-
-
+/****************************************************************
+ *  Create new one request structure from incoming connection
+ ****************************************************************/
 int http_request_new( struct connection *c, const char *host,
                       const char *method, const char *path, const char *version,
                       struct http_request **out )
@@ -131,7 +138,6 @@ int http_request_new( struct connection *c, const char *host,
     size_t hostlen, pathlen, qsoff;
 
     log_debug("http_request_new(%p, %s, %s, %s, %s)", c, host, method, path, version);
-
 
     if( (hostlen = strlen(host)) >= CF_DOMAINNAME_LEN - 1)
     {
@@ -295,8 +301,10 @@ int http_request_new( struct connection *c, const char *host,
 
     return CF_RESULT_OK;
 }
-
-void http_request_sleep(struct http_request *req)
+/****************************************************************
+ *  Set HTTP request state as sleeping
+ ****************************************************************/
+void http_request_sleep( struct http_request *req )
 {
     if( !(req->flags & HTTP_REQUEST_SLEEPING) )
     {
@@ -307,8 +315,10 @@ void http_request_sleep(struct http_request *req)
 		TAILQ_INSERT_TAIL(&http_requests_sleeping, req, list);
 	}
 }
-
-void http_request_wakeup(struct http_request *req)
+/****************************************************************
+ *  Wakeup HTTP request from sleeping state
+ ****************************************************************/
+void http_request_wakeup( struct http_request *req )
 {
     if( req->flags & HTTP_REQUEST_SLEEPING )
     {
@@ -408,7 +418,7 @@ void http_process_request( struct http_request *req )
 	req->flags |= HTTP_REQUEST_DELETE;
 }
 
-void http_response_header(struct http_request *req, const char *header, const char *value )
+void http_response_header( struct http_request *req, const char *header, const char *value )
 {
 	struct http_header	*hdr;
 
@@ -419,8 +429,10 @@ void http_response_header(struct http_request *req, const char *header, const ch
 	hdr->value = mem_strdup(value);
 	TAILQ_INSERT_TAIL(&(req->resp_headers), hdr, list);
 }
-
-void http_request_free(struct http_request *req)
+/****************************************************************
+ *  Delete HTTP request
+ ****************************************************************/
+void http_request_free( struct http_request *req )
 {
 #ifdef CF_TASKS
     struct cf_task	*t, *nt;
@@ -566,7 +578,7 @@ void http_request_free(struct http_request *req)
 	http_request_count--;
 }
 
-void http_serveable(struct http_request *req, const void *data, size_t len, const char *etag, const char *type)
+void http_serveable( struct http_request *req, const void *data, size_t len, const char *etag, const char *type )
 {
     char *match = NULL;
 
@@ -677,7 +689,9 @@ int http_request_cookie( struct http_request *req, const char *cookie, char **ou
 
     return CF_RESULT_ERROR;
 }
-
+/****************************************************************
+ *  Read HTTP headers from input buffer
+ ****************************************************************/
 int http_header_recv( struct netbuf *nb )
 {
     size_t len;

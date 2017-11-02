@@ -12,7 +12,6 @@
 #endif
 
 #include <fnmatch.h>
-
 #include "zfrog.h"
 
 #ifndef CF_NO_HTTP
@@ -47,16 +46,14 @@ static void	domain_load_crl(struct cf_domain *);
     static ECDSA_SIG *keymgr_ecdsa_sign(const unsigned char *, int, const BIGNUM *, const BIGNUM *, EC_KEY *);
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
-    static RSA_METHOD	*keymgr_rsa_meth = NULL;
+    static RSA_METHOD       *keymgr_rsa_meth = NULL;
     static EC_KEY_METHOD	*keymgr_ec_meth = NULL;
 #else
 
 #if !defined(LIBRESSL_VERSION_TEXT)
 /*
  * Run own ecdsa_method data structure as OpenSSL has this in ecs_locl.h
- * and does not export this on systems.
- *
- * XXX - OpenSSL is merging ECDSA functionality into EC in 1.1.0.
+ * and does not export this on systems
  */
 struct ecdsa_method
 {
@@ -99,6 +96,9 @@ static RSA_METHOD keymgr_rsa =
 #endif /* OPENSSL_VERSION_NUMBER */
 #endif /* CF_NO_TLS */
 
+/****************************************************************
+ *  Init domains
+ ****************************************************************/
 void cf_domain_init(void)
 {
 	TAILQ_INIT(&domains);
@@ -123,7 +123,9 @@ void cf_domain_init(void)
     EC_KEY_METHOD_set_sign(keymgr_ec_meth, NULL, NULL, keymgr_ecdsa_sign);
 #endif
 }
-
+/****************************************************************
+ *  Cleanup, delete all domain structures
+ ****************************************************************/
 void cf_domain_cleanup(void)
 {
     struct cf_domain *dom = NULL;
@@ -148,7 +150,9 @@ void cf_domain_cleanup(void)
     }
 #endif
 }
-
+/****************************************************************
+ *  Allocate (create) new domain structure
+ ****************************************************************/
 int domain_new( char *domain )
 {
     struct cf_domain *dom = NULL;
@@ -176,7 +180,9 @@ int domain_new( char *domain )
 
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Delete domain structure
+ ****************************************************************/
 void cf_domain_free( struct cf_domain *dom )
 {
 #ifndef CF_NO_HTTP
@@ -216,7 +222,9 @@ void cf_domain_free( struct cf_domain *dom )
 #endif
     mem_free(dom);
 }
-
+/****************************************************************
+ *  Init TLS domain function
+ ****************************************************************/
 void cf_domain_tls_init( struct cf_domain *dom )
 {
 #ifndef CF_NO_TLS
@@ -224,7 +232,7 @@ void cf_domain_tls_init( struct cf_domain *dom )
     RSA	*rsa = NULL;
     X509 *x509 = NULL;
     EVP_PKEY *pkey = NULL;
-	STACK_OF(X509_NAME)	*certs;
+    STACK_OF(X509_NAME)	*certs = NULL;
     EC_KEY *eckey = NULL;
     X509_STORE *store = NULL;
     const SSL_METHOD *method = NULL;
@@ -293,7 +301,7 @@ void cf_domain_tls_init( struct cf_domain *dom )
         cf_fatal("SSL_CTX_use_certificate_chain_file(%s): %s", dom->certfile, ssl_errno_s);
 	}
 
-    if( (in = BIO_new(BIO_s_file_internal())) == NULL )
+    if( (in = BIO_new(BIO_s_file())) == NULL )
         cf_fatal("BIO_new: %s", ssl_errno_s);
 
     if( BIO_read_filename(in, dom->certfile) <= 0 )
@@ -417,7 +425,9 @@ void cf_domain_callback( void (*cb)(struct cf_domain *) )
     TAILQ_FOREACH(dom, &domains, list)
 		cb(dom);
 }
-
+/****************************************************************
+ *  Find domain structure function by domain name
+ ****************************************************************/
 struct cf_domain* cf_domain_lookup( const char *domain )
 {
     struct cf_domain *dom = NULL;
@@ -437,7 +447,9 @@ struct cf_domain* cf_domain_lookup( const char *domain )
 
     return NULL;
 }
-
+/****************************************************************
+ *  Close logs for all domains
+ ****************************************************************/
 void cf_domain_closelogs( void )
 {
     struct cf_domain *dom = NULL;
@@ -448,7 +460,9 @@ void cf_domain_closelogs( void )
             close( dom->accesslog );
 	}
 }
-
+/****************************************************************
+ *  Load certificates for all domains
+ ****************************************************************/
 void cf_domain_load_crl( void )
 {
     struct cf_domain *dom = NULL;
@@ -456,7 +470,9 @@ void cf_domain_load_crl( void )
 	TAILQ_FOREACH(dom, &domains, list)
 		domain_load_crl(dom);
 }
-
+/****************************************************************
+ *  Init key manager function
+ ****************************************************************/
 void cf_domain_keymgr_init( void )
 {
 #ifndef CF_NO_TLS
@@ -464,7 +480,9 @@ void cf_domain_keymgr_init( void )
     cf_msg_register(CF_MSG_KEYMGR_RESP, keymgr_msg_response);
 #endif
 }
-
+/****************************************************************
+ *  Load certificates for specific domain
+ ****************************************************************/
 static void domain_load_crl( struct cf_domain *dom )
 {
 #ifndef CF_NO_TLS

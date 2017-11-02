@@ -9,5 +9,4 @@ zfrog.includes
 zfrog.creator.user
 lib/
 include/jansson/
-include/openssl/
-include/yajl/
+
