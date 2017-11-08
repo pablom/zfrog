@@ -402,8 +402,9 @@ static void cli_create(int argc, char **argv)
     for( i = 0; gen_files[i].cb != NULL; i++ )
 		gen_files[i].cb();
 
-	if (chdir(appl) == -1)
+    if( chdir(appl) == -1 ) {
         cli_fatal("chdir(%s): %s", appl, errno_s);
+    }
 
 	cli_generate_certs();
 

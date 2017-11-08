@@ -47,6 +47,8 @@ static void redis_read_result(struct cf_redis*);
 static struct redis_conn* redis_conn_create(struct cf_redis*, struct redis_db*);
 static void redis_queue_wakeup(void);
 
+static uint32_t countDigits( uint64_t v );
+static size_t bulklen( size_t len );
 
 /* Global variables */
 static uint16_t  g_redis_conn_count;
@@ -244,7 +246,7 @@ void cf_redis_handle( void *c, int err )
 /************************************************************************
  *  Helper function to create Redis command
  ************************************************************************/
-int cf_redis_format_command(char **target, const char *format, ...)
+int cf_redis_format_command( char **target, const char *format, ... )
 {
     va_list ap;
     int len = -1;
@@ -337,14 +339,10 @@ static void redis_conn_cleanup( struct redis_conn *conn )
 #endif
 
         redis->conn = NULL;
-        //pgsql_set_error(pgsql, PQerrorMessage(conn->db));
 
         cf_mem_pool_put( &g_redis_job_pool, conn->job);
         conn->job = NULL;
     }
-
-    //if( conn->db != NULL )
-    //    PQfinish(conn->db);
 
     g_redis_conn_count--;
     mem_free(conn->name);
@@ -364,7 +362,7 @@ static void redis_set_error( struct cf_redis *redis, const char *msg )
 /************************************************************************
  *  Helper function Redis read result
  ************************************************************************/
-static void redis_read_result(struct cf_redis *redis)
+static void redis_read_result( struct cf_redis *redis )
 {
 
 }
@@ -426,16 +424,6 @@ static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redi
 
     log_debug("redis_conn_create(): %p", conn);
 
-/*
-    conn->db = PQconnectdb(db->conn_string);
-    if( conn->db == NULL || (PQstatus(conn->db) != CONNECTION_OK) )
-    {
-        pgsql_set_error(pgsql, PQerrorMessage(conn->db));
-        pgsql_conn_cleanup(conn);
-        return (NULL);
-    }
-*/
-
     return conn;
 }
 /************************************************************************
@@ -488,31 +476,55 @@ static void redis_queue_remove( struct cf_redis *redis )
         return;
     }
 }
+/****************************************************************************
+ *  Return the number of digits of 'v' when converted to string in radix 10
+ ***************************************************************************/
+static uint32_t countDigits( uint64_t v )
+{
+    uint32_t result = 1;
 
-
-#ifdef MMM
-
+    for(;;)
+    {
+        if( v < 10 ) return result;
+        if( v < 100 ) return result + 1;
+        if( v < 1000 ) return result + 2;
+        if( v < 10000 ) return result + 3;
+        v /= 10000U;
+        result += 4;
+    }
+}
+/*************************************************************************
+*  Helper that calculates the bulk length given a certain string length
+*************************************************************************/
+static size_t bulklen( size_t len )
+{
+    return 1 + countDigits(len) + 2 + len + 2;
+}
+/************************************************************************
+*  Helper function create Redis command
+************************************************************************/
 int redis_vformat_command( char **target, const char *format, va_list ap )
 {
     const char *c = format;
-    char *cmd = NULL; /* final command */
-    int pos; /* position in final command */
-    sds curarg, newarg; /* current argument */
-    int touched = 0; /* was the current argument touched? */
-    char **curargv = NULL, **newargv = NULL;
+    char *cmd = NULL;       /* final command */
+    int pos;                /* position in final command */
+//    sds curarg, newarg;     /* current argument */
+    int touched = 0;        /* was the current argument touched? */
+    char **curargv = NULL;
+    char **newargv = NULL;
     int argc = 0;
     int totlen = 0;
     int error_type = 0; /* 0 = no error; -1 = memory error; -2 = format error */
-    int j;
+    int j = 0;
 
     /* Abort if there is not target to set */
     if( target == NULL )
         return -1;
 
     /* Build the command string accordingly to protocol */
-    curarg = sdsempty();
-    if( curarg == NULL )
-        return -1;
+//    curarg = sdsempty();
+//    if( curarg == NULL )
+//        return -1;
 
     while( *c != '\0' )
     {
@@ -550,17 +562,18 @@ int redis_vformat_command( char **target, const char *format, va_list ap )
             /* Set newarg so it can be checked even if it is not touched. */
             newarg = curarg;
 
-            switch(c[1]) {
+            switch( c[1] )
+            {
             case 's':
                 arg = va_arg(ap,char*);
                 size = strlen(arg);
-                if (size > 0)
+                if( size > 0 )
                     newarg = sdscatlen(curarg,arg,size);
                 break;
             case 'b':
                 arg = va_arg(ap,char*);
                 size = va_arg(ap,size_t);
-                if (size > 0)
+                if( size > 0 )
                     newarg = sdscatlen(curarg,arg,size);
                 break;
             case '%':
@@ -577,13 +590,14 @@ int redis_vformat_command( char **target, const char *format, va_list ap )
                     va_list _cpy;
 
                     /* Flags */
-                    while (*_p != '\0' && strchr(flags,*_p) != NULL) _p++;
+                    while( *_p != '\0' && strchr(flags,*_p) != NULL ) _p++;
 
                     /* Field width */
-                    while (*_p != '\0' && isdigit(*_p)) _p++;
+                    while( *_p != '\0' && isdigit(*_p) ) _p++;
 
                     /* Precision */
-                    if (*_p == '.') {
+                    if( *_p == '.' )
+                    {
                         _p++;
                         while (*_p != '\0' && isdigit(*_p)) _p++;
                     }
@@ -702,7 +716,7 @@ int redis_vformat_command( char **target, const char *format, va_list ap )
     curarg = NULL;
 
     /* Add bytes needed to hold multi bulk count */
-    totlen += 1+countDigits(argc)+2;
+    totlen += 1 + countDigits(argc) + 2;
 
     /* Build the command at protocol level */
     cmd = malloc(totlen+1);
@@ -751,5 +765,3 @@ cleanup:
 
     return error_type;
 }
-#endif
-
