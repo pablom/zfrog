@@ -93,16 +93,9 @@ else
         LDFLAGS += -L$(WITH_OPENSSL)/lib -lssl -lcrypto
         LDFLAGS_CLI += -L$(WITH_OPENSSL)/lib -lssl -lcrypto
     else
-        ifneq ($(OPENSSL_SO),)
-            LDFLAGS += -L$(OBJDIR)/lib -lssl -lcrypto
-            LDFLAGS_CLI += -L$(OBJDIR)/lib -lssl -lcrypto
-        else
-			LDFLAGS += -lssl -lcrypto
-			LDFLAGS_CLI += -lssl -lcrypto
-#            LDFLAGS += $(OBJDIR)/lib/libssl.a $(OBJDIR)/lib/libcrypto.a
-#            LDFLAGS_CLI += $(OBJDIR)/lib/libssl.a $(OBJDIR)/lib/libcrypto.a
-            DEPS += $(OBJDIR)/lib/libssl.a
-        endif
+        LDFLAGS += -lssl -lcrypto
+        LDFLAGS_CLI += -lssl -lcrypto
+        DEPS += $(OBJDIR)/lib/libssl.a
     endif
 endif
 ###########################################################################
@@ -304,7 +297,15 @@ LUAJIT  := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/LuaJIT*.tar.gz)))
 OPENSSL := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/openssl*.tar.gz)))
 YAJL    := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/yajl*.tar.gz)))
 
-OPENSSL_OPTS = no-shared no-psk no-srp no-dtls no-idea --prefix=$(abspath $(OBJDIR))
+OPENSSL_OPTS = no-psk no-srp no-dtls no-idea --prefix=$(abspath $(OBJDIR))
+
+ifneq ($(OPENSSL_SO),1)
+	OPENSSL_OPTS += no-shared
+endif
+
+ifneq ($(CF_TASKS), 1)
+	OPENSSL_OPTS += no-threads
+endif
 
 $(OBJDIR)/$(LUAJIT):  deps/$(LUAJIT).tar.gz | $(OBJDIR)
 	@tar -C $(OBJDIR) -xf $<
@@ -336,6 +337,8 @@ $(OBJDIR)/lib/libyajl_s.a: $(OBJDIR)/$(YAJL)
 	@$(SHELL) -c "cd $< && ./configure -p $(abspath $(OBJDIR))"
 	@$(MAKE) -C $< install
 	@touch $@
+
+.DEFAULT_GOAL := all
 
 .PHONY: all clean install uninstall
 
