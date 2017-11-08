@@ -12,14 +12,14 @@ static void _c_rb_tree_rebalance(_base_ptr val, _base_ptr * proot);
 
 static _base_ptr _S_minimum(_base_ptr val)
 {
-    while(val->_A_left)
+    while( val->_A_left )
         val = val->_A_left;
     return val;
 }
 
 static _base_ptr _S_maximum(_base_ptr val)
 {
-    while(val->_A_right)
+    while( val->_A_right )
         val = val->_A_right;
     return val;
 }
@@ -53,7 +53,7 @@ static void _A_iterator_decrement(c_piterator thiz)
     else if(((_base_ptr)(thiz->_i))->_A_left)
     {
         _base_ptr val = ((_base_ptr)(thiz->_i))->_A_left;
-        while(val->_A_right)
+        while( val->_A_right )
             val = val->_A_right;
         thiz->_i = val;
     }
@@ -87,7 +87,7 @@ static void _A_reverse_iterator_decrement(c_preverse_iterator thiz)
 
 static c_iterator _c_rb_tree_iterator_assign(c_piterator thiz, const c_piterator val)
 {
-    if(thiz != val)
+    if( thiz != val )
         thiz->_i = val->_i;
     return *thiz;
 }
@@ -116,8 +116,7 @@ static c_iterator _c_rb_tree_iterator_dec(c_piterator thiz)
 
 static c_bool _c_rb_tree_iterator_equal(c_piterator thiz, const c_piterator val)
 {
-	return (thiz->_i == val->_i &&
-				thiz->_pft == val->_pft);
+    return ( thiz->_i == val->_i && thiz->_pft == val->_pft );
 }
 
 static c_iterator_ft _c_rb_tree_iter_ft =
@@ -148,7 +147,7 @@ static c_iterator _A_get_iterator(_base_ptr val)
 static c_reverse_iterator _c_rb_tree_reverse_iterator_assign(c_preverse_iterator thiz, 
 								const c_preverse_iterator val)
 {
-	if(thiz != val)
+    if( thiz != val )
 		thiz->_i = val->_i;
 	return *thiz;
 }
@@ -181,8 +180,7 @@ static c_reverse_iterator _c_rb_tree_reverse_iterator_dec(c_preverse_iterator th
 
 static c_bool _c_rb_tree_reverse_iterator_equal(c_preverse_iterator thiz, const c_preverse_iterator val)
 {
-	return (thiz->_i == val->_i &&
-				thiz->_pft == val->_pft);
+    return (thiz->_i == val->_i && thiz->_pft == val->_pft);
 }
 
 static c_reverse_iterator_ft _c_rb_tree_reverse_iter_ft = 
@@ -218,9 +216,9 @@ static void _c_rb_tree_rotate_left(_base_ptr val, _base_ptr * proot)
 		wal->_A_left->_A_parent = val;
 	wal->_A_parent = val->_A_parent;
 
-	if(val == *proot)
+    if( val == *proot )
 		*proot = wal;
-	else if(val == val->_A_parent->_A_left)
+    else if( val == val->_A_parent->_A_left )
 		val->_A_parent->_A_left = wal;
 	else
 		val->_A_parent->_A_right = wal;
@@ -232,13 +230,13 @@ static void _c_rb_tree_rotate_right(_base_ptr val, _base_ptr * proot)
 {
 	_base_ptr wal = val->_A_left;
 	val->_A_left = wal->_A_right;
-	if(wal->_A_right != NULL)
+    if( wal->_A_right != NULL )
 		wal->_A_right->_A_parent = val;
 	wal->_A_parent = val->_A_parent;
 
-	if(val == *proot)
+    if( val == *proot )
 		*proot = wal;
-	else if(val == val->_A_parent->_A_right)
+    else if( val == val->_A_parent->_A_right )
 		val->_A_parent->_A_right = wal;
 	else
 		val->_A_parent->_A_left = wal;
@@ -249,12 +247,12 @@ static void _c_rb_tree_rotate_right(_base_ptr val, _base_ptr * proot)
 static void _c_rb_tree_rebalance(_base_ptr val, _base_ptr * proot)
 {
 	val->_A_color = _S_c_rb_tree_red;
-	while(val != *proot && val->_A_parent->_A_color == _S_c_rb_tree_red)
+    while( val != *proot && val->_A_parent->_A_color == _S_c_rb_tree_red )
 	{
-		if(val->_A_parent == val->_A_parent->_A_parent->_A_left)
+        if( val->_A_parent == val->_A_parent->_A_parent->_A_left )
 		{
 			_base_ptr wal = val->_A_parent->_A_parent->_A_right;
-			if(wal && wal->_A_color == _S_c_rb_tree_red)
+            if( wal && wal->_A_color == _S_c_rb_tree_red )
 			{
 				val->_A_parent->_A_color = _S_c_rb_tree_black;
 				wal->_A_color = _S_c_rb_tree_black;
@@ -263,7 +261,7 @@ static void _c_rb_tree_rebalance(_base_ptr val, _base_ptr * proot)
 			}
 			else
 			{
-				if(val == val->_A_parent->_A_right)
+                if( val == val->_A_parent->_A_right )
 				{
 					val = val->_A_parent;
 					_c_rb_tree_rotate_left(val, proot);
@@ -276,7 +274,7 @@ static void _c_rb_tree_rebalance(_base_ptr val, _base_ptr * proot)
 		else
 		{
 			_base_ptr wal = val->_A_parent->_A_parent->_A_left;
-			if(wal && wal->_A_color == _S_c_rb_tree_red)
+            if( wal && wal->_A_color == _S_c_rb_tree_red )
 			{
 				val->_A_parent->_A_color = _S_c_rb_tree_black;
 				wal->_A_color = _S_c_rb_tree_black;
@@ -285,7 +283,7 @@ static void _c_rb_tree_rebalance(_base_ptr val, _base_ptr * proot)
 			}
 			else
 			{
-				if(val == val->_A_parent->_A_left)
+                if( val == val->_A_parent->_A_left )
 				{
 					val = val->_A_parent;
 					_c_rb_tree_rotate_right(val, proot);
@@ -308,28 +306,28 @@ static _base_ptr _c_rb_tree_rebalance_for_erase(_base_ptr z,
 	_base_ptr x = NULL;
 	_base_ptr x_parent = NULL;
 	
-	if(y->_A_left == NULL)
+    if( y->_A_left == NULL )
 		x = y->_A_right;
 	else
-		if(y->_A_right == NULL)
+        if( y->_A_right == NULL )
 			x = y->_A_left;
 		else
 		{
 			y = y->_A_right;
-			while(y->_A_left != NULL)
+            while( y->_A_left != NULL )
 				y = y->_A_left;
 			x = y->_A_right;
 		}
 
-	if(y != z)
+    if( y != z )
 	{
 		_c_rb_tree_color_type tmp;
 		z->_A_left->_A_parent = y;
 		y->_A_left = z->_A_left;
-		if(y != z->_A_right)
+        if( y != z->_A_right )
 		{
 			x_parent = y->_A_parent;
-			if(x)
+            if( x )
 				x->_A_parent = y->_A_parent;
 			y->_A_parent->_A_left = x;
 			y->_A_right = z->_A_right;
@@ -337,9 +335,9 @@ static _base_ptr _c_rb_tree_rebalance_for_erase(_base_ptr z,
 		}
 		else
 			x_parent = y;
-		if(*root == z)
+        if( *root == z )
 			*root = y;
-		else if(z->_A_parent->_A_left == z)
+        else if( z->_A_parent->_A_left == z )
 			z->_A_parent->_A_left = y;
 		else
 			z->_A_parent->_A_right = y;
@@ -350,13 +348,13 @@ static _base_ptr _c_rb_tree_rebalance_for_erase(_base_ptr z,
 	else
 	{
 		x_parent = y->_A_parent;
-		if(x)
+        if( x )
 			x->_A_parent = y->_A_parent;
-		if(*root == z)
+        if( *root == z )
 			*root = x;
 		else
 		{
-			if(z->_A_parent->_A_left == z)
+            if( z->_A_parent->_A_left == z )
 				z->_A_parent->_A_left = x;
 			else
 				z->_A_parent->_A_right = x;
@@ -376,25 +374,22 @@ static _base_ptr _c_rb_tree_rebalance_for_erase(_base_ptr z,
 				*rightmost = _S_maximum(x);
 		}
 	}
-	if(y->_A_color != _S_c_rb_tree_red)
+
+    if( y->_A_color != _S_c_rb_tree_red )
 	{
-		while(x != *root && 
-			(x == NULL || 
-			 x->_A_color == _S_c_rb_tree_black))
-			if(x == x_parent->_A_left)
+        while( x != *root &&  (x == NULL || x->_A_color == _S_c_rb_tree_black) )
+            if( x == x_parent->_A_left )
 			{
 				_base_ptr w = x_parent->_A_right;
-				if(w->_A_color == _S_c_rb_tree_red)
+                if( w->_A_color == _S_c_rb_tree_red )
 				{
 					w->_A_color = _S_c_rb_tree_black;
 					x_parent->_A_color = _S_c_rb_tree_red;
 					_c_rb_tree_rotate_left(x_parent, root);
 					w = x_parent->_A_right;
 				}
-				if((w->_A_left == NULL ||
-				    w->_A_left->_A_color == _S_c_rb_tree_black) &&
-				   (w->_A_right == NULL ||
-				    w->_A_right->_A_color == _S_c_rb_tree_black))
+                if( (w->_A_left == NULL || w->_A_left->_A_color == _S_c_rb_tree_black) &&
+                        (w->_A_right == NULL || w->_A_right->_A_color == _S_c_rb_tree_black) )
 				{
 					w->_A_color = _S_c_rb_tree_red;
 					x = x_parent;
@@ -402,18 +397,18 @@ static _base_ptr _c_rb_tree_rebalance_for_erase(_base_ptr z,
 				}
 				else
 				{
-					if(w->_A_right == NULL ||
-					   w->_A_right->_A_color == _S_c_rb_tree_black)
+                    if( w->_A_right == NULL || w->_A_right->_A_color == _S_c_rb_tree_black )
 					{
-						if(w->_A_left)
+                        if( w->_A_left )
 							w->_A_left->_A_color = _S_c_rb_tree_black;
 						w->_A_color = _S_c_rb_tree_red;
 						_c_rb_tree_rotate_right(w, root);
 						w = x_parent->_A_right;
 					}
+
 					w->_A_color = x_parent->_A_color;
 					x_parent->_A_color = _S_c_rb_tree_black;
-					if(w->_A_right)
+                    if( w->_A_right )
 						w->_A_right->_A_color = _S_c_rb_tree_black;
 					_c_rb_tree_rotate_left(x_parent, root);
 					break;
@@ -422,17 +417,17 @@ static _base_ptr _c_rb_tree_rebalance_for_erase(_base_ptr z,
 			else
 			{
 				_base_ptr w = x_parent->_A_left;
-				if(w->_A_color == _S_c_rb_tree_red)
+                if( w->_A_color == _S_c_rb_tree_red )
 				{
 					w->_A_color = _S_c_rb_tree_black;
 					x_parent->_A_color = _S_c_rb_tree_red;
 					_c_rb_tree_rotate_right(x_parent, root);
 					w = x_parent->_A_left;
 				}
-				if((w->_A_right == NULL ||
+                if( (w->_A_right == NULL ||
 				    w->_A_right->_A_color == _S_c_rb_tree_black) &&
-				   (w->_A_left == NULL ||
-				    w->_A_left->_A_color == _S_c_rb_tree_black))
+                    (w->_A_left == NULL ||
+                     w->_A_left->_A_color == _S_c_rb_tree_black) )
 				{
 					w->_A_color = _S_c_rb_tree_red;
 					x = x_parent;
@@ -440,10 +435,10 @@ static _base_ptr _c_rb_tree_rebalance_for_erase(_base_ptr z,
 				}
 				else
 				{
-					if(w->_A_left == NULL ||
-						w->_A_left->_A_color == _S_c_rb_tree_black)
+                    if( w->_A_left == NULL ||
+                        w->_A_left->_A_color == _S_c_rb_tree_black )
 					{
-						if(w->_A_right)
+                        if( w->_A_right )
 							w->_A_right->_A_color = _S_c_rb_tree_black;
 						w->_A_color = _S_c_rb_tree_red;
 						_c_rb_tree_rotate_left(w, root);
@@ -451,15 +446,17 @@ static _base_ptr _c_rb_tree_rebalance_for_erase(_base_ptr z,
 					}
 					w->_A_color = x_parent->_A_color;
 					x_parent->_A_color = _S_c_rb_tree_black;
-					if(w->_A_left)
+                    if( w->_A_left )
 						w->_A_left->_A_color = _S_c_rb_tree_black;
 					_c_rb_tree_rotate_right(x_parent, root);
 					break;
 				}
 			}
-		if(x)
+
+        if( x )
 			x->_A_color = _S_c_rb_tree_black;
 	}
+
 	return y;
 }
 
@@ -550,10 +547,8 @@ static c_iterator _A_insert(c_prb_tree thiz, _base_ptr x, _base_ptr y, const val
 	_base_ptr _x = x;
 	_base_ptr _y = y;
 	_base_ptr _z = NULL;
-	if(_y == thiz->_A_header || 
-		_x != NULL ||
-		thiz->_A_key_compare(thiz->_A_keyofvalue.O(&thiz->_A_keyofvalue, val),
-		       			_S_key(thiz, _y)) < 0)
+    if( _y == thiz->_A_header || _x != NULL ||
+        thiz->_A_key_compare(thiz->_A_keyofvalue.O(&thiz->_A_keyofvalue, val),_S_key(thiz, _y)) < 0 )
 	{
 		_z = _A_create_node(val);
 		*_S_left(_y) = _z;
@@ -588,12 +583,12 @@ static _base_ptr _A_copy(_base_ptr x, _base_ptr p)
 	_base_ptr top = _A_clone_node(x);
 	top->_A_parent = p;
 
-	if(x->_A_right)
+    if( x->_A_right )
 		top->_A_right = _A_copy(*_S_right(x), top);
 	p = top;
 	x = *_S_left(x);
 
-	while(x != NULL)
+    while( x != NULL )
 	{
 		_base_ptr y = _A_clone_node(x);
 		p->_A_left = y;
@@ -609,7 +604,7 @@ static _base_ptr _A_copy(_base_ptr x, _base_ptr p)
 
 static void _A_erase(_base_ptr x)
 {
-	while(x != NULL)
+    while( x != NULL )
 	{
 		_base_ptr y;
 		_A_erase(*_S_right(x));
@@ -643,7 +638,7 @@ void __c_eert_br(c_prb_tree thiz)
 
 c_prb_tree c_rb_tree_assign(c_prb_tree thiz, const c_prb_tree T)
 {
-	if(thiz != T)
+    if( thiz != T )
 	{
 		c_rb_tree_clear(thiz);
 		thiz->_A_node_count = 0;
@@ -916,7 +911,7 @@ size_type c_rb_tree_count(c_prb_tree thiz, key_type key)
 	c_iter_iter_pair p = c_rb_tree_equal_range(thiz, key);
 	difference_type n = 0;
 	c_distance1(p.first, p.second, &n);
-	return abs(n);
+    return labs(n);
 }
 
 c_iterator c_rb_tree_lower_bound(c_prb_tree thiz, key_type key)

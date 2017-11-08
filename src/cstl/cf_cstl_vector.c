@@ -285,7 +285,7 @@ static void _A_insert_aux1(c_pvector thiz, c_iterator pos, node_t val)
 		ITER_REF_ASSIGN(new_finish, val);
 		ITER_INC(new_finish);
 		new_finish = c_copy(pos, _A_get_iterator(pl->_finish), new_finish);
-		_A_deallocate(thiz, pl->_start, abs(pl->_end_of_storage - pl->_start));
+        _A_deallocate(thiz, pl->_start, labs(pl->_end_of_storage - pl->_start));
 		pl->_start = new_start._i;
 		pl->_finish = new_finish._i;
 		pl->_end_of_storage = pl->_start + len;
@@ -304,7 +304,7 @@ void __c_vector(c_pvector thiz, COMPARER pcmp)
 void __c_rotcev(c_pvector thiz)
 {
 	_c_vector_impl * pl = thiz->_l;
-	_A_deallocate(thiz, pl->_start, abs(pl->_end_of_storage - pl->_start));
+    _A_deallocate(thiz, pl->_start, labs(pl->_end_of_storage - pl->_start));
 	__c_free(thiz->_l);
 }
 
@@ -399,7 +399,7 @@ void c_vector_reserve(c_pvector thiz, size_t n)
 		_c_vector_impl * pl = thiz->_l;
 		const size_type old_size = c_vector_size(thiz);
 		c_iterator tmp = _A_allocate_and_copy(thiz, n, c_vector_begin(thiz), c_vector_end(thiz));
-		_A_deallocate(thiz, pl->_start, abs(pl->_end_of_storage - pl->_start));
+        _A_deallocate(thiz, pl->_start, labs(pl->_end_of_storage - pl->_start));
 		pl->_start = tmp._i;
 		pl->_finish = pl->_start + old_size;
 		pl->_end_of_storage = pl->_start + n;
@@ -448,8 +448,7 @@ c_iterator c_vector_insert(c_pvector thiz, c_iterator pos, const value_type val)
 	c_iterator end = c_vector_end(thiz);
 	size_type n = abs(ITER_DIFF(pos, begin));
 	_c_vector_impl * pl = thiz->_l;
-	if((pl->_finish != pl->_end_of_storage) && 
-		ITER_EQUAL(pos, end))
+    if( (pl->_finish != pl->_end_of_storage) && ITER_EQUAL(pos, end) )
 	{
 		*pl->_finish = val;
 		++ pl->_finish;
@@ -467,9 +466,9 @@ void c_vector_insert2(c_pvector thiz, c_iterator pos, c_iterator first, c_iterat
 		difference_type dn = 0;
 		size_type n = 0;
 		c_distance1(first, last, &dn);
-		n = abs(dn);
+        n = labs(dn);
 
-        if( (size_type)abs(pl->_end_of_storage - pl->_finish) >= n )
+        if( (size_type)labs(pl->_end_of_storage - pl->_finish) >= n )
 		{
 			const size_type elems_after = pl->_finish - (pnode_t)pos._i;
 			c_iterator old_finish = c_vector_end(thiz);
@@ -502,7 +501,7 @@ void c_vector_insert2(c_pvector thiz, c_iterator pos, c_iterator first, c_iterat
 			new_finish = c_uninitialized_copy(_A_get_iterator(pl->_start), pos, new_start);
 			new_finish = c_uninitialized_copy(first, last, new_finish);
 			new_finish = c_uninitialized_copy(pos, _A_get_iterator(pl->_finish), new_finish);
-			_A_deallocate(thiz, pl->_start, abs(pl->_end_of_storage - pl->_start));
+            _A_deallocate(thiz, pl->_start, labs(pl->_end_of_storage - pl->_start));
 			pl->_start = new_start._i;
 			pl->_finish = new_finish._i;
 			pl->_end_of_storage = ITER_POSITIVE_N(new_start, len)._i;
@@ -515,7 +514,7 @@ void c_vector_fill_insert(c_pvector thiz, c_iterator pos, size_type n, const val
 	_c_vector_impl * pl = thiz->_l;
 	if(n != 0)
 	{
-        if( (size_type)abs(pl->_end_of_storage - pl->_finish) >= n )
+        if( (size_type)labs(pl->_end_of_storage - pl->_finish) >= n )
 		{
 			value_type val_copy = val;
 			const size_type elems_after = pl->_finish - (pnode_t)pos._i;
@@ -551,7 +550,7 @@ void c_vector_fill_insert(c_pvector thiz, c_iterator pos, size_type n, const val
 								new_start);
 			new_finish = c_uninitialized_fill_n(new_finish, n, val);
 			new_finish = c_uninitialized_copy(pos, _A_get_iterator(pl->_finish), new_finish);
-			_A_deallocate(thiz, pl->_start, abs(pl->_end_of_storage - pl->_start));
+            _A_deallocate(thiz, pl->_start, labs(pl->_end_of_storage - pl->_start));
 			pl->_start = new_start._i;
 			pl->_finish = new_finish._i;
 			pl->_end_of_storage = pl->_start + len;
@@ -574,7 +573,7 @@ c_iterator c_vector_erase2(c_pvector thiz, c_iterator first, c_iterator last)
 {
 	_c_vector_impl * pl = thiz->_l;
 	c_copy(last, _A_get_iterator(pl->_finish), first);
-	pl->_finish = pl->_finish - abs(ITER_DIFF(last, first));
+    pl->_finish = pl->_finish - labs(ITER_DIFF(last, first));
 	return first;
 }
 
