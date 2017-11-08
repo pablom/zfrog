@@ -331,7 +331,7 @@ c_reverse_iterator c_vector_rend(c_pvector thiz)
 size_type c_vector_size(c_pvector thiz)
 {
 	c_iterator b = c_vector_begin(thiz), e = c_vector_end(thiz);
-	return abs(ITER_DIFF(e, b));
+    return labs(ITER_DIFF(e, b));
 }
 
 size_type c_vector_max_size(c_pvector thiz)
@@ -342,7 +342,7 @@ size_type c_vector_max_size(c_pvector thiz)
 size_type c_vector_capacity(c_pvector thiz)
 {
 	_c_vector_impl * pl = thiz->_l;
-	return abs(pl->_end_of_storage - pl->_start);
+    return labs(pl->_end_of_storage - pl->_start);
 }
 
 c_bool c_vector_empty(c_pvector thiz)
@@ -359,23 +359,18 @@ value_type c_vector_at(c_pvector thiz, size_type n)
 
 c_pvector c_vector_assign(c_pvector thiz, const c_pvector V)
 {
-	if(V != thiz)
+    if( V != thiz )
 	{
 		_c_vector_impl * pl = thiz->_l;
 		const size_type vlen = c_vector_size(V);
-		if(vlen > c_vector_capacity(thiz))
+        if( vlen > c_vector_capacity(thiz) )
 		{
-			c_iterator tmp = _A_allocate_and_copy(thiz,
-								vlen,
-								c_vector_begin(V),
-								c_vector_end(V));
-			_A_deallocate(thiz, 
-					pl->_start, 
-					abs(pl->_end_of_storage - pl->_start));
+			c_iterator tmp = _A_allocate_and_copy(thiz,vlen,c_vector_begin(V),c_vector_end(V));
+			_A_deallocate(thiz, pl->_start, labs(pl->_end_of_storage - pl->_start));
 			pl->_start = tmp._i;
 			pl->_end_of_storage = pl->_start + vlen;
 		}
-		else if(c_vector_size(thiz) >= vlen)
+        else if( c_vector_size(thiz) >= vlen )
 		{
 			c_copy(c_vector_begin(V), c_vector_end(V), c_vector_begin(thiz));
 		}
@@ -383,9 +378,7 @@ c_pvector c_vector_assign(c_pvector thiz, const c_pvector V)
 		{
 			c_iterator bg = c_vector_begin(thiz);
 			c_copy(bg, ITER_POSITIVE_N(bg, c_vector_size(thiz)), _A_get_iterator(pl->_start));
-			c_uninitialized_copy(ITER_POSITIVE_N(bg, c_vector_size(thiz)),
-						c_vector_end(thiz),
-						_A_get_iterator(pl->_finish));
+			c_uninitialized_copy(ITER_POSITIVE_N(bg, c_vector_size(thiz)),c_vector_end(thiz),_A_get_iterator(pl->_finish));
 		}
 		pl->_finish = pl->_start + vlen;
 	}
@@ -446,7 +439,7 @@ c_iterator c_vector_insert(c_pvector thiz, c_iterator pos, const value_type val)
 {
 	c_iterator begin = c_vector_begin(thiz);
 	c_iterator end = c_vector_end(thiz);
-	size_type n = abs(ITER_DIFF(pos, begin));
+    size_type n = labs(ITER_DIFF(pos, begin));
 	_c_vector_impl * pl = thiz->_l;
     if( (pl->_finish != pl->_end_of_storage) && ITER_EQUAL(pos, end) )
 	{
@@ -460,7 +453,7 @@ c_iterator c_vector_insert(c_pvector thiz, c_iterator pos, const value_type val)
 
 void c_vector_insert2(c_pvector thiz, c_iterator pos, c_iterator first, c_iterator last)
 {
-	if(!ITER_EQUAL(first, last))
+    if( !ITER_EQUAL(first, last) )
 	{
 		_c_vector_impl * pl = thiz->_l;
 		difference_type dn = 0;
