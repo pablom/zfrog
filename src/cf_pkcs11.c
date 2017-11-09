@@ -308,10 +308,10 @@ int cf_pkcs11_private_encrypt(void* ctx, const void* data, int data_len, unsigne
             if( (rv = p11_module.flp->C_Sign(pkey->sh, data, data_len, to, &enc_len)) == CKR_OK )
                 return enc_len;
 
-            cf_log(LOG_NOTICE,"failed C_Encrypt111: 0x%08X", (unsigned int)rv);
+            cf_log(LOG_NOTICE,"failed C_Sign: 0x%08X", (unsigned int)rv);
         }
         else {
-            cf_log(LOG_NOTICE,"failed C_Encrypt000: 0x%08X", (unsigned int)rv);
+            cf_log(LOG_NOTICE,"failed C_Sign: 0x%08X", (unsigned int)rv);
         }
     }
     else {

@@ -96,8 +96,7 @@ static c_iterator _c_vector_iterator_negative_n(c_piterator thiz, difference_typ
 
 static c_bool _c_vector_iterator_equal(c_piterator thiz, const c_piterator val)
 {
-	return (thiz->_i == val->_i &&
-				thiz->_pft == val->_pft);
+    return (thiz->_i == val->_i && thiz->_pft == val->_pft);
 }
 
 static c_bool _c_vector_iterator_less(c_piterator thiz, const c_piterator val)
@@ -124,7 +123,7 @@ static c_iterator_ft _c_vector_iter_ft =
 
 static c_reverse_iterator _c_vector_reverse_iterator_assign(c_preverse_iterator thiz, const c_preverse_iterator val)
 {
-	if(thiz != val)
+    if( thiz != val )
 		thiz->_i = val->_i;
 	return *thiz;    
 }
@@ -250,7 +249,7 @@ static pnode_t _A_allocate(c_pvector thiz, size_t n)
 
 static void _A_deallocate(c_pvector thiz, pnode_t p, size_t n)
 {
-	if(n > 0)
+    if( n > 0 )
 		__c_free(p);
 }
 
@@ -264,15 +263,13 @@ static c_iterator _A_allocate_and_copy(c_pvector thiz, size_type n, c_const_iter
 static void _A_insert_aux1(c_pvector thiz, c_iterator pos, node_t val)
 {
 	_c_vector_impl * pl = thiz->_l;
-	if(pl->_finish != pl->_end_of_storage)
+    if( pl->_finish != pl->_end_of_storage )
 	{
 		node_t node;
 		*pl->_finish = *(pl->_finish - 1);
 		++ pl->_finish;
 		node = val;
-		c_copy_backward(pos,
-				_A_get_iterator(pl->_finish - 2),
-				_A_get_iterator(pl->_finish - 1));
+		c_copy_backward(pos,_A_get_iterator(pl->_finish - 2),_A_get_iterator(pl->_finish - 1));
 		ITER_REF_ASSIGN(pos, node);
 	}
 	else
@@ -387,7 +384,7 @@ c_pvector c_vector_assign(c_pvector thiz, const c_pvector V)
 
 void c_vector_reserve(c_pvector thiz, size_t n)
 {
-	if(c_vector_capacity(thiz) < n)
+    if( c_vector_capacity(thiz) < n )
 	{
 		_c_vector_impl * pl = thiz->_l;
 		const size_type old_size = c_vector_size(thiz);
@@ -465,7 +462,7 @@ void c_vector_insert2(c_pvector thiz, c_iterator pos, c_iterator first, c_iterat
 		{
 			const size_type elems_after = pl->_finish - (pnode_t)pos._i;
 			c_iterator old_finish = c_vector_end(thiz);
-			if(elems_after > n)
+            if( elems_after > n )
 			{
 				c_uninitialized_copy(_A_get_iterator(pl->_finish - n),
 							_A_get_iterator(pl->_finish),
@@ -505,22 +502,20 @@ void c_vector_insert2(c_pvector thiz, c_iterator pos, c_iterator first, c_iterat
 void c_vector_fill_insert(c_pvector thiz, c_iterator pos, size_type n, const value_type val)
 {
 	_c_vector_impl * pl = thiz->_l;
-	if(n != 0)
+    if( n != 0 )
 	{
         if( (size_type)labs(pl->_end_of_storage - pl->_finish) >= n )
 		{
 			value_type val_copy = val;
 			const size_type elems_after = pl->_finish - (pnode_t)pos._i;
 			c_iterator old_finish = c_vector_end(thiz);
-			if(elems_after > n)
+            if( elems_after > n )
 			{
 				c_uninitialized_copy(_A_get_iterator(pl->_finish - n),
 							_A_get_iterator(pl->_finish),
 							_A_get_iterator(pl->_finish));
 				pl->_finish += n;
-				c_copy_backward(pos, 
-						ITER_NEGATIVE_N(old_finish, n),
-						old_finish);
+				c_copy_backward(pos, ITER_NEGATIVE_N(old_finish, n), old_finish);
 				c_fill(pos, ITER_POSITIVE_N(pos, n), val_copy);
 			}
 			else
@@ -546,8 +541,8 @@ void c_vector_fill_insert(c_pvector thiz, c_iterator pos, size_type n, const val
             _A_deallocate(thiz, pl->_start, labs(pl->_end_of_storage - pl->_start));
 			pl->_start = new_start._i;
 			pl->_finish = new_finish._i;
-			pl->_end_of_storage = pl->_start + len;
-        	}
+            pl->_end_of_storage = pl->_start + len;
+        }
 	}
 }
 
@@ -556,7 +551,7 @@ c_iterator c_vector_erase(c_pvector thiz, c_iterator pos)
 	c_iterator pos_1 = ITER_POSITIVE_N(pos, 1);
 	c_iterator end = c_vector_end(thiz);
 	_c_vector_impl * pl = thiz->_l;
-	if(!ITER_EQUAL(pos_1, end))
+    if( !ITER_EQUAL(pos_1, end) )
 		c_copy(pos_1, _A_get_iterator(pl->_finish), pos);
 	-- pl->_finish;
 	return pos;
@@ -578,7 +573,7 @@ void c_vector_clear(c_pvector thiz)
 void c_vector_resize(c_pvector thiz, size_t n)
 {
 	c_iterator begin = c_vector_begin(thiz);
-	if(n < c_vector_size(thiz))
+    if( n < c_vector_size(thiz) )
 		c_vector_erase2(thiz, ITER_POSITIVE_N(begin, n), c_vector_end(thiz));
 	else
 		c_vector_fill_insert(thiz, c_vector_end(thiz), n, NULL);

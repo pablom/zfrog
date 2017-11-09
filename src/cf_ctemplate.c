@@ -369,9 +369,9 @@ static const char * tagname( tag_kind kind )
  *
  * scanspaces() scans white space
  *******************************************************************/
-static const char * scanspaces(template *t, const char *p)
+static const char * scanspaces( template *t, const char *p )
 {
-    while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') 
+    while( *p == ' ' || *p == '\n' || *p == '\r' || *p == '\t' )
     {
         if( *p++ == '\n' )
             t->linenum++;
@@ -383,7 +383,7 @@ static const char * scanspaces(template *t, const char *p)
  * comment then we advance t->scanptr to the first character after the
  * comment and return 1.  Otherwise we return 0.
  *******************************************************************/
-static int scancomment(template *t, const char *p)
+static int scancomment( template *t, const char *p )
 {
     int linenum = t->linenum;
 
@@ -419,7 +419,7 @@ static int scancomment(template *t, const char *p)
  * We accept no quotes if "value" contains only letters, digits,
  * '.' or '-'.
  *******************************************************************/
-static char * scanattr(template *t, const char *attrname, const char *p)
+static char * scanattr( template *t, const char *attrname, const char *p )
 {
     int i = strlen(attrname);
     int quote = 0;
@@ -467,7 +467,7 @@ static char * scanattr(template *t, const char *attrname, const char *p)
  * findfmt() looks up a format function by name.  If successful
  * we return a pointer to the function, otherwise we return null.
  *******************************************************************/
-static cf_tmpl_fmtfunc findfmt(const cf_tmpl_fmtlist *fmtlist, const char *name)
+static cf_tmpl_fmtfunc findfmt( const cf_tmpl_fmtlist *fmtlist, const char *name )
 {
     for( ; fmtlist != 0; fmtlist = fmtlist->next )
     {
@@ -701,6 +701,7 @@ static tagnode * scantag( template *t, const char *p )
         tag = newtag(t, kind);
         break;
     }
+
     return tag;
 
 failure:
@@ -1080,9 +1081,8 @@ static void write_text(const char *p, int len, FILE *out)
  *******************************************************************/
 static char * newfilename( const char *inclfile, const char *parentfile )
 {
-    char *newfile, *cp;
-
-    newfile = mem_malloc( strlen(parentfile) + strlen(inclfile) );
+    char *cp = NULL;
+    char *newfile = mem_malloc( strlen(parentfile) + strlen(inclfile) );
 
     if( strncmp(inclfile, ".../", 4) != 0 )
         return strcpy(newfile, inclfile);
@@ -1120,7 +1120,7 @@ static void walk( template *t, tagnode *tag, const cf_tmpl_varlist *varlist )
 
     case tag_var:
         if( (value = valueof(tag->tag.var.varname, varlist)) == 0 &&
-            (value = tag->tag.var.dfltval) == 0)
+            (value = tag->tag.var.dfltval) == 0 )
         {
             break;
         }
@@ -1216,7 +1216,6 @@ static void walk( template *t, tagnode *tag, const cf_tmpl_varlist *varlist )
 
     walk(t, tag->next, varlist);
 }
-
 /*******************************************************************
  * EXPORTED FUNCTIONS
  *

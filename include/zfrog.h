@@ -58,15 +58,15 @@ extern "C" {
     extern int daemon(int, int);
 #endif
 
-#define CF_VERSION_MAJOR	0
-#define CF_VERSION_MINOR	0
-#define CF_VERSION_PATCH	1
-#define CF_VERSION_STATE	"devel"
+#define CF_VERSION_MAJOR        0
+#define CF_VERSION_MINOR        0
+#define CF_VERSION_PATCH        1
+#define CF_VERSION_STATE        "devel"
 
 
-#define CF_RESULT_ERROR     0
-#define CF_RESULT_OK		1
-#define CF_RESULT_RETRY     2
+#define CF_RESULT_ERROR         0
+#define CF_RESULT_OK            1
+#define CF_RESULT_RETRY         2
 
 #define CF_TLS_VERSION_1_2      0
 #define CF_TLS_VERSION_1_1      1

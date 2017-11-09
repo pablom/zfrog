@@ -137,7 +137,7 @@ void cf_log(int prio, const char *fmt, ...)
 	}
 }
 
-size_t cf_strlcpy(char *dst, const char *src, const size_t len)
+size_t cf_strlcpy( char *dst, const char *src, const size_t len )
 {
     char *d = dst;
     const char *s = src;
@@ -163,10 +163,10 @@ size_t cf_strlcpy(char *dst, const char *src, const size_t len)
 
 	return (s - src);
 }
-/*
+/****************************************************************
  * Version of strncpy that ensures dest (size bytes)
- * is null-terminated.
- */
+ * is null-terminated
+ ****************************************************************/
 char* cf_strncpy0( char *dst, const char *src, size_t len )
 {
     strncpy(dst, src, len);
@@ -272,8 +272,10 @@ uint64_t cf_strtonum64( const char *str, int sign, int *err )
     *err = CF_RESULT_OK;
     return ((sign) ? (uint64_t)ll : l);
 }
-
-int cf_split_string(char *input, const char *delim, char **out, size_t ele)
+/****************************************************************
+ *  Helper function split string by delimiter
+ ****************************************************************/
+int cf_split_string( char *input, const char *delim, char **out, size_t ele )
 {
     int	count = 0;
     char **ap;
@@ -295,7 +297,7 @@ int cf_split_string(char *input, const char *delim, char **out, size_t ele)
     return count;
 }
 
-void cf_strip_chars(char *in, const char strip, char **out)
+void cf_strip_chars( char *in, const char strip, char **out )
 {
     uint32_t len = 0;
     char *s, *p;
@@ -314,8 +316,10 @@ void cf_strip_chars(char *in, const char strip, char **out)
 
 	*p = '\0';
 }
-
-time_t cf_date_to_time(char *http_date)
+/****************************************************************
+ *  Convert HTTP date/time string buffer to time structure
+ ****************************************************************/
+time_t cf_date_to_time( char *http_date )
 {
     time_t t;
     int err, i;
@@ -418,7 +422,9 @@ time_t cf_date_to_time(char *http_date)
     mem_free( sdup );
     return t;
 }
-
+/****************************************************************
+ *  Convert current time structure to string buffer
+ ****************************************************************/
 char* cf_time_to_date( time_t now )
 {
     struct tm *tm;
@@ -615,7 +621,9 @@ int cf_base64_decode( char *in, size_t ilen, uint8_t **out, size_t *olen )
     *out = cf_buf_release(res, olen);
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Helper function to find bytes in 'src' memory buffer
+ ****************************************************************/
 void* cf_mem_find( void *src, size_t slen, void *needle, size_t len )
 {
     size_t pos = 0;

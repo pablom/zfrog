@@ -6,7 +6,7 @@
 #include <openssl/evp.h>
 #include <openssl/aes.h>
 
-#define FILE_MAGIC 0xfe8a
+#define FILE_MAGIC 0xFE8A
 
 struct cryptfile
 {
@@ -15,10 +15,15 @@ struct cryptfile
     uint8_t     iv[32];
 };
 
+/* Forward function declaration */
+static int read_header( CF_FILE *file );
+static void write_header( CF_FILE *file );
 static void file_crypt(int should_encrypt, FILE *ifp, FILE *ofp, unsigned char *ckey, unsigned char *ivec);
 
-
-static int read_header(CF_FILE *file)
+/****************************************************************
+ *  Helper function to read file header
+ ****************************************************************/
+static int read_header( CF_FILE *file )
 {
     static struct cryptfile hdr;
 
@@ -37,8 +42,10 @@ static int read_header(CF_FILE *file)
 
     return 0;
 }
-
-static void write_header(CF_FILE *file)
+/****************************************************************
+ *  Helper function to write file header
+ ****************************************************************/
+static void write_header( CF_FILE *file )
 {
     static struct cryptfile hdr;
 
@@ -57,7 +64,9 @@ static void write_header(CF_FILE *file)
     file->keysz = hdr.keysz;
     file->has_header = 1;
 }
-
+/****************************************************************
+ *  Open file stream by path
+ ****************************************************************/
 CF_FILE* cf_fopen( const char *path, const char *mode )
 {
     CF_FILE *file = mem_malloc(sizeof(CF_FILE));
@@ -73,13 +82,17 @@ CF_FILE* cf_fopen( const char *path, const char *mode )
 
     return file;
 }
-
+/****************************************************************
+ *  Set crypto key for file stream object
+ ****************************************************************/
 void cf_fkey( unsigned char key[], CF_FILE *file )
 {
     file->key = key;
 }
-
-size_t cf_fread(void *ptr, size_t size, size_t nmemb, CF_FILE* file)
+/****************************************************************
+ *  Read data from file stream
+ ****************************************************************/
+size_t cf_fread( void *ptr, size_t size, size_t nmemb, CF_FILE* file )
 {
     if( !file->has_header )
     {
@@ -89,7 +102,9 @@ size_t cf_fread(void *ptr, size_t size, size_t nmemb, CF_FILE* file)
 
     return fread(ptr, size, nmemb, file->fp);
 }
-
+/****************************************************************
+ *  Write data to file stream
+ ****************************************************************/
 size_t cf_fwrite( const void *ptr, size_t size, size_t nmemb, CF_FILE *file )
 {
     if( !file->has_header )
@@ -97,7 +112,9 @@ size_t cf_fwrite( const void *ptr, size_t size, size_t nmemb, CF_FILE *file )
 
     return fwrite(ptr, size * nmemb, nmemb, file->fp);
 }
-
+/****************************************************************
+ *  Get file stream size
+ ****************************************************************/
 size_t cf_fsize( CF_FILE *file )
 {
     size_t filesz;
@@ -110,15 +127,19 @@ size_t cf_fsize( CF_FILE *file )
 
     return filesz - sizeof(struct cryptfile);
 }
-
+/****************************************************************
+ *  Close file stream
+ ****************************************************************/
 int cf_fclose( CF_FILE *file )
 {
     int ret = fclose(file->fp);
     mem_free(file);
     return ret;
 }
-
-static void file_crypt(int should_encrypt, FILE *ifp, FILE *ofp, unsigned char *ckey, unsigned char *ivec)
+/****************************************************************
+ *  Helper function to crypt file stream
+ ****************************************************************/
+static void file_crypt( int should_encrypt, FILE *ifp, FILE *ofp, unsigned char *ckey, unsigned char *ivec )
 {
     const unsigned int bufsize = 4096;
     unsigned char *read_buf = malloc(bufsize);
