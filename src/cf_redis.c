@@ -1,6 +1,5 @@
 // cf_redis.c
 
-#include <hiredis/hiredis.h>
 #include "zfrog.h"
 #include "cf_redis.h"
 
@@ -47,6 +46,8 @@ static void redis_read_result(struct cf_redis*);
 static struct redis_conn* redis_conn_create(struct cf_redis*, struct redis_db*);
 static void redis_queue_wakeup(void);
 
+static int redis_vformat_command( char **target, const char *format, va_list ap );
+
 static uint32_t countDigits( uint64_t v );
 static size_t bulklen( size_t len );
 
@@ -67,6 +68,7 @@ uint16_t g_redis_conn_max = REDIS_CONN_MAX;
  ************************************************************************/
 void cf_redis_sys_init( void )
 {
+    char* target = NULL;
     /* Set current connection count */
     g_redis_conn_count = 0;
     /* Init list & queues */
@@ -76,6 +78,11 @@ void cf_redis_sys_init( void )
 
     cf_mem_pool_init(&g_redis_job_pool, "redis_job_pool", sizeof(struct redis_job), 100);        
     cf_mem_pool_init(&g_redis_wait_pool, "redis_wait_pool", sizeof(struct redis_wait), 100);
+
+
+    cf_redis_format_command( &target, "PING");
+    cf_redis_format_command( &target, "GET %s", "mmm");
+
 }
 /************************************************************************
  *  Redis system cleanup
@@ -135,7 +142,6 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
 
     if( (flags & CF_REDIS_ASYNC) && (flags & CF_REDIS_SYNC) )
     {
-        //pgsql_set_error(pgsql, "invalid query init parameters");
         return CF_RESULT_ERROR;
     }
 
@@ -143,7 +149,6 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
     {
         if( redis->req == NULL && redis->cb == NULL )
         {
-            //pgsql_set_error(pgsql, "nothing was bound");
             return CF_RESULT_ERROR;
         }
     }
@@ -158,7 +163,6 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
 
     if( db == NULL )
     {
-        //pgsql_set_error(pgsql, "no database found");
         return CF_RESULT_ERROR;
     }
 
@@ -251,7 +255,7 @@ int cf_redis_format_command( char **target, const char *format, ... )
     va_list ap;
     int len = -1;
     va_start(ap,format);
-    //len = redisvFormatCommand(target,format,ap);
+    len = redis_vformat_command(target, format, ap);
     va_end(ap);
 
     /* The API says "-1" means bad result, but we now also return "-2" in some
@@ -503,12 +507,64 @@ static size_t bulklen( size_t len )
 /************************************************************************
 *  Helper function create Redis command
 ************************************************************************/
-int redis_vformat_command( char **target, const char *format, va_list ap )
+static int redis_vformat_command( char **target, const char *format, va_list ap )
+{
+
+    //  *3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$8\r\nmy value\r\n
+    //	"*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$11\r\nhello world\r\n"	char*
+
+
+    int error_type = 0; /* 0 = no error; -1 = memory error; -2 = format error */
+    int touched = 0;     /* was the current argument touched? */
+    const char *c = format;
+
+    int totlen = 0;
+
+    struct cf_buf curarg;
+
+    cf_buf_init( &curarg, 256);
+
+    while( *c != '\0' )
+    {
+        if( *c != '%' || c[1] == '\0' )
+        {
+            if( *c == ' ' )
+            {
+                curargv = mem_realloc( curargv, sizeof(char*)* (argc + 1) );
+                curargv[argc++] = curarg;
+                /* Increment total length */
+                totlen += bulklen( curarg->offset );
+
+                pos += sprintf(cmd+pos,"$%zu\r\n",sdslen(curargv[j]));
+                memcpy(cmd+pos,curargv[j],sdslen(curargv[j]));
+                pos += sdslen(curargv[j]);
+            }
+            else
+            {
+                cf_buf_append( &curarg, c, 1);
+                touched = 1;
+            }
+        }
+        else
+        {
+
+        }
+
+        c++;
+    }
+
+
+    totlen = bulklen(3);
+
+    return error_type + totlen;
+}
+#ifdef MMM
+int redis_vformat_command00( char **target, const char *format, va_list ap )
 {
     const char *c = format;
     char *cmd = NULL;       /* final command */
-    int pos;                /* position in final command */
-//    sds curarg, newarg;     /* current argument */
+    int pos;                /* position in final command */   
+    struct cf_buf curarg, newarg;     /* current argument */
     int touched = 0;        /* was the current argument touched? */
     char **curargv = NULL;
     char **newargv = NULL;
@@ -522,9 +578,7 @@ int redis_vformat_command( char **target, const char *format, va_list ap )
         return -1;
 
     /* Build the command string accordingly to protocol */
-//    curarg = sdsempty();
-//    if( curarg == NULL )
-//        return -1;
+    cf_buf_init( &curarg, 256);
 
     while( *c != '\0' )
     {
@@ -765,3 +819,6 @@ cleanup:
 
     return error_type;
 }
+
+#endif
+

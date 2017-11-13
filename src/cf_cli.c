@@ -186,6 +186,7 @@ static void	cli_help(int, char **);
 static void	cli_info(int, char **);
 static void	cli_build(int, char **);
 static void	cli_clean(int, char **);
+static void cli_distclean(int, char **);
 static void	cli_create(int, char **);
 static void	cli_reload(int, char **);
 static void	cli_flavor(int, char **);
@@ -199,7 +200,8 @@ static struct cmd cmds[] = {
     { "reload",	"reload the application (SIGHUP)",      cli_reload },
     { "info",	"show info on zfrog on this system",	cli_info },
     { "build",	"build an application",                 cli_build },
-    { "clean",	"cleanup the build files",              cli_clean },
+    { "clean",	"cleanup the objects files",            cli_clean },
+    { "distclean",	"cleanup the build files",          cli_distclean },
 	{ "create",	"create a new application skeleton",	cli_create },
     { "flavor",	"switch between build flavors",         cli_flavor },
 	{ NULL,		NULL,					NULL }
@@ -666,21 +668,27 @@ static void cli_build( int argc, char **argv )
 		cli_buildopt_cleanup();
 }
 /*----------------------------------------------------------------------------*/
-static void cli_clean(int argc, char **argv)
+static void cli_clean( int argc, char **argv )
+{
+    if( cli_dir_exists(".objs") )
+		cli_cleanup_files(".objs");
+}
+/*----------------------------------------------------------------------------*/
+static void cli_distclean(int argc, char **argv )
 {
     char pwd[PATH_MAX], *sofile;
 
-    if( cli_dir_exists(".objs") )
-		cli_cleanup_files(".objs");
+    /* Clean objects file first */
+    cli_clean( argc, argv );
 
     if( getcwd(pwd, sizeof(pwd)) == NULL ) {
         cli_fatal("could not get cwd: %s", errno_s);
     }
 
-	appl = basename(pwd);
+    appl = basename(pwd);
     cli_vasprintf(&sofile, "%s.so", appl);
     if( unlink(sofile) == -1 && errno != ENOENT )
-		printf("couldn't unlink %s: %s", sofile, errno_s);
+        printf("couldn't unlink %s: %s", sofile, errno_s);
 
     free( sofile );
 }
@@ -1740,7 +1748,7 @@ static void cli_build_flags_common( struct buildopt *bopt, struct cli_buf *buf )
     cli_proc_path( pwd, sizeof(pwd) );
 
     /* Add global includes */
-    cli_buf_appendf(buf, "-fPIC -Isrc -Isrc/include ");
+    cli_buf_appendf(buf, "-fPIC -Isrc -Isrc/include -Iobj/include ");
 
     /* Try to find  include folder in 'PREFIX' */
     cli_vasprintf(&path, "%s/include", PREFIX);
@@ -1763,11 +1771,21 @@ static void cli_build_flags_common( struct buildopt *bopt, struct cli_buf *buf )
     /* Delete temporary buffer */
     free( path );
 
+    /* Try to find 'include' folder in startup folder */
+    cli_vasprintf(&path, "%s/obj/include", pwd);
+
+    if( cli_dir_exists( path ) )
+        cli_buf_appendf(buf, "-I%s/obj/include ", pwd);
+
+    /* Delete temporary buffer */
+    free( path );
+
 #if defined(__MACH__)
 	/* Add default openssl include path from homebrew / ports under OSX. */
 	cli_buf_appendf(buf, "-I/opt/local/include ");
 	cli_buf_appendf(buf, "-I/usr/local/opt/openssl/include ");
 #endif
+
     if( bopt->single_binary == 0 )
     {
         cli_features(bopt, &data, &len);
@@ -1789,6 +1807,7 @@ static void cli_build_cflags( struct buildopt *bopt )
     if( bopt->cflags == NULL )
 		bopt->cflags = cli_buf_alloc(128);
 
+    /* Add common */
 	cli_build_flags_common(bopt, bopt->cflags);
 
     if( obopt != NULL && obopt->cflags != NULL )
@@ -1834,7 +1853,7 @@ static void cli_build_cxxflags(struct buildopt *bopt)
 	cxxflags_count = cli_split_string(string, " ", cxxflags, CXXFLAGS_MAX);
 }
 /* ----------------------------------------------------------------------------*/
-static void cli_build_ldflags(struct buildopt *bopt)
+static void cli_build_ldflags( struct buildopt *bopt )
 {
     int	fd;
     size_t len;
@@ -1857,11 +1876,11 @@ static void cli_build_ldflags(struct buildopt *bopt)
     }
     else
     {
-		cli_file_open(".objs/ldflags", O_RDONLY, &fd);
+        cli_file_open(".obj/ldflags", O_RDONLY, &fd);
 		cli_file_read(fd, &buf, &len);
 		cli_file_close(fd);
         if( len == 0 )
-            cli_fatal(".objs/ldflags is empty");
+            cli_fatal(".obj/ldflags is empty");
         len--;
 
 		cli_buf_append(bopt->ldflags, buf, len);
@@ -1927,7 +1946,7 @@ static void cli_features( struct buildopt *bopt, char **out, size_t *outlen )
 
     if( bopt->single_binary )
     {
-        cli_vasprintf(&path, ".objs/features");
+        cli_vasprintf(&path, ".obj/features");
     }
     else
     {

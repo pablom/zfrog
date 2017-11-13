@@ -899,5 +899,13 @@ size_t cf_uuid_buffer( char buffer[], size_t size )
 
     return data_bytes;
 }
-
+/****************************************************************
+ * Helper function that returns non zero if 'c'
+ * is a valid hex digit
+ ****************************************************************/
+int cf_is_hex_digit( char c )
+{
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+           (c >= 'A' && c <= 'F');
+}
 

@@ -235,7 +235,7 @@ void cf_task_handle( struct cf_task *t, int finished )
 /****************************************************************
  *  Get task state function
  ****************************************************************/
-int cf_task_state(struct cf_task *t)
+int cf_task_state( struct cf_task *t )
 {
 	int	s;
 

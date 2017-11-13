@@ -42,7 +42,9 @@ static void	keymgr_ecdsa_sign(struct cf_msg *, const void *, struct key *);
 static void keymgr_pkcs11_rsa_encrypt(struct cf_msg *, const void *, struct key *);
 
 
-
+/****************************************************************
+ *  Key manager worker main entry function
+ ****************************************************************/
 void cf_keymgr_run( void )
 {
     int quit = 0;  
@@ -116,7 +118,9 @@ void cf_keymgr_run( void )
     connection_cleanup();
 	net_cleanup();
 }
-
+/****************************************************************
+ *  Key manager cleanup function
+ ****************************************************************/
 void cf_keymgr_cleanup(void)
 {
     struct key	*key, *next;
@@ -138,7 +142,9 @@ void cf_keymgr_cleanup(void)
 		mem_free(key);
 	}
 }
-
+/****************************************************************
+ *  Helper function to load private key for domain
+ ****************************************************************/
 static void keymgr_load_privatekey( struct cf_domain *dom )
 {
     FILE *fp = NULL;

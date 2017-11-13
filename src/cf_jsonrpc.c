@@ -83,7 +83,9 @@ void jsonrpc_log(struct jsonrpc_request *req, int lvl, const char *fmt, ...)
 
 	append_log(&req->log, lvl, msg);
 }
-
+/****************************************************************
+ *  Read JSON buffer from HTTP body
+ ****************************************************************/
 static int read_json_body( struct http_request *http_req, struct jsonrpc_request *req )
 {
     char *body_string = NULL;
@@ -137,7 +139,9 @@ static int read_json_body( struct http_request *http_req, struct jsonrpc_request
 
     return 0;
 }
-
+/****************************************************************
+ *  Parse JSON body
+ ****************************************************************/
 static int parse_json_body( struct jsonrpc_request *req )
 {
     static const char *proto_path[]  = { "jsonrpc", NULL };
@@ -204,7 +208,7 @@ static int parse_json_body( struct jsonrpc_request *req )
     return 0;
 }
 
-int jsonrpc_read_request(struct http_request *http_req, struct jsonrpc_request *req)
+int jsonrpc_read_request( struct http_request *http_req, struct jsonrpc_request *req )
 {
 	int	ret;
 
@@ -217,8 +221,10 @@ int jsonrpc_read_request(struct http_request *http_req, struct jsonrpc_request *
 
 	return parse_json_body(req);
 }
-
-static int write_id(yajl_gen gen, yajl_val id)
+/****************************************************************
+ *  Write response JRPC id
+ ****************************************************************/
+static int write_id( yajl_gen gen, yajl_val id )
 {
 	int	status;
 
@@ -347,7 +353,7 @@ static int write_error(struct jsonrpc_request *req, int code, const char *messag
     return status;
 }
 
-static const char * known_msg(int code)
+static const char * known_msg( int code )
 {
     switch( code )
     {
@@ -370,7 +376,7 @@ static const char * known_msg(int code)
 	}
 }
 
-int jsonrpc_error(struct jsonrpc_request *req, int code, const char *msg)
+int jsonrpc_error( struct jsonrpc_request *req, int code, const char *msg )
 {
     char *msg_fallback = NULL;
 	const unsigned char	*body = NULL;
@@ -425,7 +431,7 @@ int jsonrpc_error(struct jsonrpc_request *req, int code, const char *msg)
     return CF_RESULT_OK;
 }
 
-int jsonrpc_result(struct jsonrpc_request *req, int (*write_result)(struct jsonrpc_request *, void *), void *ctx)
+int jsonrpc_result( struct jsonrpc_request *req, int (*write_result)(struct jsonrpc_request *, void *), void *ctx )
 {
 	const unsigned char	*body = NULL;
     size_t body_len = 0;

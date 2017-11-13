@@ -157,7 +157,7 @@ void cf_pgsql_bind_callback( struct cf_pgsql *pgsql, void (*cb)(struct cf_pgsql 
     pgsql->arg = arg;
 }
 
-int cf_pgsql_query(struct cf_pgsql *pgsql, const char *query)
+int cf_pgsql_query( struct cf_pgsql *pgsql, const char *query )
 {
     if( pgsql->conn == NULL )
     {
@@ -192,7 +192,7 @@ int cf_pgsql_query(struct cf_pgsql *pgsql, const char *query)
     return CF_RESULT_OK;
 }
 
-int cf_pgsql_v_query_params(struct cf_pgsql *pgsql, const char *query, int result, uint8_t count, va_list args)
+int cf_pgsql_v_query_params( struct cf_pgsql *pgsql, const char *query, int result, uint8_t count, va_list args )
 {
 	uint8_t	i;
     char **values;
@@ -518,9 +518,8 @@ static void pgsql_set_error( struct cf_pgsql *pgsql, const char *msg )
 
 static void pgsql_schedule( struct cf_pgsql *pgsql )
 {
-    int	fd;
+    int	fd = PQsocket(pgsql->conn->db);
 
-	fd = PQsocket(pgsql->conn->db);
     if( fd < 0 )
 		cf_fatal("PQsocket returned < 0 fd on open connection");
 

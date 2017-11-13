@@ -740,6 +740,7 @@ int cf_sockopt( int fd, int what, int opt );
 size_t cf_random_buffer( unsigned char [], size_t, int );
 const char * cf_file_extension( const char * );
 size_t cf_uuid_buffer( char [], size_t );
+int cf_is_hex_digit( char c );
 
 /* Mustache template parser */
 #ifdef CF_TMUSTACHE
