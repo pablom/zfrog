@@ -339,78 +339,81 @@ $(OBJDIR)/lib/libyajl_s.a: $(OBJDIR)/$(YAJL)
 	@touch $@
 
 ########################################################################
-#  Test applications build section
+#  Example applications build section
 ########################################################################
-test-generic:
+example-generic:
 	cd examples/generic && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-jsonrpc:
+example-jsonrpc:
 	cd examples/jsonrpc && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-integers:
+example-integers:
 	cd examples/integers && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-cookies:
+example-cookies:
 	cd examples/cookies && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-cpp:
+example-cpp:
 	cd examples/cpp && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-headers:
+example-headers:
 	cd examples/headers && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-memtag:
+example-memtag:
 	cd examples/memtag && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-messaging:
+example-messaging:
 	cd examples/messaging && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-parameters:
+example-parameters:
 	cd examples/parameters && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-sse:
+example-sse:
 	cd examples/sse && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-upload:
+example-upload:
 	cd examples/upload && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-video_stream:
+example-video_stream:
 	cd examples/video_stream && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-websocket:
+example-websocket:
 	cd examples/websocket && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-ztunnel:
+example-ztunnel:
 	cd examples/ztunnel && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-pipe_task:
+example-pipe_task:
 	cd examples/pipe_task && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-lua:
+example-lua:
 	cd examples/lua && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
+
+example-redis:
+	cd examples/redis && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
 ########################################################################
 # no HTTP support examples 
 ########################################################################
-test-nohttp:
+example-nohttp:
 	cd examples/nohttp && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-sock_serv_echo:
+example-sock_serv_echo:
 	cd examples/sock_serv_echo && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-tls-proxy:
+example-tls-proxy:
 	cd examples/tls-proxy && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-tasks:
+example-tasks:
 	cd examples/tasks && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-test-json_yajl:
+example-json_yajl:
 	cd examples/json_yajl && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
 
 # Build all test applications by default
-test-all: test-generic test-integers test-websocket test-parameters test-memtag \
-          test-headers test-cookies test-messaging
+example-all: example-generic example-integers example-websocket example-parameters example-memtag \
+          example-headers example-cookies example-messaging
 
 
 

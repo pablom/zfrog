@@ -1,10 +1,10 @@
-// pgsql.c
+// redis.c
 
 #if !defined(CF_NO_HTTP)
 
 #include <zfrog.h>
 #include <cf_http.h>
-#include <cf_pgsql.h>
+#include <cf_redis.h>
 
 #define REQ_STATE_INIT			0
 #define REQ_STATE_QUERY			1
@@ -36,8 +36,8 @@ struct http_state	mystates[] =
 
 struct rstate
 {
-	int			cnt;
-    struct cf_pgsql	sql;
+    int             cnt;
+    struct cf_redis	rd;
 };
 /****************************************************************************
  *  Page handler entry point (see config)
@@ -61,12 +61,12 @@ int request_perform_init( struct http_request *req )
 		state = http_state_create(req, sizeof(*state));
 
 		/*
-         * Initialize the cf_pgsql data structure and bind it
+         * Initialize the cf_redis data structure and bind it
 		 * to this request so we can be put to sleep / woken up
-		 * by the pgsql layer when required.
+         * by the redis layer when required
 		 */
-        cf_pgsql_init(&state->sql);
-        cf_pgsql_bind_request(&state->sql, req);
+        cf_redis_init( &state->rd );
+        cf_redis_bind_request( &state->rd, req );
     }
     else
     {
@@ -77,20 +77,20 @@ int request_perform_init( struct http_request *req )
 	 * Setup the query to be asynchronous in nature, aka just fire it
 	 * off and return back to us.
 	 */
-    if( !cf_pgsql_setup(&state->sql, "db", CF_PGSQL_ASYNC) )
+    if( !cf_redis_setup( &state->rd, "db", CF_REDIS_ASYNC) )
     {
 		/*
 		 * If the state was still in INIT we need to go to sleep and
 		 * wait until the pgsql layer wakes us up again when there
 		 * an available connection to the database.
 		 */
-        if( state->sql.state == CF_PGSQL_STATE_INIT )
+        if( state->rd.state == CF_REDIS_STATE_INIT )
         {
 			req->fsm_state = REQ_STATE_INIT;
             return HTTP_STATE_RETRY;
 		}
 
-        cf_pgsql_logerror(&state->sql);
+        cf_redis_logerror( &state->rd );
 		req->fsm_state = REQ_STATE_ERROR;
     }
     else
@@ -108,13 +108,15 @@ int request_perform_init( struct http_request *req )
  ****************************************************************************/
 int request_perform_query( struct http_request *req )
 {
-	struct rstate	*state = http_state_get(req);
+ //   struct rstate *state = http_state_get(req);
 
 	/* We want to move to read result after this. */
 	req->fsm_state = REQ_STATE_DB_WAIT;
 
-	/* Fire off the query. */
-    if( !cf_pgsql_query(&state->sql,"SELECT * FROM coders, pg_sleep(5)") )
+
+#ifdef MMM
+    /* Fire off the query */
+    if( !cf_redis_query( &state->rd,"SELECT * FROM coders, pg_sleep(5)") )
     {
 		/*
 		 * Let the state machine continue immediately since we
@@ -122,6 +124,7 @@ int request_perform_query( struct http_request *req )
 		 */
         return HTTP_STATE_CONTINUE;
 	}
+#endif
 
     /* Resume state machine later when the query results start coming in */
     return HTTP_STATE_RETRY;
@@ -135,29 +138,29 @@ int request_db_wait( struct http_request *req )
 {
     struct rstate *state = http_state_get(req);
 
-    cf_log(LOG_NOTICE, "request_db_wait: %d", state->sql.state);
+    cf_log(LOG_NOTICE, "request_db_wait: %d", state->rd.state);
 
 	/*
 	 * When we get here, our asynchronous pgsql query has
 	 * given us something, check the state to figure out what.
 	 */
-    switch( state->sql.state )
+    switch( state->rd.state )
     {
-    case CF_PGSQL_STATE_WAIT:
+    case CF_REDIS_STATE_WAIT:
         return HTTP_STATE_RETRY;
-    case CF_PGSQL_STATE_COMPLETE:
+    case CF_REDIS_STATE_COMPLETE:
 		req->fsm_state = REQ_STATE_DONE;
 		break;
-    case CF_PGSQL_STATE_ERROR:
+    case CF_REDIS_STATE_ERROR:
 		req->fsm_state = REQ_STATE_ERROR;
-        cf_pgsql_logerror(&state->sql);
+        cf_redis_logerror( &state->rd );
 		break;
-    case CF_PGSQL_STATE_RESULT:
+    case CF_REDIS_STATE_RESULT:
 		req->fsm_state = REQ_STATE_DB_READ;
 		break;
 	default:
 		/* This MUST be present in order to advance the pgsql state */
-        cf_pgsql_continue(&state->sql);
+        cf_redis_continue( &state->rd );
 		break;
 	}
 
@@ -174,6 +177,8 @@ int request_db_read( struct http_request *req )
     int	i, rows;
     struct rstate *state = http_state_get(req);
 
+#ifdef MMM
+
 	/* We have sql data to read! */
     rows = cf_pgsql_ntuples(&state->sql);
     for( i = 0; i < rows; i++ )
@@ -181,11 +186,11 @@ int request_db_read( struct http_request *req )
         name = cf_pgsql_getvalue(&state->sql, i, 0);
         cf_log(LOG_NOTICE, "name: '%s'", name);
 	}
-
+#endif
     /* Continue processing our query results */
-    cf_pgsql_continue(&state->sql);
+    cf_redis_continue( &state->rd );
 
-	/* Back to our DB waiting state. */
+    /* Back to our DB waiting state */
 	req->fsm_state = REQ_STATE_DB_WAIT;
     return HTTP_STATE_CONTINUE;
 }
@@ -194,7 +199,7 @@ int request_error( struct http_request *req )
 {
     struct rstate *state = http_state_get(req);
 
-    cf_pgsql_cleanup(&state->sql);
+    cf_redis_cleanup( &state->rd );
 	http_state_cleanup(req);
 
 	http_response(req, 500, NULL, 0);
@@ -206,7 +211,7 @@ int request_done( struct http_request *req )
 {
     struct rstate *state = http_state_get( req );
 
-    cf_pgsql_cleanup(&state->sql);
+    cf_redis_cleanup( &state->rd );
 	http_state_cleanup(req);
 
 	http_response(req, 200, NULL, 0);

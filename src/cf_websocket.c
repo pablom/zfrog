@@ -94,7 +94,7 @@ void cf_websocket_handshake( struct http_request *req,
     req->owner->idle_timer.start = cf_time_ms();
     req->owner->idle_timer.length = cf_websocket_timeout;
 
-    if (onconnect != NULL)
+    if( onconnect != NULL )
     {
         req->owner->ws_connect = cf_runtime_getcall(onconnect);
         if( req->owner->ws_connect == NULL )

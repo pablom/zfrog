@@ -43,7 +43,6 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
-#include <stdarg.h>
 
 //#define __CONNECTION_PACKED __attribute__ ((__packed__))
 #define __CONNECTION_PACKED
@@ -131,38 +130,39 @@ struct netbuf
 
 TAILQ_HEAD(netbuf_head, netbuf);
 
-#define CF_TYPE_LISTENER        1
-#define CF_TYPE_CONNECTION      2
-#define CF_TYPE_PGSQL_CONN      3
-#define CF_TYPE_REDIS           4
-#define CF_TYPE_TASK            5
+#define CF_TYPE_LISTENER            1
+#define CF_TYPE_CONNECTION          2
+#define CF_TYPE_PGSQL_CONN          3
+#define CF_TYPE_REDIS               4
+#define CF_TYPE_TASK                5
 
 #define CONN_STATE_UNKNOWN          0
 #define CONN_STATE_SSL_SHAKE		1
 #define CONN_STATE_ESTABLISHED		2
 #define CONN_STATE_DISCONNECTING	3
 
-#define CONN_PROTO_UNKNOWN      0
-#define CONN_PROTO_HTTP         1
-#define CONN_PROTO_WEBSOCKET	2
-#define CONN_PROTO_MSG          3
+#define CONN_PROTO_UNKNOWN          0
+#define CONN_PROTO_HTTP             1
+#define CONN_PROTO_WEBSOCKET        2
+#define CONN_PROTO_MSG              3
+#define CONN_PROTO_REDIS            4
 
-#define CONN_READ_POSSIBLE      0x01
-#define CONN_WRITE_POSSIBLE     0x02
-#define CONN_WRITE_BLOCK        0x04
-#define CONN_IDLE_TIMER_ACT     0x10
-#define CONN_READ_BLOCK         0x20
-#define CONN_CLOSE_EMPTY        0x40
-#define CONN_WS_CLOSE_SENT      0x80
+#define CONN_READ_POSSIBLE          0x01
+#define CONN_WRITE_POSSIBLE         0x02
+#define CONN_WRITE_BLOCK            0x04
+#define CONN_IDLE_TIMER_ACT         0x10
+#define CONN_READ_BLOCK             0x20
+#define CONN_CLOSE_EMPTY            0x40
+#define CONN_WS_CLOSE_SENT          0x80
 
-#define CF_IDLE_TIMER_MAX       20000
+#define CF_IDLE_TIMER_MAX           20000
 
-#define WEBSOCKET_OP_CONT       0x00
-#define WEBSOCKET_OP_TEXT       0x01
-#define WEBSOCKET_OP_BINARY     0x02
-#define WEBSOCKET_OP_CLOSE      0x08
-#define WEBSOCKET_OP_PING       0x09
-#define WEBSOCKET_OP_PONG       0x10
+#define WEBSOCKET_OP_CONT           0x00
+#define WEBSOCKET_OP_TEXT           0x01
+#define WEBSOCKET_OP_BINARY         0x02
+#define WEBSOCKET_OP_CLOSE          0x08
+#define WEBSOCKET_OP_PING           0x09
+#define WEBSOCKET_OP_PONG           0x10
 
 #define WEBSOCKET_BROADCAST_LOCAL           1
 #define WEBSOCKET_BROADCAST_GLOBAL          2
@@ -736,6 +736,8 @@ void cf_init_pkcs11_module(void);
 int cf_cloexec_ioctl(int fd, int set);
 int cf_get_backlog_size(void);
 int cf_sockopt( int fd, int what, int opt );
+int cf_tcp_socket(const char*, int/*SOCK_STREAM*/);
+
 
 size_t cf_random_buffer( unsigned char [], size_t, int );
 const char * cf_file_extension( const char * );

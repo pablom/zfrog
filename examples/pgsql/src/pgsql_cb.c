@@ -30,7 +30,7 @@ void connection_new( struct connection *c )
 	db_init(c, pgsql);
 }
 
-void db_init(struct connection *c, struct cf_pgsql *pgsql)
+void db_init( struct connection *c, struct cf_pgsql *pgsql )
 {
     if( !cf_pgsql_setup(pgsql, "db", CF_PGSQL_ASYNC) )
     {

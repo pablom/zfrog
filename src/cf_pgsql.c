@@ -65,8 +65,8 @@ void cf_pgsql_sys_cleanup( void )
 {
     struct pgsql_conn *conn, *next;
 
-    cf_mem_pool_cleanup(&pgsql_job_pool);
-    cf_mem_pool_cleanup(&pgsql_wait_pool);
+    cf_mem_pool_cleanup( &pgsql_job_pool );
+    cf_mem_pool_cleanup( &pgsql_wait_pool );
 
     for(conn = TAILQ_FIRST(&pgsql_conn_free); conn != NULL; conn = next)
     {
@@ -275,8 +275,10 @@ int cf_pgsql_query_params(struct cf_pgsql *pgsql, const char *query, int result,
 
     return ret;
 }
-
-int cf_pgsql_register(const char *dbname, const char *connstring)
+/************************************************************************
+ *  Helper function to register PQSQL new one connection
+ ************************************************************************/
+int cf_pgsql_register( const char *dbname, const char *connstring )
 {
     struct pgsql_db	*pgsqldb = NULL;
 
@@ -296,7 +298,7 @@ int cf_pgsql_register(const char *dbname, const char *connstring)
     return CF_RESULT_OK;
 }
 
-void cf_pgsql_handle(void *c, int err)
+void cf_pgsql_handle( void *c, int err )
 {
     struct cf_pgsql	*pgsql = NULL;
     struct pgsql_conn *conn = (struct pgsql_conn *)c;
@@ -342,39 +344,37 @@ void cf_pgsql_handle(void *c, int err)
 
 void cf_pgsql_continue( struct cf_pgsql *pgsql )
 {
-    log_debug("cf_pgsql_continue: %p->%p (%d)", req->owner, req, pgsql->state);
-
     if( pgsql->error )
     {
         mem_free(pgsql->error);
-		pgsql->error = NULL;
-	}
+        pgsql->error = NULL;
+    }
 
     if( pgsql->result )
     {
-		PQclear(pgsql->result);
-		pgsql->result = NULL;
-	}
+        PQclear(pgsql->result);
+        pgsql->result = NULL;
+    }
 
     switch( pgsql->state )
     {
     case CF_PGSQL_STATE_INIT:
     case CF_PGSQL_STATE_WAIT:
-		break;
+        break;
     case CF_PGSQL_STATE_DONE:
 #ifndef CF_NO_HTTP
         if( pgsql->req != NULL )
-            http_request_wakeup( pgsql->req );
+            http_request_wakeup(pgsql->req);
 #endif
-		pgsql_conn_release(pgsql);
-		break;
+        pgsql_conn_release(pgsql);
+        break;
     case CF_PGSQL_STATE_ERROR:
     case CF_PGSQL_STATE_RESULT:
-        cf_pgsql_handle( pgsql->conn, 0 );
-		break;
-	default:
-		cf_fatal("unknown pgsql state %d", pgsql->state);
-	}
+        cf_pgsql_handle(pgsql->conn, 0);
+        break;
+    default:
+        cf_fatal("unknown pgsql state %d", pgsql->state);
+    }
 }
 
 void cf_pgsql_cleanup( struct cf_pgsql *pgsql )

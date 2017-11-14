@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
+#include <netdb.h>
 
 #include "zfrog.h"
 
@@ -908,4 +909,32 @@ int cf_is_hex_digit( char c )
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
            (c >= 'A' && c <= 'F');
 }
+/************************************************************************
+ *  Helper function create TCP/IP socket
+ ************************************************************************/
+int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ )
+{
+    int fd = -1;
+    struct addrinfo hints;
+    struct addrinfo *result = NULL;
 
+    /* Init structure */
+    memset( &hints, 0, sizeof(hints) );
+
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if( getaddrinfo(hostname, NULL, &hints, &result) != 0 )
+    {
+        cf_log(LOG_ERR, "getaddrinfo(): %s", errno_s);
+        return -1;
+    }
+
+    freeaddrinfo( result );
+
+    /* Try to create socket */
+    if( (fd = socket(AF_INET, type, 0)) < 0 )
+        cf_log(LOG_ERR, "socket(): %s", errno_s);
+
+    return fd;
+}

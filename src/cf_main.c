@@ -25,6 +25,7 @@
     #include "cf_lua.h"
 #endif
 
+#include "cf_redis.h"
 
 volatile sig_atomic_t sig_recv;
 

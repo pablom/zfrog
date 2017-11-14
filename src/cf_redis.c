@@ -3,13 +3,20 @@
 #include "zfrog.h"
 #include "cf_redis.h"
 
+#include <ctype.h>
+#include <netdb.h>
+
 #ifndef CF_NO_HTTP
     #include "cf_http.h"
 #endif
 
+/* Default timeouts, 5 seconds for connecting, 15 seconds otherwise. */
+#define REDIS_TIMEOUT			(15 * 1000)
+#define REDIS_CONNECT_TIMEOUT	(5 * 1000)
+
+
 #define REDIS_CONN_MAX      2        /* Default maximum redis connections */
 
-#define REDIS_CONN_FREE         0x0001
 #define REDIS_LIST_INSERTED     0x0100
 
 
@@ -18,6 +25,8 @@ struct redis_db
     char      *name;
     char      *host;
     uint16_t   port;
+    uint16_t   conn_max;
+    uint16_t   conn_count;
 
     LIST_ENTRY(redis_db) rlist;
 };
@@ -51,38 +60,31 @@ static int redis_vformat_command( char **target, const char *format, va_list ap 
 static uint32_t countDigits( uint64_t v );
 static size_t bulklen( size_t len );
 
+//static int redis_tcp_socket( struct redis_conn *conn, struct redis_db *db );
+
+
 /* Global variables */
-static uint16_t  g_redis_conn_count;
+static struct cf_mem_pool redis_job_pool;     /* Memory pool for Redis request job */
+static struct cf_mem_pool redis_wait_pool;
 
-static struct cf_mem_pool g_redis_job_pool;     /* Memory pool for Redis request job */
-static struct cf_mem_pool g_redis_wait_pool;
+static LIST_HEAD(, redis_db)     redis_db_hosts_list;  /* List of available Redis db hosts */
+static TAILQ_HEAD(, redis_conn)	 redis_conn_free_queue;
+static TAILQ_HEAD(, redis_wait)	 redis_wait_queue;
 
-static LIST_HEAD(, redis_db)     g_redis_db_hosts;  /* List of available Redis db hosts */
-static TAILQ_HEAD(, redis_conn)	 g_redis_conn_free;
-static TAILQ_HEAD(, redis_wait)	 g_redis_wait_queue;
-
-uint16_t g_redis_conn_max = REDIS_CONN_MAX;
+uint16_t redis_serv_conn_max = REDIS_CONN_MAX;
 
 /************************************************************************
  *  Redis system initialization
  ************************************************************************/
 void cf_redis_sys_init( void )
 {
-    char* target = NULL;
-    /* Set current connection count */
-    g_redis_conn_count = 0;
     /* Init list & queues */
-    LIST_INIT(&g_redis_db_hosts);
-    TAILQ_INIT(&g_redis_conn_free);
-    TAILQ_INIT(&g_redis_wait_queue);
+    LIST_INIT( &redis_db_hosts_list );
+    TAILQ_INIT( &redis_conn_free_queue );
+    TAILQ_INIT( &redis_wait_queue );
 
-    cf_mem_pool_init(&g_redis_job_pool, "redis_job_pool", sizeof(struct redis_job), 100);        
-    cf_mem_pool_init(&g_redis_wait_pool, "redis_wait_pool", sizeof(struct redis_wait), 100);
-
-
-    cf_redis_format_command( &target, "PING");
-    cf_redis_format_command( &target, "GET %s", "mmm");
-
+    cf_mem_pool_init( &redis_job_pool, "redis_job_pool", sizeof(struct redis_job), 100 );
+    cf_mem_pool_init( &redis_wait_pool, "redis_wait_pool", sizeof(struct redis_wait), 100);
 }
 /************************************************************************
  *  Redis system cleanup
@@ -91,10 +93,10 @@ void cf_redis_sys_cleanup( void )
 {
     struct redis_conn *conn, *next;
 
-    cf_mem_pool_cleanup(&g_redis_job_pool);
-    cf_mem_pool_cleanup(&g_redis_wait_pool);
+    cf_mem_pool_cleanup( &redis_job_pool );
+    cf_mem_pool_cleanup( &redis_wait_pool );
 
-    for( conn = TAILQ_FIRST(&g_redis_conn_free); conn != NULL; conn = next )
+    for( conn = TAILQ_FIRST(&redis_conn_free_queue); conn != NULL; conn = next )
     {
         next = TAILQ_NEXT(conn, list);
         redis_conn_cleanup(conn);
@@ -107,7 +109,7 @@ int cf_redis_register( char* name, char *host, int port )
 {
     struct redis_db *db = NULL;
 
-    LIST_FOREACH(db, &g_redis_db_hosts, rlist)
+    LIST_FOREACH(db, &redis_db_hosts_list, rlist)
     {
         if( !strcmp(db->host, host) )
             return CF_RESULT_ERROR;
@@ -116,12 +118,14 @@ int cf_redis_register( char* name, char *host, int port )
     db = mem_malloc(sizeof(*db));
     db->name = mem_strdup(name);
     db->host = mem_strdup(host);
-    db->port = port;
+    db->port = port > 0 ? port:6379;
+    db->conn_count = 0;
+    db->conn_max = redis_serv_conn_max;
 
     /* Add Redis host to our internal list */
-    LIST_INSERT_HEAD(&g_redis_db_hosts, db, rlist);
+    LIST_INSERT_HEAD( &redis_db_hosts_list, db, rlist );
 
-    cf_log(LOG_NOTICE, "redis adding host: %s (%d)", host, port);
+    cf_log(LOG_NOTICE, "redis adding (%s) host: %s (%d)", db->name, db->host, db->port);
 
     return CF_RESULT_OK;
 }
@@ -155,7 +159,7 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
 
     redis->flags |= flags;
 
-    LIST_FOREACH(db, &g_redis_db_hosts, rlist)
+    LIST_FOREACH(db, &redis_db_hosts_list, rlist)
     {
         if( !strcmp(db->name, dbname) )
             break;
@@ -171,7 +175,7 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
 
     if( redis->flags & CF_REDIS_ASYNC )
     {
-        redis->conn->job = cf_mem_pool_get(&g_redis_job_pool);
+        redis->conn->job = cf_mem_pool_get( &redis_job_pool );
         redis->conn->job->redis = redis;
     }
 
@@ -202,12 +206,11 @@ void cf_redis_cleanup( struct cf_redis *redis )
     }
 }
 /************************************************************************
- *  Deafault Redis handler function
+ *  Default Redis handler function
  ************************************************************************/
-void cf_redis_handle( void *c, int err )
+void cf_redis_handle( struct redis_conn *conn, int err )
 {
     struct cf_redis	*redis = NULL;
-    struct redis_conn *conn = (struct redis_conn *)c;
 
     if( err )
     {
@@ -271,27 +274,31 @@ int cf_redis_format_command( char **target, const char *format, ... )
 static struct redis_conn* redis_conn_next( struct cf_redis *redis, struct redis_db *db )
 {
     struct redis_conn *conn = NULL;
+    //struct cf_redis	*rollback = NULL;
 
-    TAILQ_FOREACH(conn, &g_redis_conn_free, list)
+    while( 1 )
     {
-        if( !(conn->flags & REDIS_CONN_FREE ) )
-            cf_fatal("got a redis connection that was not free?");
-        if( !strcmp(conn->name, db->name) )
-            break;
+        conn = NULL;
+
+        TAILQ_FOREACH(conn, &redis_conn_free_queue, list)
+        {
+            if( !(conn->flags & REDIS_CONN_FREE ) )
+                cf_fatal("got a redis connection that was not free?");
+            if( !strcmp(conn->name, db->name) )
+                break;
+        }
+
+        break;
     }
 
     if( conn == NULL )
     {
-        if( g_redis_conn_count >= g_redis_conn_max )
+        if( db->conn_max != 0 && db->conn_count >= db->conn_max )
         {
             if( redis->flags & CF_REDIS_ASYNC )
-            {
                 redis_queue_add( redis );
-            }
             else
-            {
                 redis_set_error(redis,"no available connection");
-            }
 
             return NULL;
         }
@@ -301,12 +308,12 @@ static struct redis_conn* redis_conn_next( struct cf_redis *redis, struct redis_
     }
 
     conn->flags &= ~REDIS_CONN_FREE;
-    TAILQ_REMOVE(&g_redis_conn_free, conn, list);
+    TAILQ_REMOVE(&redis_conn_free_queue, conn, list);
 
     return conn;
 }
 /************************************************************************
- *  Helper function Redis add to queue
+ *  Helper function Redis add to wait queue
  ************************************************************************/
 static void redis_queue_add( struct cf_redis *redis )
 {
@@ -317,9 +324,9 @@ static void redis_queue_add( struct cf_redis *redis )
         http_request_sleep( redis->req );
 #endif
 
-    rw = cf_mem_pool_get(&g_redis_wait_pool);
+    rw = cf_mem_pool_get( &redis_wait_pool );
     rw->redis = redis;
-    TAILQ_INSERT_TAIL(&g_redis_wait_queue, rw, list);
+    TAILQ_INSERT_TAIL( &redis_wait_queue, rw, list );
 }
 /************************************************************************
  *  Helper function Redis connection cleanup
@@ -331,7 +338,7 @@ static void redis_conn_cleanup( struct redis_conn *conn )
     log_debug("redis_conn_cleanup(): %p", conn);
 
     if( conn->flags & REDIS_CONN_FREE )
-        TAILQ_REMOVE(&g_redis_conn_free, conn, list);
+        TAILQ_REMOVE( &redis_conn_free_queue, conn, list );
 
     if( conn->job )
     {
@@ -344,11 +351,10 @@ static void redis_conn_cleanup( struct redis_conn *conn )
 
         redis->conn = NULL;
 
-        cf_mem_pool_put( &g_redis_job_pool, conn->job);
+        cf_mem_pool_put( &redis_job_pool, conn->job);
         conn->job = NULL;
     }
 
-    g_redis_conn_count--;
     mem_free(conn->name);
     mem_free(conn);
 }
@@ -375,9 +381,7 @@ static void redis_read_result( struct cf_redis *redis )
  ************************************************************************/
 static void redis_conn_release( struct cf_redis *redis )
 {
-    int	fd = -1;
-
-    if( redis->conn == NULL )
+    if( redis == NULL || redis->conn == NULL )
         return;
 
     /* Async query cleanup */
@@ -385,19 +389,18 @@ static void redis_conn_release( struct cf_redis *redis )
     {
         if( redis->flags & CF_REDIS_SCHEDULED )
         {
-            //fd = PQsocket(pgsql->conn->db);
-            cf_platform_disable_read( fd );
+            cf_platform_disable_read( redis->conn->fd );
 
-//            if( redis->state != CF_REDIS_STATE_DONE )
-//                redis_cancel( redis );
+            //if( redis->state != CF_REDIS_STATE_DONE )
+            //    redis_cancel( redis );
         }
 
-        cf_mem_pool_put(&g_redis_job_pool, redis->conn->job);
+        cf_mem_pool_put( &redis_job_pool, redis->conn->job );
     }
 
     redis->conn->job = NULL;
     redis->conn->flags |= REDIS_CONN_FREE;
-    TAILQ_INSERT_TAIL(&g_redis_conn_free, redis->conn, list);
+    TAILQ_INSERT_TAIL( &redis_conn_free_queue, redis->conn, list );
 
     redis->conn = NULL;
     redis->state = CF_REDIS_STATE_COMPLETE;
@@ -408,27 +411,121 @@ static void redis_conn_release( struct cf_redis *redis )
     redis_queue_wakeup();
 }
 /************************************************************************
- *  Helper function Redis connection release
+ *  Helper function create Redis TCP/IP socket
+ ************************************************************************/
+#ifdef MMM
+static int redis_tcp_socket( struct redis_conn *conn, struct redis_db *db )
+{
+    int rv = -1;
+    int fd;
+    struct addrinfo hints;
+    struct addrinfo *servinfo = NULL;
+    struct addrinfo *p = NULL;
+    char _port[6];
+
+    /* Init structure */
+    memset( &hints, 0, sizeof(hints) );
+
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    snprintf(_port, 6, "%d", db->port);
+
+    /* Try with IPv6 if no IPv4 address was found. We do it in this order since
+     * in a Redis client you can't afford to test if you have IPv6 connectivity
+     * as this would add latency to every connect. Otherwise a more sensible
+     * route could be: Use IPv6 if both addresses are available and there is IPv6
+     * connectivity. */
+    if( (rv = getaddrinfo( db->host, _port, &hints, &servinfo)) != 0 )
+    {
+        hints.ai_family = AF_INET6;
+        if( (rv = getaddrinfo( db->host, _port, &hints, &servinfo)) != 0 )
+        {
+            return CF_RESULT_ERROR;
+        }
+    }
+
+    for( p = servinfo; p != NULL; p = p->ai_next )
+    {
+        if( (fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1 )
+            continue;
+    }
+
+    if( fd != -1 )
+    {
+        conn->fd = fd;
+        return CF_RESULT_OK;
+    }
+
+    return CF_RESULT_OK;
+}
+#endif
+/************************************************************************
+ *  Helper function Redis connection create
  ************************************************************************/
 static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redis_db *db )
 {
-    struct redis_conn *conn = NULL;
+    struct redis_conn *rd_conn = NULL;
+    struct connection *conn = NULL;
+    int fd = -1;
 
     if( db == NULL || db->host == NULL )
         cf_fatal("redis_conn_create: no connection host");
 
-    g_redis_conn_count++;
+    /* Create socket */
+    if( (fd = cf_tcp_socket( db->host, SOCK_STREAM)) != -1 )
+    {
+        /* Set it to non blocking */
+        if( !cf_connection_nonblock(fd, 1) )
+        {
+            close( fd );
+            return NULL;
+        }
+
+        conn = cf_connection_new(NULL);
+
+        /* Prepare our connection. */
+        conn->addrtype = AF_INET;
+        conn->addr.ipv4.sin_family = AF_INET;
+        conn->addr.ipv4.sin_port = htons( db->port);
+        conn->addr.ipv4.sin_addr.s_addr = inet_addr( db->host );
+
+        /* Set the file descriptor for Redis connection */
+        conn->fd = fd;
+
+        /* Default write/read callbacks for Redis */
+        conn->read = net_read;
+        conn->write = net_write;
+
+        /* Connection type */
+        conn->proto = CONN_PROTO_REDIS;
+        conn->state = CONN_STATE_ESTABLISHED;
+
+        /* Redis server idle timer is set first to connection timeout */
+        conn->idle_timer.length = REDIS_CONNECT_TIMEOUT;
+        //conn->handle = redis_handle_connect;
+        /* Set the disconnect method for both connections */
+        //conn->disconnect = redis_handle_disconnect;
+
+        /* Queue write events for the backend connection for now */
+        cf_platform_schedule_write(conn->fd, conn);
+    }
+
+#ifdef MMM
+    /* Increment connection count */
+    db->conn_count++;
 
     conn = mem_malloc(sizeof(*conn));
     conn->job = NULL;
     conn->flags = REDIS_CONN_FREE;
     conn->type = CF_TYPE_REDIS;
     conn->name = mem_strdup(db->name);
-    TAILQ_INSERT_TAIL( &g_redis_conn_free, conn, list);
+    TAILQ_INSERT_TAIL( &redis_conn_free_queue, conn, list);
 
     log_debug("redis_conn_create(): %p", conn);
+#endif
 
-    return conn;
+    return rd_conn;
 }
 /************************************************************************
  *  Helper function to wakeup Redis connections
@@ -437,7 +534,7 @@ static void redis_queue_wakeup( void )
 {
     struct redis_wait *rw, *next;
 
-    for( rw = TAILQ_FIRST(&g_redis_wait_queue); rw != NULL; rw = next )
+    for( rw = TAILQ_FIRST( &redis_wait_queue ); rw != NULL; rw = next )
     {
         next = TAILQ_NEXT(rw, list);
 
@@ -446,8 +543,8 @@ static void redis_queue_wakeup( void )
         {
             if( rw->redis->req->flags & HTTP_REQUEST_DELETE )
             {
-                TAILQ_REMOVE(&g_redis_wait_queue, rw, list);
-                cf_mem_pool_put( &g_redis_wait_pool, rw );
+                TAILQ_REMOVE( &redis_wait_queue, rw, list );
+                cf_mem_pool_put( &redis_wait_pool, rw );
                 continue;
             }
 
@@ -458,8 +555,8 @@ static void redis_queue_wakeup( void )
         if( rw->redis->cb != NULL )
             rw->redis->cb(rw->redis, rw->redis->arg);
 
-        TAILQ_REMOVE(&g_redis_wait_queue, rw, list);
-        cf_mem_pool_put( &g_redis_wait_pool, rw );
+        TAILQ_REMOVE( &redis_wait_queue, rw, list );
+        cf_mem_pool_put( &redis_wait_pool, rw );
     }
 }
 /************************************************************************
@@ -469,14 +566,14 @@ static void redis_queue_remove( struct cf_redis *redis )
 {
     struct redis_wait *rw, *next;
 
-    for( rw = TAILQ_FIRST(&g_redis_wait_queue); rw != NULL; rw = next)
+    for( rw = TAILQ_FIRST( &redis_wait_queue ); rw != NULL; rw = next)
     {
         next = TAILQ_NEXT(rw, list);
         if( rw->redis != redis )
             continue;
 
-        TAILQ_REMOVE(&g_redis_wait_queue, rw, list);
-        cf_mem_pool_put( &g_redis_wait_pool, rw);
+        TAILQ_REMOVE( &redis_wait_queue, rw, list );
+        cf_mem_pool_put( &redis_wait_pool, rw);
         return;
     }
 }
@@ -505,39 +602,43 @@ static size_t bulklen( size_t len )
     return 1 + countDigits(len) + 2 + len + 2;
 }
 /************************************************************************
-*  Helper function create Redis command
+*  Helper function create Redis format command
 ************************************************************************/
 static int redis_vformat_command( char **target, const char *format, va_list ap )
 {
-
-    //  *3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$8\r\nmy value\r\n
-    //	"*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$11\r\nhello world\r\n"	char*
-
-
     int error_type = 0; /* 0 = no error; -1 = memory error; -2 = format error */
-    int touched = 0;     /* was the current argument touched? */
+    int touched = 0;    /* was the current argument touched? */
+    int argc = 0;       /* Total number of arguments */
+
     const char *c = format;
 
-    int totlen = 0;
+    struct cf_buf curarg; /* Temporary buffer for current argument */
+    struct cf_buf args;   /* Temporary buffer for all arguments in final commands */
 
-    struct cf_buf curarg;
-
+    /* Init buffer for current argument */
     cf_buf_init( &curarg, 256);
+    /* Init buffer for all incoming arguments */
+    cf_buf_init( &args, 256);
 
-    while( *c != '\0' )
+    /* Init response cmd */
+    *target = NULL;
+
+    while( *c != '\0' && error_type == 0 )
     {
         if( *c != '%' || c[1] == '\0' )
         {
             if( *c == ' ' )
             {
-                curargv = mem_realloc( curargv, sizeof(char*)* (argc + 1) );
-                curargv[argc++] = curarg;
-                /* Increment total length */
-                totlen += bulklen( curarg->offset );
-
-                pos += sprintf(cmd+pos,"$%zu\r\n",sdslen(curargv[j]));
-                memcpy(cmd+pos,curargv[j],sdslen(curargv[j]));
-                pos += sdslen(curargv[j]);
+                if( touched )
+                {
+                    argc++; /* Increment total number of arguments */
+                    /* Add current argument to args buffer */
+                    cf_buf_appendf( &args, "$%zu\r\n", curarg.offset );
+                    cf_buf_append( &args, curarg.data, curarg.offset );
+                    cf_buf_append( &args, "\r\n", 2 );
+                    /* Reset current argument buffer */
+                    cf_buf_reset( &curarg );
+                }
             }
             else
             {
@@ -547,74 +648,8 @@ static int redis_vformat_command( char **target, const char *format, va_list ap 
         }
         else
         {
-
-        }
-
-        c++;
-    }
-
-
-    totlen = bulklen(3);
-
-    return error_type + totlen;
-}
-#ifdef MMM
-int redis_vformat_command00( char **target, const char *format, va_list ap )
-{
-    const char *c = format;
-    char *cmd = NULL;       /* final command */
-    int pos;                /* position in final command */   
-    struct cf_buf curarg, newarg;     /* current argument */
-    int touched = 0;        /* was the current argument touched? */
-    char **curargv = NULL;
-    char **newargv = NULL;
-    int argc = 0;
-    int totlen = 0;
-    int error_type = 0; /* 0 = no error; -1 = memory error; -2 = format error */
-    int j = 0;
-
-    /* Abort if there is not target to set */
-    if( target == NULL )
-        return -1;
-
-    /* Build the command string accordingly to protocol */
-    cf_buf_init( &curarg, 256);
-
-    while( *c != '\0' )
-    {
-        if( *c != '%' || c[1] == '\0' )
-        {
-            if( *c == ' ' )
-            {
-                if( touched )
-                {
-                    newargv = realloc(curargv,sizeof(char*)*(argc+1));
-                    if (newargv == NULL) goto memory_err;
-                    curargv = newargv;
-                    curargv[argc++] = curarg;
-                    totlen += bulklen(sdslen(curarg));
-
-                    /* curarg is put in argv so it can be overwritten. */
-                    curarg = sdsempty();
-                    if (curarg == NULL) goto memory_err;
-                    touched = 0;
-                }
-            }
-            else
-            {
-                newarg = sdscatlen(curarg,c,1);
-                if (newarg == NULL) goto memory_err;
-                curarg = newarg;
-                touched = 1;
-            }
-        }
-        else
-        {
-            char *arg;
-            size_t size;
-
-            /* Set newarg so it can be checked even if it is not touched. */
-            newarg = curarg;
+            char *arg = NULL;
+            size_t size = 0;
 
             switch( c[1] )
             {
@@ -622,16 +657,16 @@ int redis_vformat_command00( char **target, const char *format, va_list ap )
                 arg = va_arg(ap,char*);
                 size = strlen(arg);
                 if( size > 0 )
-                    newarg = sdscatlen(curarg,arg,size);
+                    cf_buf_append( &curarg, arg, size );
                 break;
             case 'b':
                 arg = va_arg(ap,char*);
                 size = va_arg(ap,size_t);
                 if( size > 0 )
-                    newarg = sdscatlen(curarg,arg,size);
+                    cf_buf_append( &curarg, arg, size );
                 break;
             case '%':
-                newarg = sdscat(curarg,"%");
+                cf_buf_append( &curarg, "%", 1 );
                 break;
             default:
                 /* Try to detect printf format */
@@ -661,81 +696,56 @@ int redis_vformat_command00( char **target, const char *format, va_list ap )
 
                     /* Integer conversion (without modifiers) */
                     if( strchr(intfmts,*_p) != NULL )
-                    {
                         va_arg(ap,int);
-                        goto fmt_valid;
-                    }
-
                     /* Double conversion (without modifiers) */
-                    if( strchr("eEfFgGaA",*_p) != NULL )
-                    {
+                    else if( strchr("eEfFgGaA",*_p) != NULL )
                         va_arg(ap,double);
-                        goto fmt_valid;
-                    }
-
-                    /* Size: char */
-                    if( _p[0] == 'h' && _p[1] == 'h' )
+                    else if( _p[0] == 'h' && _p[1] == 'h' ) /* Size: char */
                     {
                         _p += 2;
+
                         if( *_p != '\0' && strchr(intfmts,*_p) != NULL )
-                        {
                             va_arg(ap,int); /* char gets promoted to int */
-                            goto fmt_valid;
-                        }
-                        goto fmt_invalid;
+                        else
+                            error_type = -2;
                     }
-
-                    /* Size: short */
-                    if( _p[0] == 'h' )
+                    else if( _p[0] == 'h' ) /* Size: short */
                     {
                         _p += 1;
                         if( *_p != '\0' && strchr(intfmts,*_p) != NULL )
-                        {
                             va_arg(ap,int); /* short gets promoted to int */
-                            goto fmt_valid;
-                        }
-                        goto fmt_invalid;
+                        else
+                            error_type = -2;
                     }
-
-                    /* Size: long long */
-                    if( _p[0] == 'l' && _p[1] == 'l' )
+                    else if( _p[0] == 'l' && _p[1] == 'l' ) /* Size: long long */
                     {
                         _p += 2;
                         if( *_p != '\0' && strchr(intfmts,*_p) != NULL )
-                        {
                             va_arg(ap,long long);
-                            goto fmt_valid;
-                        }
-                        goto fmt_invalid;
+                        else
+                            error_type = -2;
                     }
-
-                    /* Size: long */
-                    if( _p[0] == 'l' )
+                    else if( _p[0] == 'l' ) /* Size: long */
                     {
                         _p += 1;
                         if( *_p != '\0' && strchr(intfmts,*_p) != NULL )
-                        {
                             va_arg(ap,long);
-                            goto fmt_valid;
-                        }
-                        goto fmt_invalid;
+                        else
+                            error_type = -2;
                     }
 
-                fmt_invalid:
-                    va_end(_cpy);
-                    goto format_err;
-
-                fmt_valid:
-                    _l = (_p+1)-c;
-                    if( _l < sizeof(_format) - 2 )
+                    if( error_type == 0 )
                     {
-                        memcpy(_format,c,_l);
-                        _format[_l] = '\0';
-                        newarg = sdscatvprintf(curarg,_format,_cpy);
-
-                        /* Update current position (note: outer blocks
-                         * increment c twice so compensate here) */
-                        c = _p - 1;
+                        _l = (_p + 1)-c;
+                        if( _l < sizeof(_format) - 2 )
+                        {
+                            memcpy(_format,c,_l);
+                            _format[_l] = '\0';
+                            cf_buf_appendv( &curarg,_format,_cpy );
+                            /* Update current position (note: outer blocks
+                             * increment c twice so compensate here) */
+                            c = _p - 1;
+                        }
                     }
 
                     va_end(_cpy);
@@ -743,82 +753,90 @@ int redis_vformat_command00( char **target, const char *format, va_list ap )
                 }
             }
 
-            if (newarg == NULL) goto memory_err;
-            curarg = newarg;
-
             touched = 1;
             c++;
         }
+
         c++;
     }
 
-    /* Add the last argument if needed */
-    if(touched)
+    if( error_type == 0 && ( argc > 0 || touched ) )
     {
-        newargv = realloc(curargv,sizeof(char*)*(argc+1));
-        if (newargv == NULL) goto memory_err;
-        curargv = newargv;
-        curargv[argc++] = curarg;
-        totlen += bulklen(sdslen(curarg));
-    }
-    else
-    {
-        sdsfree(curarg);
-    }
+        int pos = 0;
+        char *cmd = NULL;   /* final command */
+        int totlen = args.offset; /* Set current data length */
 
-    /* Clear curarg because it was put in curargv or was free'd. */
-    curarg = NULL;
+        /* Add the last argument if needed */
+        if( touched )
+        {
+            /* Increment total length */
+            totlen += bulklen( curarg.offset );
+            argc++; /* Increment total number of arguments */
 
-    /* Add bytes needed to hold multi bulk count */
-    totlen += 1 + countDigits(argc) + 2;
+            /* Add current argument to args buffer */
+            cf_buf_appendf( &args, "$%zu\r\n", curarg.offset );
+            cf_buf_append( &args, curarg.data, curarg.offset );
+            cf_buf_append( &args, "\r\n", 2 );
+        }
 
-    /* Build the command at protocol level */
-    cmd = malloc(totlen+1);
-    if (cmd == NULL) goto memory_err;
+        /* Add bytes needed to hold multi bulk count */
+        totlen += 1 + countDigits(argc) + 2;
+        /* Build the command at protocol level */
+        cmd = mem_malloc( totlen + 1 );
+        pos = sprintf(cmd,"*%d\r\n",argc);
+        /* Set data to final command */
+        memcpy( cmd + pos, args.data, args.offset );
+        cmd[totlen] = '\0'; /* Set end of string */
 
-    pos = sprintf(cmd,"*%d\r\n",argc);
+        /* Set final command */
+        *target = cmd;
 
-    for( j = 0; j < argc; j++ )
-    {
-        pos += sprintf(cmd+pos,"$%zu\r\n",sdslen(curargv[j]));
-        memcpy(cmd+pos,curargv[j],sdslen(curargv[j]));
-        pos += sdslen(curargv[j]);
-        sdsfree(curargv[j]);
-        cmd[pos++] = '\r';
-        cmd[pos++] = '\n';
-    }
-    assert(pos == totlen);
-    cmd[pos] = '\0';
-
-    free(curargv);
-    *target = cmd;
-    return totlen;
-
-format_err:
-    error_type = -2;
-    goto cleanup;
-
-memory_err:
-    error_type = -1;
-    goto cleanup;
-
-cleanup:
-    if(curargv)
-    {
-        while(argc--)
-            sdsfree(curargv[argc]);
-        free(curargv);
+        /* Set return code as total cmd length */
+        error_type = totlen;
     }
 
-    sdsfree(curarg);
-
-    /* No need to check cmd since it is the last statement that can fail,
-     * but do it anyway to be as defensive as possible. */
-    if (cmd != NULL)
-        free(cmd);
+    /* Clean up temporary buffers */
+    cf_buf_cleanup( &curarg );
+    cf_buf_cleanup( &args );
 
     return error_type;
 }
+/************************************************************************
+ *  Helper function to bind PGSQL connection to HTTP request
+ ************************************************************************/
+#ifndef CF_NO_HTTP
+void cf_redis_bind_request( struct cf_redis *redis, struct http_request *req )
+{
+    if( redis->req != NULL || redis->cb != NULL )
+        cf_fatal("cf_redis_bind_request: already bound");
 
+    redis->req = req;
+    //redis->flags |= PGSQL_LIST_INSERTED;
+
+    //LIST_INSERT_HEAD(&(req->pgsqls), pgsql, rlist);
+}
 #endif
+
+void cf_redis_logerror( struct cf_redis *redis )
+{
+    //cf_log(LOG_NOTICE, "pgsql error: %s", (pgsql->error) ? pgsql->error : "unknown");
+}
+
+void cf_redis_continue( struct cf_redis *redis )
+{
+
+}
+
+void cf_redis_bind_callback( struct cf_redis *redis, void (*cb)(struct cf_redis *, void *), void *arg )
+{
+    if( redis->req != NULL )
+        cf_fatal("cf_redis_bind_callback: already bound");
+
+    if( redis->cb != NULL )
+        cf_fatal("cf_redis_bind_callback: already bound");
+
+    redis->cb = cb;
+    redis->arg = arg;
+}
+
 

@@ -207,7 +207,7 @@ int net_send_flush( struct connection *c )
 
 int net_recv_flush( struct connection *c )
 {
-    size_t	r;
+    size_t r = 0;
 
     log_debug("net_recv_flush(%p)", c);
 

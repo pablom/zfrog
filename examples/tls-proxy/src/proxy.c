@@ -172,7 +172,7 @@ int backend_handle_connect( struct connection *c )
 		}
 
 		/* Clean the write flag, we'll be called later */
-		if( errno != EISCONN ) 
+        if( errno != EISCONN )
 		{
 			c->flags &= ~CONN_WRITE_POSSIBLE;
 			cf_connection_start_idletimer(c);

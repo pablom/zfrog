@@ -136,7 +136,7 @@ int cf_platform_event_wait(uint64_t timer)
 
         if( events[i].flags & EV_EOF || events[i].flags & EV_ERROR )
         {
-            switch ( type )
+            switch( type )
             {
             case CF_TYPE_LISTENER:
 				cf_fatal("error on server socket");
@@ -146,7 +146,11 @@ int cf_platform_event_wait(uint64_t timer)
                 cf_pgsql_handle(events[i].udata, 1);
 				break;
 #endif
-
+#ifdef CF_REDIS
+            case CF_TYPE_REDIS:
+                cf_redis_handle(events[i].data.ptr, 1);
+                break;
+#endif
 #ifdef CF_TASKS
             case CF_TYPE_TASK:
                 cf_task_handle(events[i].udata, 1);
