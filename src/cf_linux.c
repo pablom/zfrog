@@ -18,10 +18,6 @@
     #include "cf_oci.h"
 #endif
 
-#ifdef CF_REDIS
-    #include "cf_redis.h"
-#endif
-
 static int efd = -1;
 static uint32_t event_count = 0;
 static struct epoll_event *events = NULL;
@@ -131,14 +127,6 @@ int cf_platform_event_wait( uint64_t timer )
                 cf_pgsql_handle(events[i].data.ptr, 1);
 				break;
 #endif
-#ifdef CF_REDIS
-            case CF_TYPE_REDIS:
-            {
-                struct redis_conn* conn = (struct redis_conn *)events[i].data.ptr;
-                cf_redis_handle(conn, 1);
-                break;
-            }
-#endif
 #ifdef CF_TASKS
             case CF_TYPE_TASK:
                 cf_task_handle(events[i].data.ptr, 1);
@@ -195,24 +183,6 @@ int cf_platform_event_wait( uint64_t timer )
         case CF_TYPE_PGSQL_CONN:
             cf_pgsql_handle( events[i].data.ptr, 0 );
 			break;
-#endif
-#ifdef CF_REDIS
-        case CF_TYPE_REDIS:
-        {
-            struct redis_conn* conn = (struct redis_conn *)events[i].data.ptr;
-
-            if( events[i].events & EPOLLIN && !(conn->flags & REDIS_CONN_READ_BLOCK) )
-                conn->flags |= REDIS_CONN_READ_POSSIBLE;
-
-            if( events[i].events & EPOLLOUT && !(conn->flags & REDIS_CONN_WRITE_BLOCK) )
-                conn->flags |= REDIS_CONN_WRITE_POSSIBLE;
-
-            if( conn->handle != NULL )
-                conn->handle( conn );
-            else
-                cf_redis_handle( conn, 0 );
-            break;
-        }
 #endif
 #ifdef CF_TASKS
         case CF_TYPE_TASK:

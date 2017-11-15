@@ -76,7 +76,7 @@ void client_setup( struct connection *c )
 	}
 
 	/* Set it to non blocking as well */
-	if( !cf_connection_nonblock(fd, 1) ) 
+    if( !cf_socket_nonblock(fd, 1) )
 	{
 		close(fd);
 		cf_connection_disconnect(c);

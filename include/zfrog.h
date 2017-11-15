@@ -130,17 +130,21 @@ struct netbuf
 
 TAILQ_HEAD(netbuf_head, netbuf);
 
+/* Connection type definition */
 #define CF_TYPE_LISTENER            1
 #define CF_TYPE_CONNECTION          2
 #define CF_TYPE_PGSQL_CONN          3
 #define CF_TYPE_REDIS               4
 #define CF_TYPE_TASK                5
 
+/* Connection state definition */
 #define CONN_STATE_UNKNOWN          0
-#define CONN_STATE_SSL_SHAKE		1
+#define CONN_STATE_SSL_SERV_SHAKE	1
 #define CONN_STATE_ESTABLISHED		2
-#define CONN_STATE_DISCONNECTING	3
+#define CONN_STATE_CONNECTING       3
+#define CONN_STATE_DISCONNECTING	4
 
+/* Protocol definition */
 #define CONN_PROTO_UNKNOWN          0
 #define CONN_PROTO_HTTP             1
 #define CONN_PROTO_WEBSOCKET        2
@@ -178,16 +182,16 @@ struct connection
     int      fd;
     uint8_t  state;
     uint8_t  proto;
-    void	 *owner;
+    void     *owner;
 
 #ifndef CF_NO_TLS
-    X509 *cert;
-    SSL	 *ssl;
-    int	 tls_reneg;
+    X509     *cert;
+    SSL      *ssl;
+    int	     tls_reneg;
 #endif
 
-    uint8_t	flags;
-    void *hdlr_extra;
+    uint8_t	 flags;
+    void*    hdlr_extra;
 
     int	   (*handle)(struct connection *);
     void   (*disconnect)(struct connection *);
@@ -255,8 +259,8 @@ extern struct cf_runtime cf_native_runtime;
 
 struct listener
 {
-    uint8_t type;
-    uint8_t addrtype;
+    uint8_t  type;
+    uint8_t  addrtype;
     int		 fd;
 
     struct cf_runtime_call	*connect;
@@ -275,7 +279,7 @@ LIST_HEAD(listener_head, listener);
 
 struct cf_handler_params
 {
-    char  *name;
+    char*   name;
     uint8_t method;
     struct cf_validator *validator;
 
@@ -577,7 +581,6 @@ void cf_connection_prune( int );
 struct connection *cf_connection_new( void* );
 int connection_add_backend( struct connection * );
 void cf_connection_check_timeout(void);
-int	cf_connection_nonblock(int, int);
 int	cf_connection_handle(struct connection *);
 void cf_connection_remove(struct connection *);
 void cf_connection_disconnect(struct connection *);
@@ -585,6 +588,8 @@ void cf_connection_start_idletimer(struct connection *);
 void cf_connection_stop_idletimer(struct connection *);
 void cf_connection_check_idletimer(uint64_t, struct connection *);
 int	connection_accept(struct listener *, struct connection **);
+int cf_connection_connect_toaddr(struct connection *);
+
 
 uint64_t cf_time_ms(void);
 void cf_ms2ts( struct timespec *ts, uint64_t ms );
@@ -735,14 +740,17 @@ void cf_init_pkcs11_module(void);
 
 int cf_cloexec_ioctl(int fd, int set);
 int cf_get_backlog_size(void);
-int cf_sockopt( int fd, int what, int opt );
-int cf_tcp_socket(const char*, int/*SOCK_STREAM*/);
 
+int	cf_socket_nonblock(int, int);
+int cf_socket_opt( int fd, int what, int opt );
 
 size_t cf_random_buffer( unsigned char [], size_t, int );
 const char * cf_file_extension( const char * );
 size_t cf_uuid_buffer( char [], size_t );
 int cf_is_hex_digit( char c );
+
+int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ );
+
 
 /* Mustache template parser */
 #ifdef CF_TMUSTACHE

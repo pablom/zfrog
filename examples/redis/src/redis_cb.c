@@ -50,14 +50,13 @@ void db_init( struct connection *c, struct cf_redis *redis )
 
 	printf("\tgot pgsql connection\n");
 
-#ifdef MMM
-    if( !cf_pgsql_query(pgsql, "SELECT * FROM coders, pg_sleep(5)") )
+
+    if( !cf_redis_query(redis, "PING") )
     {
         cf_redis_logerror(redis);
         cf_connection_disconnect(c);
 		return;
 	}
-#endif
 
 	printf("\tquery fired off!\n");
 }

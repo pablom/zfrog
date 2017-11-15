@@ -11,6 +11,13 @@
     #include "cf_http.h"
 #endif
 
+#ifdef CF_REDIS
+    #include "cf_redis.h"
+#endif
+
+/* Forward function declaration */
+
+
 struct cf_mem_pool		connection_mem_pool;
 struct connection_list	connections;
 struct connection_list	disconnected;
@@ -106,7 +113,7 @@ int connection_accept( struct listener *listener, struct connection **out )
         return CF_RESULT_ERROR;
 	}
 
-    if( !cf_connection_nonblock(c->fd, 1) )
+    if( !cf_socket_nonblock(c->fd, 1) )
     {
 		close(c->fd);
         cf_mem_pool_put( &connection_mem_pool, c );
@@ -117,7 +124,7 @@ int connection_accept( struct listener *listener, struct connection **out )
 	TAILQ_INSERT_TAIL(&connections, c, list);
 
 #ifndef CF_NO_TLS
-	c->state = CONN_STATE_SSL_SHAKE;
+    c->state = CONN_STATE_SSL_SERV_SHAKE;
     c->write = net_write_tls;
     c->read = net_read_tls;
 #else
@@ -139,6 +146,7 @@ int connection_accept( struct listener *listener, struct connection **out )
 #endif /* CF_NO_TLS */
 
     cf_connection_start_idletimer(c);
+
     /* Increment count of worker active connections */
 	worker_active_connections++;
 
@@ -233,7 +241,7 @@ int cf_connection_handle( struct connection *c )
     switch( c->state )
     {
 #ifndef CF_NO_TLS
-	case CONN_STATE_SSL_SHAKE:
+    case CONN_STATE_SSL_SERV_SHAKE:
         if( c->ssl == NULL )
         {
             c->ssl = SSL_new( primary_dom->ssl_ctx );
@@ -333,6 +341,44 @@ int cf_connection_handle( struct connection *c )
                 return CF_RESULT_ERROR;
         }
 		break;
+
+    /* connecting to backend server */
+    case CONN_STATE_CONNECTING:
+        /* We will get a write notification when we can progress */
+        if( c->flags & CONN_WRITE_POSSIBLE )
+        {
+            /* Try to server connect, if we failed check why, we are non blocking */
+            if( cf_connection_connect_toaddr( c ) == -1 )
+            {
+                /* If we got a real error, disconnect */
+                if( errno != EALREADY && errno != EINPROGRESS && errno != EISCONN )
+                {
+                    cf_log(LOG_ERR, "connect(): %s", errno_s);
+                    return CF_RESULT_ERROR;
+                }
+
+                /* Clean the write flag, we'll be called later */
+                if( errno != EISCONN )
+                {
+                    c->flags &= ~CONN_WRITE_POSSIBLE;
+                    break;
+                }
+            }
+
+            /* The connection to the backend server succeeded */
+            c->state = CONN_STATE_ESTABLISHED;
+
+#ifdef CF_REDIS
+            if( c->proto == CONN_PROTO_REDIS )
+            {
+                net_recv_queue(c, NETBUF_SEND_PAYLOAD_MAX, NETBUF_CALL_CB_ALWAYS, redis_recv);
+            }
+#endif
+
+            /* Catch all epoll events */
+            cf_platform_event_all(c->fd, c);
+        }
+        break;
 	case CONN_STATE_DISCONNECTING:
 		break;
 	default:
@@ -340,6 +386,7 @@ int cf_connection_handle( struct connection *c )
 		break;
 	}
 
+    /* Start idle timer */
     cf_connection_start_idletimer(c);
 
     return CF_RESULT_OK;
@@ -447,37 +494,17 @@ void cf_connection_stop_idletimer( struct connection *c )
 	c->idle_timer.start = 0;
 }
 /****************************************************************
- *  Helper function set nonblocking (nodelay) connection
+ *  Helper function connect to server by address
  ****************************************************************/
-int cf_connection_nonblock( int fd, int nodelay )
+int cf_connection_connect_toaddr( struct connection *c )
 {
-    int	flags;
+    /* Attempt connecting */
+    if( c->addrtype == AF_INET )
+        return connect(c->fd, (struct sockaddr *)&c->addr.ipv4, sizeof(c->addr.ipv4));
+    else if( c->addrtype == AF_INET6 )
+        return connect(c->fd, (struct sockaddr *)&c->addr.ipv6, sizeof(c->addr.ipv6));
 
-    log_debug("cf_connection_nonblock(%d)", fd);
-
-    if( (flags = fcntl(fd, F_GETFL, 0)) == -1 )
-    {
-        log_debug("fcntl(): F_GETFL %s", errno_s);
-        return CF_RESULT_ERROR;
-	}
-
-	flags |= O_NONBLOCK;
-
-    if( fcntl(fd, F_SETFL, flags) == -1 )
-    {
-        log_debug("fcntl(): F_SETFL %s", errno_s);
-        return CF_RESULT_ERROR;
-	}
-
-    if( nodelay )
-    {
-		flags = 1;
-
-        if( setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *)&flags, sizeof(flags)) == -1)
-        {
-            cf_log(LOG_NOTICE,"failed to set TCP_NODELAY on %d", fd);
-		}
-	}
-
-    return CF_RESULT_OK;
+    return -1;
 }
+
+

@@ -161,8 +161,8 @@ void cf_worker_spawn( uint16_t id, uint16_t cpu )
     if( socketpair(AF_UNIX, SOCK_STREAM, 0, kw->pipe) == -1 )
 		cf_fatal("socketpair(): %s", errno_s);
 
-    if( !cf_connection_nonblock(kw->pipe[0], 0) ||
-        !cf_connection_nonblock(kw->pipe[1], 0))
+    if( !cf_socket_nonblock(kw->pipe[0], 0) ||
+        !cf_socket_nonblock(kw->pipe[1], 0))
 		cf_fatal("could not set pipe fds to nonblocking: %s", errno_s);
 
 	kw->pid = fork();

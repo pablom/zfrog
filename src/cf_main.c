@@ -176,7 +176,9 @@ void cf_tls_info_callback( const SSL *ssl, int flags, int ret )
 	}
 }
 #endif
-
+/****************************************************************
+ *  Bind server listener socket to specific address
+ ****************************************************************/
 int cf_server_bind( const char *ip, const char *port, const char *ccb )
 {
     struct listener	*l = NULL;
@@ -211,11 +213,11 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
         return CF_RESULT_ERROR;
 	}
 
-    if( !cf_connection_nonblock(l->fd, 1) )
+    if( !cf_socket_nonblock(l->fd, 1) )
     {
 		mem_free(l);
         freeaddrinfo( results );
-        cf_log(LOG_ERR, "cf_connection_nonblock(): %s", errno_s);
+        cf_log(LOG_ERR, "cf_socket_nonblock(): %s", errno_s);
         return CF_RESULT_ERROR;
 	}
 

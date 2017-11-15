@@ -156,7 +156,9 @@ void cf_pgsql_bind_callback( struct cf_pgsql *pgsql, void (*cb)(struct cf_pgsql 
     pgsql->cb = cb;
     pgsql->arg = arg;
 }
-
+/************************************************************************
+ *  Make request (query) to PQSQL server
+ ************************************************************************/
 int cf_pgsql_query( struct cf_pgsql *pgsql, const char *query )
 {
     if( pgsql->conn == NULL )
@@ -191,7 +193,9 @@ int cf_pgsql_query( struct cf_pgsql *pgsql, const char *query )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Make request (query) to PQSQL server
+ ************************************************************************/
 int cf_pgsql_v_query_params( struct cf_pgsql *pgsql, const char *query, int result, uint8_t count, va_list args )
 {
 	uint8_t	i;
@@ -263,7 +267,9 @@ int cf_pgsql_v_query_params( struct cf_pgsql *pgsql, const char *query, int resu
 
     return ret;
 }
-
+/************************************************************************
+ *  Make request to PQSQL server
+ ************************************************************************/
 int cf_pgsql_query_params(struct cf_pgsql *pgsql, const char *query, int result, uint8_t count, ...)
 {
     int	ret;
@@ -297,7 +303,9 @@ int cf_pgsql_register( const char *dbname, const char *connstring )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  PQSQL default handler callback function
+ ************************************************************************/
 void cf_pgsql_handle( void *c, int err )
 {
     struct cf_pgsql	*pgsql = NULL;

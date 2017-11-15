@@ -12,6 +12,9 @@
 #include <sys/ioctl.h>
 #include <netdb.h>
 
+//#include <sys/socket.h>
+#include <netinet/tcp.h>
+
 #include "zfrog.h"
 
 static struct {
@@ -761,9 +764,42 @@ int cf_proc_pidpath( pid_t pid, void *buf, size_t len )
     return CF_RESULT_OK;
 }
 /****************************************************************
+ *  Helper function set nonblocking (nodelay) socket connection
+ ****************************************************************/
+int cf_socket_nonblock( int fd, int nodelay )
+{
+    int	flags = -1;
+
+    if( (flags = fcntl(fd, F_GETFL, 0)) == -1 )
+    {
+        log_debug("fcntl(): F_GETFL %s", errno_s);
+        return CF_RESULT_ERROR;
+    }
+
+    flags |= O_NONBLOCK;
+
+    if( fcntl(fd, F_SETFL, flags) == -1 )
+    {
+        log_debug("fcntl(): F_SETFL %s", errno_s);
+        return CF_RESULT_ERROR;
+    }
+
+    if( nodelay )
+    {
+        flags = 1;
+
+        if( setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *)&flags, sizeof(flags)) == -1)
+        {
+            cf_log(LOG_NOTICE,"failed to set TCP_NODELAY on %d", fd);
+        }
+    }
+
+    return CF_RESULT_OK;
+}
+/****************************************************************
  *  Helper function set socket options
  ****************************************************************/
-int cf_sockopt( int fd, int what, int opt )
+int cf_socket_opt( int fd, int what, int opt )
 {
     int	on = 1;
 

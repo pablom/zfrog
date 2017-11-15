@@ -104,7 +104,7 @@ static int ztunnel_pipe_create( struct connection *c, const char *host, const ch
 		return CF_RESULT_ERROR;
 	}
 
-	if( !cf_connection_nonblock(fd, 1) ) 
+    if( !cf_socket_nonblock(fd, 1) )
 	{
 		close(fd);
 		return CF_RESULT_ERROR;

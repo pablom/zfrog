@@ -146,11 +146,6 @@ int cf_platform_event_wait(uint64_t timer)
                 cf_pgsql_handle(events[i].udata, 1);
 				break;
 #endif
-#ifdef CF_REDIS
-            case CF_TYPE_REDIS:
-                cf_redis_handle(events[i].data.ptr, 1);
-                break;
-#endif
 #ifdef CF_TASKS
             case CF_TYPE_TASK:
                 cf_task_handle(events[i].udata, 1);
@@ -190,14 +185,13 @@ int cf_platform_event_wait(uint64_t timer)
 			break;
         case CF_TYPE_CONNECTION:
 			c = (struct connection *)events[i].udata;
-			if (events[i].filter == EVFILT_READ &&
-			    !(c->flags & CONN_READ_BLOCK))
+            if( events[i].filter == EVFILT_READ && !(c->flags & CONN_READ_BLOCK) )
 				c->flags |= CONN_READ_POSSIBLE;
-			if (events[i].filter == EVFILT_WRITE &&
-			    !(c->flags & CONN_WRITE_BLOCK))
+
+            if( events[i].filter == EVFILT_WRITE && !(c->flags & CONN_WRITE_BLOCK) )
 				c->flags |= CONN_WRITE_POSSIBLE;
 
-			if (c->handle != NULL && !c->handle(c))
+            if( c->handle != NULL && !c->handle(c) )
                 cf_connection_disconnect(c);
 			break;
 #ifdef CF_PGSQL
