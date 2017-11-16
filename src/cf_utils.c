@@ -832,7 +832,7 @@ int cf_cloexec_ioctl( int fd, int set )
 /****************************************************************
  *  Helper function to get BACKLOG socket size
  ****************************************************************/
-int cf_get_backlog_size(void)
+int cf_get_backlog_size( void )
 {
 #ifdef SOMAXCONN
     int backlog = SOMAXCONN;
@@ -877,7 +877,7 @@ size_t cf_random_buffer( unsigned char buffer[], size_t size, int nonblock )
 /****************************************************************
  *  Helper function to get file extension from file name
  ****************************************************************/
-const char * cf_file_extension( const char *filename )
+const char* cf_file_extension( const char *filename )
 {
     const char *dot = strrchr(filename, '.');
     if( !dot || dot == filename )

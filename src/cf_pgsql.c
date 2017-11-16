@@ -144,7 +144,9 @@ void cf_pgsql_bind_request( struct cf_pgsql *pgsql, struct http_request *req )
     LIST_INSERT_HEAD(&(req->pgsqls), pgsql, rlist);
 }
 #endif
-
+/************************************************************************
+ *  Set callback function to notify with PGSQL status change
+ ************************************************************************/
 void cf_pgsql_bind_callback( struct cf_pgsql *pgsql, void (*cb)(struct cf_pgsql *, void *), void *arg )
 {
     if( pgsql->req != NULL )
@@ -349,7 +351,9 @@ void cf_pgsql_handle( void *c, int err )
             pgsql->cb(pgsql, pgsql->arg);
 	}
 }
-
+/************************************************************************
+ *  Helper function to continue PGSQL query
+ ************************************************************************/
 void cf_pgsql_continue( struct cf_pgsql *pgsql )
 {
     if( pgsql->error )
@@ -384,7 +388,9 @@ void cf_pgsql_continue( struct cf_pgsql *pgsql )
         cf_fatal("unknown pgsql state %d", pgsql->state);
     }
 }
-
+/************************************************************************
+ *  Helper function PGSQL query cleanup
+ ************************************************************************/
 void cf_pgsql_cleanup( struct cf_pgsql *pgsql )
 {
     log_debug("cf_pgsql_cleanup(%p)", pgsql);
@@ -410,7 +416,9 @@ void cf_pgsql_cleanup( struct cf_pgsql *pgsql )
 		pgsql->flags &= ~PGSQL_LIST_INSERTED;
 	}
 }
-
+/************************************************************************
+ *  Helper function to log out PGSQL error
+ ************************************************************************/
 void cf_pgsql_logerror( struct cf_pgsql *pgsql )
 {
     cf_log(LOG_NOTICE, "pgsql error: %s", (pgsql->error) ? pgsql->error : "unknown");
@@ -440,7 +448,9 @@ char* cf_pgsql_getvalue( struct cf_pgsql *pgsql, int row, int col )
 {
     return PQgetvalue(pgsql->result, row, col);
 }
-
+/************************************************************************
+ *  Helper function to get PGSQL connection structure
+ ************************************************************************/
 static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_db *db )
 {
     PGTransactionStatusType	state;
@@ -495,12 +505,9 @@ static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_
         if( db->conn_max != 0 && db->conn_count >= db->conn_max )
         {
             if( pgsql->flags & CF_PGSQL_ASYNC )
-            {
                 pgsql_queue_add(pgsql);
-            }
-            else {
+            else
                 pgsql_set_error(pgsql,"no available connection");
-            }
 
             return NULL;
         }
@@ -514,7 +521,9 @@ static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_
 
     return conn;
 }
-
+/************************************************************************
+ *  Helper function PGSQL set error result string
+ ************************************************************************/
 static void pgsql_set_error( struct cf_pgsql *pgsql, const char *msg )
 {
     if( pgsql->error != NULL )
@@ -523,7 +532,9 @@ static void pgsql_set_error( struct cf_pgsql *pgsql, const char *msg )
     pgsql->error = mem_strdup(msg);
     pgsql->state = CF_PGSQL_STATE_ERROR;
 }
-
+/************************************************************************
+ *  Helper function PGSQL schedule
+ ************************************************************************/
 static void pgsql_schedule( struct cf_pgsql *pgsql )
 {
     int	fd = PQsocket(pgsql->conn->db);
@@ -543,7 +554,9 @@ static void pgsql_schedule( struct cf_pgsql *pgsql )
     if( pgsql->cb != NULL )
         pgsql->cb(pgsql, pgsql->arg);
 }
-
+/************************************************************************
+ *  Helper function PGSQL add to wait queue
+ ************************************************************************/
 static void pgsql_queue_add( struct cf_pgsql *pgsql )
 {
     struct pgsql_wait *pgw = NULL;
@@ -558,7 +571,9 @@ static void pgsql_queue_add( struct cf_pgsql *pgsql )
 
 	TAILQ_INSERT_TAIL(&pgsql_wait_queue, pgw, list);
 }
-
+/************************************************************************
+ *  Remove PGSQL item from wait queue
+ ************************************************************************/
 static void pgsql_queue_remove( struct cf_pgsql *pgsql )
 {
     struct pgsql_wait *pgw, *next;
@@ -569,12 +584,15 @@ static void pgsql_queue_remove( struct cf_pgsql *pgsql )
 		if( pgw->pgsql != pgsql )
 			continue;
 
-		TAILQ_REMOVE(&pgsql_wait_queue, pgw, list);
-		cf_mem_pool_put(&pgsql_wait_pool, pgw);
+        TAILQ_REMOVE( &pgsql_wait_queue, pgw, list );
+        cf_mem_pool_put( &pgsql_wait_pool, pgw );
 		return;
 	}
 }
-
+/************************************************************************
+ *  Helper function to wakeup PGSQL query, when new free connection
+ *  is available
+ ************************************************************************/
 static void pgsql_queue_wakeup( void )
 {
     struct pgsql_wait *pgw, *next;
@@ -605,7 +623,9 @@ static void pgsql_queue_wakeup( void )
 		return;
 	}
 }
-
+/************************************************************************
+ *  Helper function to create PGSQL new one connection
+ ************************************************************************/
 static struct pgsql_conn* pgsql_conn_create( struct cf_pgsql *pgsql, struct pgsql_db *db )
 {
     struct pgsql_conn *conn = NULL;
@@ -635,7 +655,10 @@ static struct pgsql_conn* pgsql_conn_create( struct cf_pgsql *pgsql, struct pgsq
 
     return conn;
 }
-
+/************************************************************************
+ *  Helper function to release PGSQL server connection and move to
+ *  free connection's list
+ ************************************************************************/
 static void pgsql_conn_release( struct cf_pgsql *pgsql )
 {
     int	fd;
@@ -673,7 +696,9 @@ static void pgsql_conn_release( struct cf_pgsql *pgsql )
 
 	pgsql_queue_wakeup();
 }
-
+/************************************************************************
+ *  Clean up PGSQL database connection
+ ************************************************************************/
 static void pgsql_conn_cleanup( struct pgsql_conn *conn )
 {
     struct cf_pgsql	*pgsql = NULL;
@@ -712,11 +737,12 @@ static void pgsql_conn_cleanup( struct pgsql_conn *conn )
         }
     }
 
-
     mem_free(conn->name);
     mem_free(conn);
 }
-
+/************************************************************************
+ *  Helper function read result from PGSQL query
+ ************************************************************************/
 static void pgsql_read_result( struct cf_pgsql *pgsql )
 {
     if( PQisBusy(pgsql->conn->db) )
@@ -725,8 +751,7 @@ static void pgsql_read_result( struct cf_pgsql *pgsql )
 		return;
 	}
 
-	pgsql->result = PQgetResult(pgsql->conn->db);
-    if( pgsql->result == NULL )
+    if( (pgsql->result = PQgetResult(pgsql->conn->db)) == NULL )
     {
         pgsql->state = CF_PGSQL_STATE_DONE;
 		return;
@@ -755,7 +780,9 @@ static void pgsql_read_result( struct cf_pgsql *pgsql )
 		break;
 	}
 }
-
+/************************************************************************
+ *  Helper function to cancel PGSQL query
+ ************************************************************************/
 static void pgsql_cancel( cf_pgsql *pgsql )
 {
     PGcancel *cancel = NULL;

@@ -371,7 +371,7 @@ int cf_connection_handle( struct connection *c )
 #ifdef CF_REDIS
             if( c->proto == CONN_PROTO_REDIS )
             {
-                net_recv_queue(c, NETBUF_SEND_PAYLOAD_MAX, NETBUF_CALL_CB_ALWAYS, redis_recv);
+              //  net_recv_queue(c, NETBUF_SEND_PAYLOAD_MAX, NETBUF_CALL_CB_ALWAYS, redis_recv);
             }
 #endif
 

@@ -155,7 +155,9 @@ void net_recv_expand( struct connection *c, size_t len, int (*cb)(struct netbuf 
 	c->rnb->m_len = c->rnb->b_len;
     c->rnb->buf = mem_realloc(c->rnb->buf, c->rnb->b_len);
 }
-
+/****************************************************************
+ *  Write data to clear socket connection
+ ****************************************************************/
 int net_send( struct connection *c )
 {
     size_t r, len, smin;
@@ -187,15 +189,16 @@ int net_send( struct connection *c )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Flush output network buffer
+ ************************************************************************/
 int net_send_flush( struct connection *c )
 {
     log_debug("net_send_flush(%p)", c);
 
-    while( !TAILQ_EMPTY(&(c->send_queue)) &&
-           (c->flags & CONN_WRITE_POSSIBLE))
+    while( !TAILQ_EMPTY(&(c->send_queue)) && (c->flags & CONN_WRITE_POSSIBLE) )
     {
-		if (!net_send(c))
+        if( !net_send(c) )
             return CF_RESULT_ERROR;
 	}
 
@@ -204,7 +207,9 @@ int net_send_flush( struct connection *c )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Flush input network buffer
+ ************************************************************************/
 int net_recv_flush( struct connection *c )
 {
     size_t r = 0;

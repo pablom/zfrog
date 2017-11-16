@@ -603,7 +603,7 @@ void http_serveable( struct http_request *req, const void *data, size_t len, con
     http_response(req, HTTP_STATUS_OK, data, len);
 }
 
-void http_response(struct http_request *req, int status, const void *d, size_t l)
+void http_response( struct http_request *req, int status, const void *d, size_t l )
 {
     log_debug("http_response(%p, %d, %p, %zu)", req, status, d, l);
 
@@ -1608,7 +1608,7 @@ static void multipart_file_add(struct http_request *req, struct cf_buf *in, cons
 	TAILQ_INSERT_TAIL(&(req->files), f, list);
 }
 
-static void http_argument_add(struct http_request *req, char *name, char *value)
+static void http_argument_add( struct http_request *req, char *name, char *value )
 {
     struct http_arg	*q = NULL;
     struct cf_handler_params *p = NULL;

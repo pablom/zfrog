@@ -36,7 +36,8 @@ char *b64tests[] = {
 
 int example_load(int state)
 {
-	switch (state) {
+    switch( state )
+    {
 	case CF_MODULE_LOAD:
 		cf_log(LOG_NOTICE, "module loading");
 

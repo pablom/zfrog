@@ -43,20 +43,6 @@ extern "C" {
 #endif
 
 
-struct redis_conn
-{
-    struct connection  *conn;
-
-    char	 *name;
-    uint8_t  flags;
-    uint8_t  state;
-
-    uint8_t	 type;
-
-    struct redis_job   *job;
-    TAILQ_ENTRY(redis_conn) list;
-};
-
 struct cf_redis
 {
     uint8_t		state;
@@ -76,25 +62,22 @@ struct cf_redis
 };
 
 
-int redis_recv( struct netbuf *nb );
-
-
 void cf_redis_sys_init(void);
 void cf_redis_sys_cleanup(void);
 int cf_redis_register( char *, char *, int );
 void cf_redis_init(struct cf_redis*);
 int cf_redis_setup( struct cf_redis *, const char *, int );
 void cf_redis_cleanup(struct cf_redis *);
-void cf_redis_handle(struct connection *, int);
-
-int cf_redis_format_command(char **target, const char *format, ...);
+void cf_redis_handle(void *, int);
 
 void cf_redis_continue(struct cf_redis *);
 void cf_redis_logerror(struct cf_redis *);
 void cf_redis_bind_request( struct cf_redis*, struct http_request* );
 void cf_redis_bind_callback( struct cf_redis *, void (*cb)(struct cf_redis *, void *), void *arg );
 
-int cf_redis_query( struct cf_redis *redis, const char *query );
+
+int cf_redis_format_command(char**, const char*, ...);
+int cf_redis_query(struct cf_redis*, const char*, ...);
 
 
 extern uint16_t redis_serv_conn_max;

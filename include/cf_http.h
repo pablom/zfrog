@@ -209,8 +209,17 @@ struct http_request
     void  *py_object;
 #endif
 
+#ifdef CF_TASKS
     LIST_HEAD(, cf_task)		tasks;
+#endif
+
+#ifdef CF_PGSQL
     LIST_HEAD(, cf_pgsql)		pgsqls;
+#endif
+
+#ifdef CF_REDIS
+    LIST_HEAD(, cf_redis)		redisls;
+#endif
 
     TAILQ_HEAD(, http_cookie)	req_cookies;
     TAILQ_HEAD(, http_cookie)	resp_cookies;

@@ -1,25 +1,41 @@
 // cf_redis.c
 
-#include "zfrog.h"
-#include "cf_redis.h"
-
 #include <stdbool.h>
 #include <netdb.h>
+#include <ctype.h>
+
+#include "zfrog.h"
+#include "cf_redis.h"
 
 
 #ifndef CF_NO_HTTP
     #include "cf_http.h"
 #endif
 
+
+#define REDIS_CONN_MAX          2   /* Default maximum redis connections */
+
 /* Default timeouts, 5 seconds for connecting, 15 seconds otherwise. */
 #define REDIS_TIMEOUT			(15 * 1000)
 #define REDIS_CONNECT_TIMEOUT	(5 * 1000)
 
 
-#define REDIS_CONN_MAX      2        /* Default maximum redis connections */
-
 #define REDIS_LIST_INSERTED     0x0100
 
+
+struct redis_conn
+{
+    struct connection  *c;
+
+    char	 *name;
+    uint8_t  flags;
+    uint8_t  state;
+
+    uint8_t	 type;
+
+    struct redis_job   *job;
+    TAILQ_ENTRY(redis_conn) list;
+};
 
 struct redis_db
 {
@@ -36,8 +52,8 @@ struct redis_job
 {
     struct cf_redis	*redis;
     TAILQ_ENTRY(redis_job)	list;
-};
-
+}; 
+/*  Redis wait structure */
 struct redis_wait
 {
     struct cf_redis	*redis;
@@ -46,24 +62,28 @@ struct redis_wait
 
 
 /* Forward static function declaration */
-static struct redis_conn * redis_conn_next(struct cf_redis*, struct redis_db*);
-static void redis_conn_release(struct cf_redis*);
-static void redis_conn_cleanup(struct redis_conn*);
+static struct redis_conn* redis_conn_next(struct cf_redis*, struct redis_db*);
+static void	redis_set_error(struct cf_redis*, const char*);
+static void redis_schedule(struct cf_redis*);
 static void redis_queue_add(struct cf_redis*);
 static void redis_queue_remove(struct cf_redis*);
-static void	redis_set_error(struct cf_redis *, const char *);
-static void redis_read_result(struct cf_redis*);
-static struct redis_conn* redis_conn_create(struct cf_redis*, struct redis_db*);
 static void redis_queue_wakeup(void);
-
+static struct redis_conn* redis_conn_create(struct cf_redis*, struct redis_db*);
+static void redis_conn_release(struct cf_redis*);
+static void redis_conn_cleanup(struct redis_conn*);
+static void redis_read_result(struct cf_redis*);
+static void redis_cancel(struct cf_redis*);
 static int redis_handle_connect(struct connection*);
+static int redis_recv(struct netbuf*);
 static void redis_handle_disconnect(struct connection *);
-static int redis_handle( struct connection* );
-static void redis_schedule(struct cf_redis*);
+static int redis_handle(struct connection*);
+static uint32_t countDigits(uint64_t);
+static size_t bulklen(size_t);
+static int redis_vformat_command( char**, const char*, va_list);
 
 
-//static int redis_tcp_socket( struct redis_conn *conn, struct redis_db *db );
-
+#define redisConnection(_r) (_r->conn->c)
+#define redisSocket(_r) (_r->conn->c->fd)
 
 /* Global variables */
 static struct cf_mem_pool redis_job_pool;     /* Memory pool for Redis request job */
@@ -140,6 +160,42 @@ void cf_redis_init( struct cf_redis *redis )
     redis->state = CF_REDIS_STATE_INIT;
 }
 /************************************************************************
+ *  Helper function log out Redis error
+ ************************************************************************/
+void cf_redis_logerror( struct cf_redis *redis )
+{
+    cf_log(LOG_NOTICE, "redis error: %s", (redis->error) ? redis->error : "unknown");
+}
+/************************************************************************
+ *  Set callback function to notify with Redis status change
+ ************************************************************************/
+void cf_redis_bind_callback( struct cf_redis *redis, void (*cb)(struct cf_redis *, void *), void *arg )
+{
+    if( redis->arg != NULL || redis->cb != NULL )
+        cf_fatal("cf_redis_bind_callback: already bound");
+
+    redis->cb = cb;
+    redis->arg = arg;
+}
+/************************************************************************
+ *  Helper function to create Redis command
+ ************************************************************************/
+int cf_redis_format_command( char **target, const char *format, ... )
+{
+    va_list ap;
+    int len = -1;
+    va_start(ap,format);
+    len = redis_vformat_command(target, format, ap);
+    va_end(ap);
+
+    /* The API says "-1" means bad result, but we now also return "-2" in some
+     * cases.  Force the return value to always be -1. */
+    if( len < 0 )
+        len = -1;
+
+    return len;
+}
+/************************************************************************
  *  Helper function Redis connection setup
  ************************************************************************/
 int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
@@ -148,6 +204,7 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
 
     if( (flags & CF_REDIS_ASYNC) && (flags & CF_REDIS_SYNC) )
     {
+        redis_set_error(redis, "invalid query init parameters");
         return CF_RESULT_ERROR;
     }
 
@@ -155,12 +212,14 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
     {
         if( redis->req == NULL && redis->cb == NULL )
         {
+            redis_set_error(redis, "nothing was bound");
             return CF_RESULT_ERROR;
         }
     }
 
     redis->flags |= flags;
 
+    /* Try to find register Redis DB */
     LIST_FOREACH(db, &redis_db_hosts_list, rlist)
     {
         if( !strcmp(db->name, dbname) )
@@ -169,6 +228,7 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
 
     if( db == NULL )
     {
+        redis_set_error(redis, "no database found");
         return CF_RESULT_ERROR;
     }
 
@@ -185,12 +245,187 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
     return CF_RESULT_OK;
 }
 /************************************************************************
+ *  Helper function to bind Redis query (connection) to HTTP request
+ ************************************************************************/
+#ifndef CF_NO_HTTP
+void cf_redis_bind_request( struct cf_redis *redis, struct http_request *req )
+{
+    if( redis->req != NULL || redis->cb != NULL )
+        cf_fatal("cf_redis_bind_request: already bound");
+
+    redis->req = req;
+    redis->flags |= REDIS_LIST_INSERTED;
+
+    LIST_INSERT_HEAD(&(req->redisls), redis, rlist);
+}
+#endif
+/************************************************************************
+ *  Make request (query) to Redis server
+ ************************************************************************/
+int cf_redis_query( struct cf_redis *redis, const char *format, ... )
+{
+    if( redis->conn == NULL )
+    {
+        redis_set_error(redis, "no connection was set before query");
+        return CF_RESULT_ERROR;
+    }
+
+    if( redis->flags & CF_REDIS_SYNC )
+    {
+        /* Make Redis sync request query */
+        redis->state = CF_REDIS_STATE_DONE;
+        return CF_RESULT_ERROR;
+    }
+    else
+    {
+        char* query = NULL;
+        int query_len = 0;
+        va_list ap;
+
+        va_start(ap, format);
+        /* Format Redis query */
+        query_len = redis_vformat_command( &query, format, ap );
+        va_end( ap );
+
+        if( query_len > 0 && query != NULL )
+        {
+            /* Flush data out towards destination. */
+            net_send_queue( redisConnection(redis), query, query_len );
+
+            /* Delete temporary buffer */
+            mem_free( query );
+
+            if( net_send_flush( redisConnection(redis) ) != CF_RESULT_OK )
+            {
+                redis_set_error(redis, "net_send_flush error");
+                return CF_RESULT_ERROR;
+            }
+
+            redis_schedule( redis );
+        }
+        else
+        {
+            redis_set_error(redis, "redis_vformat_command error");
+            return CF_RESULT_ERROR;
+        }
+    }
+
+    return CF_RESULT_OK;
+}
+/************************************************************************
+ *  Helper function Redis query cleanup
+ ************************************************************************/
+void cf_redis_cleanup( struct cf_redis *redis )
+{
+    log_debug("cf_redis_cleanup(%p)", redis);
+
+    redis_queue_remove( redis );
+
+    if( redis->error != NULL )
+        mem_free( redis->error );
+
+    if( redis->conn != NULL )
+        redis_conn_release(redis);
+
+    redis->error = NULL;
+    redis->conn = NULL;
+
+    if( redis->flags & REDIS_LIST_INSERTED )
+    {
+        LIST_REMOVE(redis, rlist);
+        redis->flags &= ~REDIS_LIST_INSERTED;
+    }
+}
+/************************************************************************
+ *  Helper function to continue Redis query
+ ************************************************************************/
+void cf_redis_continue( struct cf_redis *redis )
+{
+    /* Clear error string */
+    if( redis->error )
+    {
+        mem_free(redis->error);
+        redis->error = NULL;
+    }
+/*
+    if( redis->result )
+    {
+        //PQclear(pgsql->result);
+        redis->result = NULL;
+    }
+*/
+    switch( redis->state )
+    {
+    case CF_REDIS_STATE_INIT:
+    case CF_REDIS_STATE_WAIT:
+        break;
+    case CF_REDIS_STATE_DONE:
+#ifndef CF_NO_HTTP
+        if( redis->req != NULL )
+            http_request_wakeup( redis->req );
+#endif
+        redis_conn_release( redis );
+        break;
+    case CF_REDIS_STATE_ERROR:
+    case CF_REDIS_STATE_RESULT:
+        cf_redis_handle( redis->conn, 0);
+        break;
+    default:
+        cf_fatal("unknown redis state %d", redis->state);
+    }
+}
+/************************************************************************
+ *  Helper Redis handler function
+ ************************************************************************/
+void cf_redis_handle( void *c, int err )
+{
+    struct cf_redis	*redis = NULL;
+    struct redis_conn *conn = (struct redis_conn*)c;
+
+    if( err )
+    {
+        redis_conn_cleanup( conn );
+        return;
+    }
+
+    redis = conn->job->redis;
+
+/*
+    if( !PQconsumeInput(conn->db) )
+    {
+        redis->state = CF_REDIS_STATE_ERROR;
+        redis->error = mem_strdup(PQerrorMessage(conn->db));
+    }
+    else
+*/    {
+        redis_read_result( redis );
+    }
+
+    if( redis->state == CF_REDIS_STATE_WAIT )
+    {
+#ifndef CF_NO_HTTP
+        if( redis->req != NULL )
+            http_request_sleep( redis->req );
+#endif
+        if( redis->cb != NULL )
+            redis->cb(redis, redis->arg);
+    }
+    else
+    {
+#ifndef CF_NO_HTTP
+        if( redis->req != NULL )
+            http_request_wakeup( redis->req );
+#endif
+        if( redis->cb != NULL )
+            redis->cb(redis, redis->arg);
+    }
+}
+/************************************************************************
  *  Helper function to get Redis connection structure
  ************************************************************************/
 static struct redis_conn* redis_conn_next( struct cf_redis *redis, struct redis_db *db )
 {
     struct redis_conn *c = NULL;
-    //struct cf_redis	*rollback = NULL;
 
     while( true )
     {
@@ -229,6 +464,38 @@ static struct redis_conn* redis_conn_next( struct cf_redis *redis, struct redis_
     return c;
 }
 /************************************************************************
+ *  Helper function Redis set error result string
+ ************************************************************************/
+static void redis_set_error( struct cf_redis *redis, const char *msg )
+{
+    if( redis->error != NULL )
+        mem_free( redis->error );
+
+    redis->error = mem_strdup(msg);
+    redis->state = CF_REDIS_STATE_ERROR;
+}
+/************************************************************************
+ *  Helper function Redis schedule
+ ************************************************************************/
+static void redis_schedule( struct cf_redis *redis )
+{
+    if( redisSocket(redis) < 0 )
+        cf_fatal("Redis returned < 0 fd on open connection");
+
+    cf_platform_schedule_read( redisSocket(redis), redisConnection(redis) );
+
+    redis->state = CF_REDIS_STATE_WAIT;
+    redis->flags |= CF_REDIS_SCHEDULED;
+
+#ifndef CF_NO_HTTP
+    if( redis->req != NULL )
+        http_request_sleep( redis->req );
+#endif
+
+    if( redis->cb != NULL )
+        redis->cb(redis, redis->arg);
+}
+/************************************************************************
  *  Helper function Redis add to wait queue
  ************************************************************************/
 static void redis_queue_add( struct cf_redis *redis )
@@ -245,234 +512,26 @@ static void redis_queue_add( struct cf_redis *redis )
     TAILQ_INSERT_TAIL( &redis_wait_queue, rw, list );
 }
 /************************************************************************
- *  Helper function Redis connection setup
+ *  Remove Redis query from wait queue
  ************************************************************************/
-void cf_redis_cleanup( struct cf_redis *redis )
+static void redis_queue_remove( struct cf_redis *redis )
 {
-    log_debug("cf_redis_cleanup(%p)", redis);
+    struct redis_wait *rw, *next;
 
-    redis_queue_remove( redis );
-
-    if( redis->error != NULL )
-        mem_free( redis->error );
-
-    if( redis->conn != NULL )
-        redis_conn_release(redis);
-
-    redis->error = NULL;
-    redis->conn = NULL;
-
-    if( redis->flags & REDIS_LIST_INSERTED )
+    for( rw = TAILQ_FIRST(&redis_wait_queue); rw != NULL; rw = next)
     {
-        LIST_REMOVE(redis, rlist);
-        redis->flags &= ~REDIS_LIST_INSERTED;
-    }
-}
-/************************************************************************
- *  Default Redis handler function
- ************************************************************************/
-void cf_redis_handle( struct connection *c, int err )
-{
-    struct redis_conn *conn = (struct redis_conn*)c->owner;
-    struct cf_redis	*redis = NULL;
+        next = TAILQ_NEXT(rw, list);
+        if( rw->redis != redis )
+            continue;
 
-    if( err )
-    {
-        redis_conn_cleanup( conn );
+        TAILQ_REMOVE(&redis_wait_queue, rw, list);
+        cf_mem_pool_put( &redis_wait_pool, rw);
         return;
     }
-
-    redis = conn->job->redis;
-
-/*
-    if( !PQconsumeInput(conn->db) )
-    {
-        redis->state = CF_REDIS_STATE_ERROR;
-        redis->error = mem_strdup(PQerrorMessage(conn->db));
-    }
-    else
-*/    {
-        redis_read_result( redis );
-    }
-
-    if( redis->state == CF_REDIS_STATE_WAIT )
-    {
-#ifndef CF_NO_HTTP
-        if( redis->req != NULL )
-            http_request_sleep(redis->req);
-#endif
-        if( redis->cb != NULL )
-            redis->cb(redis, redis->arg);
-    }
-    else
-    {
-#ifndef CF_NO_HTTP
-        if( redis->req != NULL )
-            http_request_wakeup(redis->req);
-#endif
-        if( redis->cb != NULL )
-            redis->cb(redis, redis->arg);
-    }
-}
-
-/************************************************************************
- *  Helper function Redis connection cleanup
- ************************************************************************/
-static void redis_conn_cleanup( struct redis_conn *conn )
-{
-    struct cf_redis	*redis = NULL;
-
-    log_debug("redis_conn_cleanup(): %p", conn);
-
-    if( conn->flags & REDIS_CONN_FREE )
-        TAILQ_REMOVE( &redis_conn_free_queue, conn, list );
-
-    if( conn->job )
-    {
-        redis = conn->job->redis;
-
-#ifndef CF_NO_HTTP
-        if( redis->req != NULL )
-            http_request_wakeup( redis->req );
-#endif
-
-        redis->conn = NULL;
-
-        cf_mem_pool_put( &redis_job_pool, conn->job);
-        conn->job = NULL;
-    }
-
-    mem_free(conn->name);
-    mem_free(conn);
 }
 /************************************************************************
- *  Helper function Redis set error result string
- ************************************************************************/
-static void redis_set_error( struct cf_redis *redis, const char *msg )
-{
-    if( redis->error != NULL )
-        mem_free( redis->error );
-
-    redis->error = mem_strdup(msg);
-    redis->state = CF_REDIS_STATE_ERROR;
-}
-/************************************************************************
- *  Helper function Redis read result
- ************************************************************************/
-static void redis_read_result( struct cf_redis *redis )
-{
-
-}
-/************************************************************************
- *  Helper function Redis connection release
- ************************************************************************/
-static void redis_conn_release( struct cf_redis *redis )
-{
-    if( redis == NULL || redis->conn == NULL )
-        return;
-
-    /* Async query cleanup */
-    if( redis->flags & CF_REDIS_ASYNC )
-    {
-        if( redis->flags & CF_REDIS_SCHEDULED )
-        {
-            cf_platform_disable_read( redis->conn->conn->fd );
-
-            //if( redis->state != CF_REDIS_STATE_DONE )
-            //    redis_cancel( redis );
-        }
-
-        cf_mem_pool_put( &redis_job_pool, redis->conn->job );
-    }
-
-    redis->conn->job = NULL;
-    redis->conn->flags |= REDIS_CONN_FREE;
-    TAILQ_INSERT_TAIL( &redis_conn_free_queue, redis->conn, list );
-
-    redis->conn = NULL;
-    redis->state = CF_REDIS_STATE_COMPLETE;
-
-    if( redis->cb != NULL )
-        redis->cb(redis, redis->arg);
-
-    redis_queue_wakeup();
-}
-
-/************************************************************************
- *  Helper function Redis connection create
- ************************************************************************/
-static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redis_db *db )
-{
-    struct redis_conn *c = NULL;
-    int fd = -1;
-
-    if( db == NULL || db->host == NULL )
-        cf_fatal("redis_conn_create: no connection host");
-
-    /* Create socket */
-    if( (fd = cf_tcp_socket( db->host, SOCK_STREAM)) != -1 )
-    {
-        /* Set it to non blocking */
-        if( !cf_socket_nonblock(fd, 1) )
-        {
-            close( fd );
-            return NULL;
-        }
-
-        /* Increment connection count */
-        db->conn_count++;
-
-        redis_queue_add( redis );
-
-        /* Allocate redis_conn structure */
-        c = mem_malloc(sizeof(*c));
-
-        /* Init structure */
-        c->job = NULL;
-        c->name = mem_strdup(db->name);
-
-        /* Allocate connection structure */
-        c->conn = cf_connection_new( c );
-
-        /* Prepare our connection. */
-        c->conn->addrtype = AF_INET;
-        c->conn->addr.ipv4.sin_family = AF_INET;
-        c->conn->addr.ipv4.sin_port = htons( db->port );
-        c->conn->addr.ipv4.sin_addr.s_addr = inet_addr( db->host );
-
-        /* Set the file descriptor for Redis connection */
-        c->conn->fd = fd;
-
-        /* Default write/read callbacks for Redis server connection */
-        c->conn->read = net_read;
-        c->conn->write = net_write;
-
-        /* Connection protocol type & init state */
-        c->conn->proto = CONN_PROTO_REDIS;
-        c->conn->state = CONN_STATE_CONNECTING;
-
-        /* Redis server idle timer is set first to connection timeout */
-        c->conn->idle_timer.length = REDIS_CONNECT_TIMEOUT;
-        c->conn->handle = redis_handle_connect;
-        /* Set the disconnect method for Redis server connections */
-        c->conn->disconnect = redis_handle_disconnect;
-
-        /* Queue write events for the backend connection for now */
-        cf_platform_schedule_write(c->conn->fd, c->conn);
-
-        connection_add_backend( c->conn );
-
-        /* Kick off connecting */
-        c->conn->flags |= CONN_WRITE_POSSIBLE;
-        c->conn->handle( c->conn );
-
-        log_debug("redis_conn_create(): %p", c);
-    }
-
-    return NULL;
-}
-/************************************************************************
- *  Helper function to wakeup Redis connections
+ *  Helper function to wakeup Redis query, when new free connection
+ *  is available
  ************************************************************************/
 static void redis_queue_wakeup( void )
 {
@@ -504,77 +563,166 @@ static void redis_queue_wakeup( void )
     }
 }
 /************************************************************************
- *  Helper function to remove Redis structure from internal queue
+ *  Helper function Redis connection create
  ************************************************************************/
-static void redis_queue_remove( struct cf_redis *redis )
+static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redis_db *db )
 {
-    struct redis_wait *rw, *next;
+    int fd = -1;
 
-    for( rw = TAILQ_FIRST( &redis_wait_queue ); rw != NULL; rw = next )
+    if( db == NULL || db->host == NULL )
+        cf_fatal("redis_conn_create: no connection host");
+
+    /* Create socket */
+    if( (fd = cf_tcp_socket( db->host, SOCK_STREAM)) != -1 )
     {
-        next = TAILQ_NEXT(rw, list);
-        if( rw->redis != redis )
-            continue;
+        struct redis_conn *conn = NULL;
 
-        TAILQ_REMOVE( &redis_wait_queue, rw, list );
-        cf_mem_pool_put( &redis_wait_pool, rw);
-        return;
+        /* Set it to non blocking */
+        if( !cf_socket_nonblock(fd, 1) )
+        {
+            close( fd );
+            return NULL;
+        }
+
+        /* Allocate redis_conn structure */
+        conn = mem_malloc(sizeof(*conn));
+        /* Init structure fields */
+        conn->job = NULL;
+        conn->name = mem_strdup(db->name);
+
+        /* Allocate connection structure & prepare Redis connection */
+        conn->c = cf_connection_new( conn );
+
+        conn->c->addrtype = AF_INET;
+        conn->c->addr.ipv4.sin_family = AF_INET;
+        conn->c->addr.ipv4.sin_port = htons( db->port );
+        conn->c->addr.ipv4.sin_addr.s_addr = inet_addr( db->host );
+        /* Set the file descriptor for Redis connection */
+        conn->c->fd = fd;
+        /* Default write/read callbacks for Redis server connection */
+        conn->c->read = net_read;
+        conn->c->write = net_write;
+        /* Connection protocol type & init state */
+        conn->c->proto = CONN_PROTO_REDIS;
+        conn->c->state = CONN_STATE_CONNECTING;
+        /* Redis server idle timer is set first to connection timeout */
+        conn->c->idle_timer.length = REDIS_CONNECT_TIMEOUT;
+        conn->c->handle = redis_handle_connect;
+        /* Set the disconnect method for Redis server connections */
+        conn->c->disconnect = redis_handle_disconnect;
+
+        /* Increment connection count */
+        db->conn_count++;
+
+        redis_queue_add( redis );
+
+        /* Queue write events for the backend connection for now */
+        cf_platform_schedule_write(conn->c->fd, conn->c);
+
+        connection_add_backend( conn->c );
+
+        /* Kick off connecting */
+        conn->c->flags |= CONN_WRITE_POSSIBLE;
+        conn->c->handle( conn->c );
+
+        log_debug("redis_conn_create(): %p", conn);
     }
+
+    return NULL;
 }
 /************************************************************************
- *  Helper function to bind PGSQL connection to HTTP request
+ *  Helper function to release Redis server connection, move back to list
  ************************************************************************/
-#ifndef CF_NO_HTTP
-void cf_redis_bind_request( struct cf_redis *redis, struct http_request *req )
+static void redis_conn_release( struct cf_redis *redis )
 {
-    if( redis->req != NULL || redis->cb != NULL )
-        cf_fatal("cf_redis_bind_request: already bound");
+    if( redis == NULL || redis->conn == NULL )
+        return;
 
-    redis->req = req;
-    //redis->flags |= PGSQL_LIST_INSERTED;
+    /* Async query cleanup */
+    if( redis->flags & CF_REDIS_ASYNC )
+    {
+        if( redis->flags & CF_REDIS_SCHEDULED )
+        {
+            cf_platform_disable_read( redisSocket(redis) );
 
-    //LIST_INSERT_HEAD(&(req->pgsqls), pgsql, rlist);
-}
-#endif
+            if( redis->state != CF_REDIS_STATE_DONE )
+                redis_cancel( redis );
+        }
 
-void cf_redis_logerror( struct cf_redis *redis )
-{
-    cf_log(LOG_NOTICE, "redis error: %s", (redis->error) ? redis->error : "unknown");
-}
+        cf_mem_pool_put( &redis_job_pool, redis->conn->job );
+    }
 
-void cf_redis_continue( struct cf_redis *redis )
-{
+    redis->conn->job = NULL;
+    redis->conn->flags |= REDIS_CONN_FREE;
+    TAILQ_INSERT_TAIL( &redis_conn_free_queue, redis->conn, list );
 
-}
-
-void cf_redis_bind_callback( struct cf_redis *redis, void (*cb)(struct cf_redis *, void *), void *arg )
-{
-    if( redis->req != NULL )
-        cf_fatal("cf_redis_bind_callback: already bound");
+    redis->conn = NULL;
+    redis->state = CF_REDIS_STATE_COMPLETE;
 
     if( redis->cb != NULL )
-        cf_fatal("cf_redis_bind_callback: already bound");
+        redis->cb(redis, redis->arg);
 
-    redis->cb = cb;
-    redis->arg = arg;
+    redis_queue_wakeup();
 }
-/****************************************************************
- *  Read data Redis server response from input buffer
- ****************************************************************/
-int redis_recv( struct netbuf *nb )
+/************************************************************************
+ *  Clean up Redis database connection & remove from host's list
+ ************************************************************************/
+static void redis_conn_cleanup( struct redis_conn *conn )
 {
-    struct connection *c = (struct connection *)nb->owner;
+    struct cf_redis	*redis = NULL;
+    struct redis_db	*redisdb = NULL;
 
-    printf("redis resp: %s (%lu)\n", nb->buf, nb->s_off);
+    log_debug("redis_conn_cleanup(): %p", conn);
 
-    log_debug("redis_recv(%p)", c);
+    if( conn->flags & REDIS_CONN_FREE )
+        TAILQ_REMOVE( &redis_conn_free_queue, conn, list);
 
-    return CF_RESULT_OK;
+    if( conn->job )
+    {
+        redis = conn->job->redis;
+
+#ifndef CF_NO_HTTP
+        if( redis->req != NULL )
+            http_request_wakeup( redis->req );
+#endif
+
+        redis->conn = NULL;
+        //redis_set_error(redis, "");
+
+        cf_mem_pool_put( &redis_job_pool, conn->job );
+        conn->job = NULL;
+    }
+
+    /* Disconnect from server */
+/*
+    if( conn->db != NULL )
+        PQfinish(conn->db);
+*/
+    /* Delete Redis host from host's list */
+    LIST_FOREACH(redisdb, &redis_db_hosts_list, rlist)
+    {
+        if( strcmp(redisdb->name, conn->name) )
+        {
+            redisdb->conn_count--;
+            break;
+        }
+    }
+
+    /* Clear structure fields */
+    mem_free(conn->name);
+    mem_free(conn);
 }
-/****************************************************************
- *  Connection handler for Redis server
- ****************************************************************/
-static void redis_handle_disconnect( struct connection *c )
+/************************************************************************
+ *  Helper function Redis read result
+ ************************************************************************/
+static void redis_read_result( struct cf_redis *redis )
+{
+
+}
+/************************************************************************
+ *  Helper function to cancel PGSQL query
+ ************************************************************************/
+static void redis_cancel( struct cf_redis *redis )
 {
 
 }
@@ -638,62 +786,259 @@ static int redis_handle_connect( struct connection *c )
     return CF_RESULT_OK;
 }
 /****************************************************************
+ *  Read data Redis server response from input buffer
+ ****************************************************************/
+static int redis_recv( struct netbuf *nb )
+{
+    struct connection *c = (struct connection *)nb->owner;
+
+    printf("redis resp: %s (%lu)\n", nb->buf, nb->s_off);
+
+    log_debug("redis_recv(%p)", c);
+
+    return CF_RESULT_OK;
+}
+/****************************************************************
+ *  Connection handler for Redis server
+ ****************************************************************/
+static void redis_handle_disconnect( struct connection *c )
+{
+
+}
+/****************************************************************
  *  Redis server response handler
  ****************************************************************/
 static int redis_handle( struct connection *c )
 {
     return cf_connection_handle(c);
 }
-
-static void redis_schedule( struct cf_redis *redis )
+/****************************************************************************
+ *  Return the number of digits of 'v' when converted to string in radix 10
+ ***************************************************************************/
+static uint32_t countDigits( uint64_t v )
 {
-    int	fd = redis->conn->conn->fd;
+    uint32_t result = 1;
 
-    if( fd < 0 )
-        cf_fatal("Redis returned < 0 fd on open connection");
-
-    cf_platform_schedule_read(fd, redis->conn->conn);
-
-    redis->state = CF_REDIS_STATE_WAIT;
-    redis->flags |= CF_REDIS_SCHEDULED;
-
-#ifndef CF_NO_HTTP
-    if( redis->req != NULL )
-        http_request_sleep( redis->req );
-#endif
-
-    if( redis->cb != NULL )
-        redis->cb(redis, redis->arg);
+    for(;;)
+    {
+        if( v < 10 ) return result;
+        if( v < 100 ) return result + 1;
+        if( v < 1000 ) return result + 2;
+        if( v < 10000 ) return result + 3;
+        v /= 10000U;
+        result += 4;
+    }
 }
-
+/*************************************************************************
+*  Helper that calculates the bulk length given a certain string length
+*************************************************************************/
+static size_t bulklen( size_t len )
+{
+    return 1 + countDigits(len) + 2 + len + 2;
+}
 /************************************************************************
- *  Make request (query) to PQSQL server
- ************************************************************************/
-int cf_redis_query( struct cf_redis *redis, const char *query )
+*  Helper function create Redis format command
+************************************************************************/
+static int redis_vformat_command( char **target, const char *format, va_list ap )
 {
-    if( redis->conn == NULL )
+    int error_type = 0; /* 0 = no error (empty response);
+                           -1 = memory error;
+                           -2 = format error;
+                           > 0 = no error (good response) */
+    int touched = 0;    /* was the current argument touched? */
+    int argc = 0;       /* Total number of arguments */
+
+    const char *c = format;
+
+    struct cf_buf curarg; /* Temporary buffer for current argument */
+    struct cf_buf args;   /* Temporary buffer for all arguments in final commands */
+
+    /* Init buffer for current argument */
+    cf_buf_init( &curarg, 256);
+    /* Init buffer for all incoming arguments */
+    cf_buf_init( &args, 256);
+
+    /* Init response cmd */
+    *target = NULL;
+
+    while( *c != '\0' && error_type == 0 )
     {
-        redis_set_error(redis, "no connection was set before query");
-        return CF_RESULT_ERROR;
+        if( *c != '%' || c[1] == '\0' )
+        {
+            if( *c == ' ' )
+            {
+                if( touched )
+                {
+                    argc++; /* Increment total number of arguments */
+                    /* Add current argument to args buffer */
+                    cf_buf_appendf( &args, "$%zu\r\n", curarg.offset );
+                    cf_buf_append( &args, curarg.data, curarg.offset );
+                    cf_buf_append( &args, "\r\n", 2 );
+                    /* Reset current argument buffer */
+                    cf_buf_reset( &curarg );
+                }
+            }
+            else
+            {
+                cf_buf_append( &curarg, c, 1);
+                touched = 1;
+            }
+        }
+        else
+        {
+            char *arg = NULL;
+            size_t size = 0;
+
+            switch( c[1] )
+            {
+            case 's':
+                arg = va_arg(ap,char*);
+                size = strlen(arg);
+                if( size > 0 )
+                    cf_buf_append( &curarg, arg, size );
+                break;
+            case 'b':
+                arg = va_arg(ap,char*);
+                size = va_arg(ap,size_t);
+                if( size > 0 )
+                    cf_buf_append( &curarg, arg, size );
+                break;
+            case '%':
+                cf_buf_append( &curarg, "%", 1 );
+                break;
+            default:
+                /* Try to detect printf format */
+                {
+                    static const char intfmts[] = "diouxX";
+                    static const char flags[] = "#0-+ ";
+                    char _format[16];
+                    const char *_p = c+1;
+                    size_t _l = 0;
+                    va_list _cpy;
+
+                    /* Flags */
+                    while( *_p != '\0' && strchr(flags,*_p) != NULL ) _p++;
+
+                    /* Field width */
+                    while( *_p != '\0' && isdigit(*_p) ) _p++;
+
+                    /* Precision */
+                    if( *_p == '.' )
+                    {
+                        _p++;
+                        while (*_p != '\0' && isdigit(*_p)) _p++;
+                    }
+
+                    /* Copy va_list before consuming with va_arg */
+                    va_copy(_cpy,ap);
+
+                    /* Integer conversion (without modifiers) */
+                    if( strchr(intfmts,*_p) != NULL )
+                        va_arg(ap,int);
+                    /* Double conversion (without modifiers) */
+                    else if( strchr("eEfFgGaA",*_p) != NULL )
+                        va_arg(ap,double);
+                    else if( _p[0] == 'h' && _p[1] == 'h' ) /* Size: char */
+                    {
+                        _p += 2;
+
+                        if( *_p != '\0' && strchr(intfmts,*_p) != NULL )
+                            va_arg(ap,int); /* char gets promoted to int */
+                        else
+                            error_type = -2;
+                    }
+                    else if( _p[0] == 'h' ) /* Size: short */
+                    {
+                        _p += 1;
+                        if( *_p != '\0' && strchr(intfmts,*_p) != NULL )
+                            va_arg(ap,int); /* short gets promoted to int */
+                        else
+                            error_type = -2;
+                    }
+                    else if( _p[0] == 'l' && _p[1] == 'l' ) /* Size: long long */
+                    {
+                        _p += 2;
+                        if( *_p != '\0' && strchr(intfmts,*_p) != NULL )
+                            va_arg(ap,long long);
+                        else
+                            error_type = -2;
+                    }
+                    else if( _p[0] == 'l' ) /* Size: long */
+                    {
+                        _p += 1;
+                        if( *_p != '\0' && strchr(intfmts,*_p) != NULL )
+                            va_arg(ap,long);
+                        else
+                            error_type = -2;
+                    }
+
+                    if( error_type == 0 )
+                    {
+                        _l = (_p + 1)-c;
+                        if( _l < sizeof(_format) - 2 )
+                        {
+                            memcpy(_format,c,_l);
+                            _format[_l] = '\0';
+                            cf_buf_appendv( &curarg,_format,_cpy );
+                            /* Update current position (note: outer blocks
+                             * increment c twice so compensate here) */
+                            c = _p - 1;
+                        }
+                    }
+
+                    va_end(_cpy);
+                    break;
+                }
+            }
+
+            touched = 1;
+            c++;
+        }
+
+        c++;
     }
 
-    if( redis->flags & CF_REDIS_SYNC )
+    if( error_type == 0 && ( argc > 0 || touched ) )
     {
-        redis->state = CF_REDIS_STATE_DONE;
-        return CF_RESULT_ERROR;
+        int pos = 0;
+        char *cmd = NULL;   /* final command */
+        int totlen = args.offset; /* Set current data length */
+
+        /* Add the last argument if needed */
+        if( touched )
+        {
+            /* Increment total length */
+            totlen += bulklen( curarg.offset );
+            argc++; /* Increment total number of arguments */
+
+            /* Add current argument to args buffer */
+            cf_buf_appendf( &args, "$%zu\r\n", curarg.offset );
+            cf_buf_append( &args, curarg.data, curarg.offset );
+            cf_buf_append( &args, "\r\n", 2 );
+        }
+
+        /* Add bytes needed to hold multi bulk count */
+        totlen += 1 + countDigits(argc) + 2;
+        /* Build the command at protocol level */
+        cmd = mem_malloc( totlen + 1 );
+        pos = sprintf(cmd,"*%d\r\n",argc);
+        /* Set data to final command */
+        memcpy( cmd + pos, args.data, args.offset );
+        cmd[totlen] = '\0'; /* Set end of string */
+
+        /* Set final command */
+        *target = cmd;
+
+        /* Set return code as total cmd length */
+        error_type = totlen;
     }
-    else
-    {
-        char* cmd = NULL;
 
-        cf_redis_format_command( &cmd, query );
+    /* Clean up temporary buffers */
+    cf_buf_cleanup( &curarg );
+    cf_buf_cleanup( &args );
 
-        /* Flush data out towards destination. */
-        net_send_queue(redis->conn->conn, cmd, strlen(cmd) );
-        net_send_flush(redis->conn->conn);
-        mem_free( cmd);
-        redis_schedule( redis );
-    }
-
-    return CF_RESULT_OK;
+    return error_type;
 }
+
+
+
