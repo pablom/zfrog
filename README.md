@@ -1,5 +1,8 @@
 
+Lightweight, high performance Web application framework.
+
 [![Build Status](https://travis-ci.org/pablom/zfrog.svg?branch=master)](https://travis-ci.org/pablom/zfrog)
+[![Coverity Status](https://img.shields.io/coverity/scan/12489.svg)](https://scan.coverity.com/projects/pablom-zfrog)
 
 
 Platforms supported
@@ -39,4 +42,4 @@ those by setting a shell environment variable before running **_make_**.
 * CF_JSONRPC=1 (compiles in JSONRPC support)
 * CF_PYTHON=1  (compiles in the Python support)
 * CF_LUA=1     (compiles in the Lua support)
-
+* CF_REDIS=1   (compiles in the Redis support)

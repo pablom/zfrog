@@ -183,10 +183,9 @@ endif
 #   Redis support
 ###########################################################################
 ifeq ($(CF_REDIS), 1)
-    S_SRC+=src/cf_redis.c
-#    LDFLAGS+=-Llib -lhiredis
-    CFLAGS+=-DCF_REDIS -Iinclude/hiredis
-    FEATURES+=-DCF_REDIS
+    S_SRC += src/cf_redis.c src/cf_redis_cmd.c
+    CFLAGS += -DCF_REDIS
+    FEATURES += -DCF_REDIS
 endif
 ###########################################################################
 #   CTemplate support
