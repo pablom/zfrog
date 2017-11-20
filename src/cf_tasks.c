@@ -96,6 +96,9 @@ void cf_task_run( struct cf_task *t )
 }
 
 #ifndef CF_NO_HTTP
+/****************************************************************
+ *  Helper function to bind HTTP request to task object
+ ****************************************************************/
 void cf_task_bind_request( struct cf_task *t, struct http_request *req )
 {
     log_debug("cf_task_bind_request: %p bound to %p", req, t);
@@ -175,8 +178,10 @@ void cf_task_finish( struct cf_task *t )
 
 	pthread_rwlock_unlock(&(t->lock));
 }
-
-void cf_task_channel_write(struct cf_task *t, void *data, uint32_t len)
+/****************************************************************
+ *  Write data helper function task function
+ ****************************************************************/
+void cf_task_channel_write( struct cf_task *t, void *data, uint32_t len )
 {
     int	fd;
 
@@ -185,8 +190,10 @@ void cf_task_channel_write(struct cf_task *t, void *data, uint32_t len)
 	task_channel_write(fd, &len, sizeof(len));
 	task_channel_write(fd, data, len);
 }
-
-uint32_t cf_task_channel_read(struct cf_task *t, void *out, uint32_t len)
+/****************************************************************
+ *  Read data helper function task function
+ ****************************************************************/
+uint32_t cf_task_channel_read( struct cf_task *t, void *out, uint32_t len )
 {
     int	fd;
     uint32_t	dlen, bytes;
@@ -205,7 +212,9 @@ uint32_t cf_task_channel_read(struct cf_task *t, void *out, uint32_t len)
 
     return dlen;
 }
-
+/****************************************************************
+ *  Task function default handler
+ ****************************************************************/
 void cf_task_handle( struct cf_task *t, int finished )
 {
     log_debug("cf_task_handle: %p, %d", t, finished);
@@ -217,7 +226,7 @@ void cf_task_handle( struct cf_task *t, int finished )
 
     if( finished )
     {
-        cf_platform_disable_read(t->fds[0]);
+        cf_platform_disable_events( t->fds[0] );
         cf_task_set_state(t, CF_TASK_STATE_FINISHED);
 #ifndef CF_NO_HTTP
         if( t->req != NULL )

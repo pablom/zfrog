@@ -54,7 +54,7 @@ void cf_msg_parent_init( void )
 
 void cf_msg_parent_add( struct cf_worker *kw )
 {
-    kw->msg[0] = cf_connection_new(NULL);
+    kw->msg[0] = cf_connection_new( NULL, CF_TYPE_CLIENT );
 	kw->msg[0]->fd = kw->pipe[0];
 	kw->msg[0]->read = net_read;
 	kw->msg[0]->write = net_write;
@@ -83,7 +83,7 @@ void cf_msg_worker_init(void)
     cf_msg_register(CF_MSG_WEBSOCKET, msg_type_websocket);
 #endif
 
-    worker->msg[1] = cf_connection_new(NULL);
+    worker->msg[1] = cf_connection_new( NULL, CF_TYPE_CLIENT );
 	worker->msg[1]->fd = worker->pipe[1];
 	worker->msg[1]->read = net_read;
 	worker->msg[1]->write = net_write;

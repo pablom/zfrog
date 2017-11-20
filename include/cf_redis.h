@@ -20,13 +20,14 @@
 #define CF_REDIS_ASYNC          0x0002
 #define CF_REDIS_SCHEDULED		0x0004
 
-#define CF_REDIS_STATE_INIT         1
-#define CF_REDIS_STATE_READY        2
-#define CF_REDIS_STATE_WAIT         3
-#define CF_REDIS_STATE_RESULT		4
-#define CF_REDIS_STATE_ERROR		5
-#define CF_REDIS_STATE_DONE         6
-#define CF_REDIS_STATE_COMPLETE     7
+#define CF_REDIS_STATE_CONNECTING   1
+#define CF_REDIS_STATE_INIT         2
+#define CF_REDIS_STATE_READY        3
+#define CF_REDIS_STATE_WAIT         4
+#define CF_REDIS_STATE_RESULT		5
+#define CF_REDIS_STATE_ERROR		6
+#define CF_REDIS_STATE_DONE         7
+#define CF_REDIS_STATE_COMPLETE     8
 
 
 /* Redis reply defines */

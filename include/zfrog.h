@@ -132,14 +132,15 @@ TAILQ_HEAD(netbuf_head, netbuf);
 
 /* Connection type definition */
 #define CF_TYPE_LISTENER            1
-#define CF_TYPE_CONNECTION          2
-#define CF_TYPE_PGSQL_CONN          3
-#define CF_TYPE_REDIS               4
-#define CF_TYPE_TASK                5
+#define CF_TYPE_CLIENT              2
+#define CF_TYPE_BACKEND             3
+#define CF_TYPE_TASK                4
+#define CF_TYPE_PGSQL_CONN          5
+#define CF_TYPE_REDIS               6
 
 /* Connection state definition */
 #define CONN_STATE_UNKNOWN          0
-#define CONN_STATE_SSL_SERV_SHAKE	1
+#define CONN_STATE_SSL_IN_SHAKE	    1
 #define CONN_STATE_ESTABLISHED		2
 #define CONN_STATE_CONNECTING       3
 #define CONN_STATE_DISCONNECTING	4
@@ -194,7 +195,7 @@ struct connection
     void*    hdlr_extra;
 
     int	   (*handle)(struct connection *);
-    void   (*disconnect)(struct connection *);
+    void   (*disconnect)(struct connection *, int);
     int	   (*read)(struct connection *, size_t *);
     int	   (*write)(struct connection *, size_t , size_t *);
 
@@ -546,7 +547,7 @@ void cf_platform_init(void);
 void cf_platform_event_init(void);
 void cf_platform_event_cleanup(void);
 void cf_platform_proctitle(char *);
-void cf_platform_disable_read(int);
+void cf_platform_disable_events(int);
 void cf_platform_enable_accept(void);
 void cf_platform_disable_accept(void);
 int	 cf_platform_event_wait( uint64_t timer );
@@ -578,12 +579,12 @@ int	cf_server_bind(const char *, const char *, const char *);
 void connection_init(void);
 void connection_cleanup(void);
 void cf_connection_prune( int );
-struct connection *cf_connection_new( void* );
+struct connection *cf_connection_new(void* , uint8_t);
 int connection_add_backend( struct connection * );
 void cf_connection_check_timeout(void);
 int	cf_connection_handle(struct connection *);
 void cf_connection_remove(struct connection *);
-void cf_connection_disconnect(struct connection *);
+void cf_connection_disconnect(struct connection *, int);
 void cf_connection_start_idletimer(struct connection *);
 void cf_connection_stop_idletimer(struct connection *);
 void cf_connection_check_idletimer(uint64_t, struct connection *);
@@ -750,56 +751,6 @@ size_t cf_uuid_buffer( char [], size_t );
 int cf_is_hex_digit( char c );
 
 int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ );
-
-
-/* Mustache template parser */
-#ifdef CF_TMUSTACHE
-
-#define CF_MUSTACH_OK                       0
-#define CF_MUSTACH_ERROR_SYSTEM            -1
-#define CF_MUSTACH_ERROR_UNEXPECTED_END    -2
-#define CF_MUSTACH_ERROR_EMPTY_TAG         -3
-#define CF_MUSTACH_ERROR_TAG_TOO_LONG      -4
-#define CF_MUSTACH_ERROR_BAD_SEPARATORS    -5
-#define CF_MUSTACH_ERROR_TOO_DEPTH         -6
-#define CF_MUSTACH_ERROR_CLOSING           -7
-#define CF_MUSTACH_ERROR_BAD_UNESCAPE_TAG  -8
-
-struct cf_mustach_itf
-{
-    int (*start)(void *closure);
-    int (*put)(void *closure, const char *name, int escape, FILE *file);
-    int (*enter)(void *closure, const char *name);
-    int (*next)(void *closure);
-    int (*leave)(void *closure);
-};
-
-int cf_fmustach(const char *template, struct cf_mustach_itf *itf, void *closure, FILE *file);
-int cf_fdmustach(const char *template, struct cf_mustach_itf *itf, void *closure, int fd);
-int cf_mustach(const char *template, struct cf_mustach_itf *itf, void *closure, char **result, size_t *size);
-
-#endif /* CF_TMUSTACHE */
-
-
-#ifdef CF_CTEMPL
-
-typedef struct cf_tmpl_varlist cf_tmpl_varlist;
-typedef struct cf_tmpl_loop  cf_tmpl_loop;
-typedef struct cf_tmpl_fmtlist cf_tmpl_fmtlist;
-typedef void (*cf_tmpl_fmtfunc) (const char *, FILE *);
-
-cf_tmpl_varlist* cf_tmpl_add_var(cf_tmpl_varlist *varlist, ...) ;
-cf_tmpl_varlist* cf_tmpl_add_loop(cf_tmpl_varlist *varlist, const char *name, cf_tmpl_loop *loop);
-cf_tmpl_loop* cf_tmpl_add_varlist(cf_tmpl_loop *loop, cf_tmpl_varlist *varlist);
-void cf_tmpl_free_varlist( cf_tmpl_varlist *varlist );
-cf_tmpl_fmtlist* cf_tmpl_add_fmt( cf_tmpl_fmtlist *fmtlist, const char *name, cf_tmpl_fmtfunc fmtfunc );
-void cf_tmpl_free_fmtlist( cf_tmpl_fmtlist *fmtlist );
-int cf_tmpl_write( char *filename, char *tmplstr, const cf_tmpl_fmtlist *fmtlist, const cf_tmpl_varlist *varlist, FILE *out, FILE *errout);
-
-void cf_tmpl_encode_entity( const char *value, FILE *out );
-void cf_tmpl_encode_url( const char *value, FILE *out );
-
-#endif /* CF_CTEMPL */
 
 
 #if defined(__cplusplus)

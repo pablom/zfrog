@@ -4,12 +4,12 @@
 #include <cf_http.h>
 #include <cf_redis.h>
 
-void connection_del(struct connection *c);
+void connection_del(struct connection *, int);
 void connection_new(struct connection *);
 
-void db_state_change(struct cf_redis *, void *);
-void db_init(struct connection *, struct cf_redis *);
-void db_results(struct cf_redis *, struct connection *);
+static void db_state_change(struct cf_redis *, void *);
+static void db_init(struct connection *, struct cf_redis *);
+static void db_results(struct cf_redis *, struct connection *);
 
 void connection_new( struct connection *c )
 {
@@ -20,7 +20,6 @@ void connection_new( struct connection *c )
 	c->state = CONN_STATE_ESTABLISHED;
 
     redis = mem_calloc(1, sizeof(*redis));
-
 
     printf("cf_redis_init\n");
 
@@ -33,18 +32,18 @@ void connection_new( struct connection *c )
     db_init(c, redis);
 }
 
-void db_init( struct connection *c, struct cf_redis *redis )
+static void db_init( struct connection *c, struct cf_redis *redis )
 {
-    if( !cf_redis_setup(redis, "db", CF_REDIS_ASYNC) )
+    if( !cf_redis_setup( redis, "db", CF_REDIS_ASYNC) )
     {
-        if( redis->state == CF_REDIS_STATE_INIT )
+        if( redis->state == CF_REDIS_STATE_CONNECTING )
         {
             printf("\twaiting for available redis connection\n");
 			return;
 		}
 
-        cf_redis_logerror(redis);
-        cf_connection_disconnect(c);
+        cf_redis_logerror( redis );
+        cf_connection_disconnect( c, 1 );
 		return;
 	}
 
@@ -54,14 +53,14 @@ void db_init( struct connection *c, struct cf_redis *redis )
     if( !cf_redis_query(redis, "PING") )
     {
         cf_redis_logerror(redis);
-        cf_connection_disconnect(c);
+        cf_connection_disconnect(c, 1);
 		return;
 	}
 
 	printf("\tquery fired off!\n");
 }
 
-void connection_del( struct connection *c )
+void connection_del( struct connection *c, int err )
 {
 	printf("%p: disconnecting\n", (void *)c);
 
@@ -72,7 +71,7 @@ void connection_del( struct connection *c )
 	c->hdlr_extra = NULL;
 }
 
-void db_state_change( struct cf_redis *redis, void *arg )
+static void db_state_change( struct cf_redis *redis, void *arg )
 {
     struct connection *c = arg;
 
@@ -86,11 +85,11 @@ void db_state_change( struct cf_redis *redis, void *arg )
     case CF_REDIS_STATE_WAIT:
 		break;
     case CF_REDIS_STATE_COMPLETE:
-        cf_connection_disconnect(c);
+        cf_connection_disconnect(c, 0);
 		break;
     case CF_REDIS_STATE_ERROR:
         cf_redis_logerror( redis );
-        cf_connection_disconnect(c);
+        cf_connection_disconnect(c, 1);
 		break;
     case CF_REDIS_STATE_RESULT:
         db_results(redis, c);
@@ -101,7 +100,7 @@ void db_state_change( struct cf_redis *redis, void *arg )
 	}
 }
 
-void db_results( struct cf_redis *redis, struct connection *c )
+static void db_results( struct cf_redis *redis, struct connection *c )
 {
     char *name = NULL;
     int	i, rows;

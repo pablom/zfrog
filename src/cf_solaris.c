@@ -208,7 +208,7 @@ int cf_platform_event_wait( uint64_t timer )
 #endif
             default:
                 c = (struct connection *)events[i].portev_user;
-                cf_connection_disconnect(c);
+                cf_connection_disconnect(c, 1);
                 break;
             }
 
@@ -244,7 +244,7 @@ int cf_platform_event_wait( uint64_t timer )
             }
             break;
 
-        case CF_TYPE_CONNECTION:
+        case CF_TYPE_CLIENT:
             c = (struct connection *)events[i].portev_user;
 
             if( events[i].portev_events & POLLIN && !(c->flags & CONN_READ_BLOCK) )
@@ -254,7 +254,7 @@ int cf_platform_event_wait( uint64_t timer )
                 c->flags |= CONN_WRITE_POSSIBLE;
 
             if( c->handle != NULL && !c->handle(c) )
-                cf_connection_disconnect( c );
+                cf_connection_disconnect( c, 0 );
             else /* Reassociate listener in evport scheduler */
                 cf_platform_schedule_read(c->fd,c);
 
@@ -310,7 +310,7 @@ void cf_platform_schedule_write(int fd, void *data)
     cf_platform_event_schedule(fd, POLLOUT, 0, data);
 }
 
-void cf_platform_disable_read( int fd )
+void cf_platform_disable_events( int fd )
 {
     if( port_dissociate(evp, PORT_SOURCE_FD, fd) != 0 ) {
         cf_fatal("port_associate(): %s", errno_s);

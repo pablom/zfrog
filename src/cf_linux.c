@@ -134,7 +134,7 @@ int cf_platform_event_wait( uint64_t timer )
 #endif
 			default:
 				c = (struct connection *)events[i].data.ptr;
-                cf_connection_disconnect(c);
+                cf_connection_disconnect(c, 1);
 				break;
 			}
 
@@ -165,7 +165,7 @@ int cf_platform_event_wait( uint64_t timer )
 			}
 			break;
 
-        case CF_TYPE_CONNECTION:
+        case CF_TYPE_CLIENT:
 			c = (struct connection *)events[i].data.ptr;
 
             if( events[i].events & EPOLLIN && !(c->flags & CONN_READ_BLOCK) )
@@ -176,7 +176,7 @@ int cf_platform_event_wait( uint64_t timer )
 
             /* Catch data from socket */
             if( c->handle != NULL && !c->handle(c) )
-                cf_connection_disconnect(c);
+                cf_connection_disconnect(c, 0);
 
             break;
 #ifdef CF_PGSQL
@@ -200,14 +200,14 @@ int cf_platform_event_wait( uint64_t timer )
  *  Helper function add file descriptor to catch
  *  all available events to scheduler
  ****************************************************************/
-void cf_platform_event_all(int fd, void *c)
+void cf_platform_event_all( int fd, void *c )
 {
     cf_platform_event_schedule(fd, EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET, 0, c);
 }
 /****************************************************************
  *  Helper function add file descriptor to event scheduler
  ****************************************************************/
-void cf_platform_event_schedule(int fd, int type, int flags, void *udata)
+void cf_platform_event_schedule( int fd, int type, int flags, void *udata )
 {
 	struct epoll_event	evt;
 
@@ -231,7 +231,7 @@ void cf_platform_event_schedule(int fd, int type, int flags, void *udata)
  *  Helper function add file descriptor to catch
  *  only incoming data available events to scheduler
  ****************************************************************/
-void cf_platform_schedule_read(int fd, void *data)
+void cf_platform_schedule_read( int fd, void *data )
 {
     cf_platform_event_schedule(fd, EPOLLIN, 0, data);
 }
@@ -239,7 +239,7 @@ void cf_platform_schedule_read(int fd, void *data)
  *  Helper function add file descriptor to catch
  *  only outgoing data available events to scheduler
  ****************************************************************/
-void cf_platform_schedule_write(int fd, void *data)
+void cf_platform_schedule_write( int fd, void *data )
 {
     cf_platform_event_schedule(fd, EPOLLOUT, 0, data);
 }
@@ -247,10 +247,10 @@ void cf_platform_schedule_write(int fd, void *data)
  *  Helper function add file descriptor to disable
  *  catch incoming data events
  ****************************************************************/
-void cf_platform_disable_read(int fd)
+void cf_platform_disable_events( int fd )
 {
     if( epoll_ctl(efd, EPOLL_CTL_DEL, fd, NULL) == -1 )
-        cf_fatal("cf_platform_disable_read: %s", errno_s);
+        cf_fatal("cf_platform_disable_events: %s", errno_s);
 }
 /****************************************************************
  *  Add all listeners to event scheduler

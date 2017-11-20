@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <stdarg.h>
 #include "zfrog.h"
+#include "cf_ctemplate.h"
 
 #define MAX_INCLUDE_DEPTH 30
 

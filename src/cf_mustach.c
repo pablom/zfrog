@@ -8,6 +8,8 @@
 #include <ctype.h>
 
 #include "zfrog.h"
+#include "cf_mustach.h"
+
 
 #define NAME_LENGTH_MAX   1024
 #define DEPTH_MAX         256
@@ -117,7 +119,9 @@ static int process(const char *template, struct cf_mustach_itf *itf, void *closu
 			name[len] = 0;
 			break;
 		}
-		switch(c) {
+
+        switch( c )
+        {
 		case '!':
 			/* comment */
 			/* nothing to do */

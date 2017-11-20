@@ -153,7 +153,7 @@ int cf_platform_event_wait(uint64_t timer)
 #endif
 			default:
 				c = (struct connection *)events[i].udata;
-                cf_connection_disconnect(c);
+                cf_connection_disconnect(c, 1);
 				break;
 			}
 
@@ -183,7 +183,7 @@ int cf_platform_event_wait(uint64_t timer)
                 cf_platform_event_all(c->fd, c);
 			}
 			break;
-        case CF_TYPE_CONNECTION:
+        case CF_TYPE_CLIENT:
 			c = (struct connection *)events[i].udata;
             if( events[i].filter == EVFILT_READ && !(c->flags & CONN_READ_BLOCK) )
 				c->flags |= CONN_READ_POSSIBLE;
@@ -192,7 +192,7 @@ int cf_platform_event_wait(uint64_t timer)
 				c->flags |= CONN_WRITE_POSSIBLE;
 
             if( c->handle != NULL && !c->handle(c) )
-                cf_connection_disconnect(c);
+                cf_connection_disconnect(c, 0);
 			break;
 #ifdef CF_PGSQL
         case CF_TYPE_PGSQL_CONN:
@@ -254,7 +254,7 @@ void cf_platform_schedule_write(int fd, void *data)
     cf_platform_event_schedule(fd, EVFILT_WRITE, EV_ADD, data);
 }
 
-void cf_platform_disable_read(int fd)
+void cf_platform_disable_events(int fd)
 {
     cf_platform_event_schedule(fd, EVFILT_READ, EV_DELETE, NULL);
 }

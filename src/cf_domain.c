@@ -655,7 +655,7 @@ static ECDSA_SIG * keymgr_ecdsa_sign(const unsigned char *dgst, int dgst_len, co
     return sig;
 }
 
-static void keymgr_await_data(void)
+static void keymgr_await_data( void )
 {
     int	ret;
     struct pollfd pfd[1];
@@ -678,7 +678,7 @@ static void keymgr_await_data(void)
 	 * this worker until either of the above criteria is met.
 	 */
     start = cf_time_ms();
-    cf_platform_disable_read( worker->msg[1]->fd );
+    cf_platform_disable_events( worker->msg[1]->fd );
 
 	keymgr_response = 0;
 	memset(keymgr_buf, 0, sizeof(keymgr_buf));

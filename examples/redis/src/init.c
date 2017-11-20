@@ -19,7 +19,7 @@ int	init(int);
 int init( int state )
 {
     /* Register our database */
-    cf_redis_register("db", "10.101.128.104", 0);
+    cf_redis_register("db", "127.0.0.1", 0);
 
     return CF_RESULT_OK;
 }

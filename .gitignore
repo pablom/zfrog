@@ -1,4 +1,6 @@
 obj/
+examples/**/*so
+examples/**/*.pem
 zfrog
 zfrog_cli
 features

@@ -424,7 +424,7 @@ static void mysql_conn_release( struct cf_mysql *mysql )
         if( mysql->conn != NULL )
         {
 			fd = PQsocket(mysql->conn->db);
-            cf_platform_disable_read(fd);
+            cf_platform_disable_events(fd);
             cf_pool_put( &mysql_job_pool, mysql->conn->job );
 		}
 	}

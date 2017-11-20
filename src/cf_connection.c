@@ -46,7 +46,7 @@ void connection_cleanup( void )
 /****************************************************************
  *  Create new one connection structure
  ****************************************************************/
-struct connection* cf_connection_new( void *owner )
+struct connection* cf_connection_new( void *owner, uint8_t type )
 {
     struct connection *c = cf_mem_pool_get( &connection_mem_pool );
 
@@ -63,7 +63,7 @@ struct connection* cf_connection_new( void *owner )
 	c->disconnect = NULL;
 	c->hdlr_extra = NULL;
 	c->proto = CONN_PROTO_UNKNOWN;
-    c->type = CF_TYPE_CONNECTION;
+    c->type = type;
 	c->idle_timer.start = 0;
     c->idle_timer.length = CF_IDLE_TIMER_MAX;
 
@@ -91,7 +91,7 @@ int connection_accept( struct listener *listener, struct connection **out )
 
     /* Init out parameter */
 	*out = NULL;
-    c = cf_connection_new( listener );
+    c = cf_connection_new( listener, CF_TYPE_CLIENT );
 
 	c->addrtype = listener->addrtype;
 
@@ -124,7 +124,7 @@ int connection_accept( struct listener *listener, struct connection **out )
 	TAILQ_INSERT_TAIL(&connections, c, list);
 
 #ifndef CF_NO_TLS
-    c->state = CONN_STATE_SSL_SERV_SHAKE;
+    c->state = CONN_STATE_SSL_IN_SHAKE;
     c->write = net_write_tls;
     c->read = net_read_tls;
 #else
@@ -197,7 +197,7 @@ void cf_connection_prune( int all )
         {
 			cnext = TAILQ_NEXT(c, list);
 			net_send_flush(c);
-            cf_connection_disconnect(c);
+            cf_connection_disconnect(c, 0);
 		}
 	}
 
@@ -211,14 +211,14 @@ void cf_connection_prune( int all )
 /****************************************************************
  *  Helper function connection disconnect
  ****************************************************************/
-void cf_connection_disconnect( struct connection *c )
+void cf_connection_disconnect( struct connection *c, int err )
 {
     if( c->state != CONN_STATE_DISCONNECTING )
     {
         log_debug("preparing %p for disconnection", c);
 		c->state = CONN_STATE_DISCONNECTING;
         if( c->disconnect )
-			c->disconnect(c);
+            c->disconnect(c, err);
 
 		TAILQ_REMOVE(&connections, c, list);
 		TAILQ_INSERT_TAIL(&disconnected, c, list);
@@ -241,7 +241,7 @@ int cf_connection_handle( struct connection *c )
     switch( c->state )
     {
 #ifndef CF_NO_TLS
-    case CONN_STATE_SSL_SERV_SHAKE:
+    case CONN_STATE_SSL_IN_SHAKE:
         if( c->ssl == NULL )
         {
             c->ssl = SSL_new( primary_dom->ssl_ctx );
@@ -470,7 +470,7 @@ void cf_connection_check_idletimer(uint64_t now, struct connection *c)
     if( d >= c->idle_timer.length )
     {
         log_debug("%p idle for %d ms, expiring", c, d);
-        cf_connection_disconnect(c);
+        cf_connection_disconnect(c, 0);
 	}
 }
 /****************************************************************

@@ -377,6 +377,10 @@ static void cf_server_start( void )
     cf_log(LOG_NOTICE, "lua built-in enabled");
 #endif
 
+#ifdef CF_REDIS
+    cf_log(LOG_NOTICE, "redis built-in enabled");
+#endif
+
 #ifndef CF_SINGLE_BINARY
     if( (rcall = cf_runtime_getcall("cf_parent_configure")) != NULL )
     {

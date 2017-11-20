@@ -84,7 +84,7 @@ void client_setup( struct connection *c )
 	}
 
     /* Grab a new connection from zfrog to hook backend into */
-	backend = cf_connection_new(NULL);
+    backend = cf_connection_new(NULL, CF_TYPE_BACKEND);
 
 	/* Prepare our connection. */
 	backend->addrtype = AF_INET;

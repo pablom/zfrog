@@ -163,7 +163,7 @@ int cf_platform_event_wait( uint64_t timer )
 			}
 			break;
 
-        case CF_TYPE_CONNECTION:
+        case CF_TYPE_CLIENT:
 			c = (struct connection *)events[i].data.ptr;
 
             if( events[i].events & EPOLLIN && !(c->flags & CONN_READ_BLOCK) )
@@ -232,10 +232,10 @@ void cf_platform_schedule_write(int fd, void *data)
     cf_platform_event_schedule(fd, EPOLLOUT, 0, data);
 }
 
-void cf_platform_disable_read(int fd)
+void cf_platform_disable_events(int fd)
 {
     if( epoll_ctl(efd, EPOLL_CTL_DEL, fd, NULL) == -1 )
-        cf_fatal("cf_platform_disable_read: %s", errno_s);
+        cf_fatal("cf_platform_disable_events: %s", errno_s);
 }
 /****************************************************************
  *  Add all listeners to event scheduler

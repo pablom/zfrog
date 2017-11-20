@@ -110,7 +110,7 @@ static int ztunnel_pipe_create( struct connection *c, const char *host, const ch
 		return CF_RESULT_ERROR;
 	}
 
-	cpipe = cf_connection_new(c);
+    cpipe = cf_connection_new( c, CF_TYPE_CLIENT );
 
 	cpipe->fd = fd;
 	cpipe->addr.ipv4 = sin;
