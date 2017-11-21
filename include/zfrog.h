@@ -144,30 +144,31 @@ TAILQ_HEAD(netbuf_head, netbuf);
 #define CONN_STATE_ESTABLISHED		2
 #define CONN_STATE_CONNECTING       3
 #define CONN_STATE_DISCONNECTING	4
+#define CONN_STATE_ERROR            5
 
-/* Protocol definition */
+/* Connection protocol definition */
 #define CONN_PROTO_UNKNOWN          0
 #define CONN_PROTO_HTTP             1
 #define CONN_PROTO_WEBSOCKET        2
 #define CONN_PROTO_MSG              3
 #define CONN_PROTO_REDIS            4
 
-#define CONN_READ_POSSIBLE          0x01
-#define CONN_WRITE_POSSIBLE         0x02
-#define CONN_WRITE_BLOCK            0x04
-#define CONN_IDLE_TIMER_ACT         0x10
-#define CONN_READ_BLOCK             0x20
-#define CONN_CLOSE_EMPTY            0x40
-#define CONN_WS_CLOSE_SENT          0x80
+#define CONN_READ_POSSIBLE          0x0001
+#define CONN_WRITE_POSSIBLE         0x0002
+#define CONN_WRITE_BLOCK            0x0400
+#define CONN_IDLE_TIMER_ACT         0x1000
+#define CONN_READ_BLOCK             0x2000
+#define CONN_CLOSE_EMPTY            0x4000
+#define CONN_WS_CLOSE_SENT          0x8000
 
 #define CF_IDLE_TIMER_MAX           20000
 
-#define WEBSOCKET_OP_CONT           0x00
-#define WEBSOCKET_OP_TEXT           0x01
-#define WEBSOCKET_OP_BINARY         0x02
-#define WEBSOCKET_OP_CLOSE          0x08
-#define WEBSOCKET_OP_PING           0x09
-#define WEBSOCKET_OP_PONG           0x10
+#define WEBSOCKET_OP_CONT           0x0000
+#define WEBSOCKET_OP_TEXT           0x0001
+#define WEBSOCKET_OP_BINARY         0x0002
+#define WEBSOCKET_OP_CLOSE          0x0008
+#define WEBSOCKET_OP_PING           0x0009
+#define WEBSOCKET_OP_PONG           0x1000
 
 #define WEBSOCKET_BROADCAST_LOCAL           1
 #define WEBSOCKET_BROADCAST_GLOBAL          2
@@ -590,6 +591,8 @@ void cf_connection_start_idletimer(struct connection *);
 void cf_connection_stop_idletimer(struct connection *);
 void cf_connection_check_idletimer(uint64_t, struct connection *);
 int	connection_accept(struct listener *, struct connection **);
+/* Backend support functions */
+void cf_connection_backend_error( struct connection *);
 int cf_connection_connect_toaddr(struct connection *);
 
 

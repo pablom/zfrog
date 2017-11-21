@@ -42,18 +42,18 @@ static void db_init( struct connection *c, struct cf_redis *redis )
 			return;
 		}
 
-        cf_redis_logerror( redis );
-        cf_connection_disconnect( c, 1 );
+        cf_redis_logerror(redis);
+        cf_connection_disconnect(c);
 		return;
 	}
 
-	printf("\tgot pgsql connection\n");
+    printf("\tgot redis connection\n");
 
 
     if( !cf_redis_query(redis, "PING") )
     {
         cf_redis_logerror(redis);
-        cf_connection_disconnect(c, 1);
+        cf_connection_disconnect(c);
 		return;
 	}
 
@@ -85,11 +85,11 @@ static void db_state_change( struct cf_redis *redis, void *arg )
     case CF_REDIS_STATE_WAIT:
 		break;
     case CF_REDIS_STATE_COMPLETE:
-        cf_connection_disconnect(c, 0);
+        cf_connection_disconnect(c);
 		break;
     case CF_REDIS_STATE_ERROR:
         cf_redis_logerror( redis );
-        cf_connection_disconnect(c, 1);
+        cf_connection_disconnect(c);
 		break;
     case CF_REDIS_STATE_RESULT:
         db_results(redis, c);

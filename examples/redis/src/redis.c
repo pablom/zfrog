@@ -49,9 +49,9 @@ int page( struct http_request *req )
     return http_state_run(mystates, mystates_size, req);
 }
 /****************************************************************************
- *  Initialize our PGSQL data structure and prepare for an async query
+ *  Initialize our Redis data structure and prepare for an async query
  ****************************************************************************/
-int request_perform_init( struct http_request *req )
+static int request_perform_init( struct http_request *req )
 {
     struct rstate *state = NULL;
 
@@ -79,12 +79,14 @@ int request_perform_init( struct http_request *req )
 	 */
     if( !cf_redis_setup( &state->rd, "db", CF_REDIS_ASYNC) )
     {
+        printf("\t state = %d\n", state->rd.state);
+
 		/*
 		 * If the state was still in INIT we need to go to sleep and
-		 * wait until the pgsql layer wakes us up again when there
+         * wait until the redis layer wakes us up again when there
 		 * an available connection to the database.
 		 */
-        if( state->rd.state == CF_REDIS_STATE_INIT )
+        if( state->rd.state == CF_REDIS_STATE_INIT || state->rd.state == CF_REDIS_STATE_CONNECTING )
         {
 			req->fsm_state = REQ_STATE_INIT;
             return HTTP_STATE_RETRY;
@@ -106,7 +108,7 @@ int request_perform_init( struct http_request *req )
 /****************************************************************************
  *  After setting everything up we will execute our async query
  ****************************************************************************/
-int request_perform_query( struct http_request *req )
+static int request_perform_query( struct http_request *req )
 {
  //   struct rstate *state = http_state_get(req);
 
@@ -134,14 +136,16 @@ int request_perform_query( struct http_request *req )
  * When request_db_wait() finally is called by zfrog we will have results
  * from pgsql so we'll process them.
  ****************************************************************************/
-int request_db_wait( struct http_request *req )
+static int request_db_wait( struct http_request *req )
 {
     struct rstate *state = http_state_get(req);
 
     cf_log(LOG_NOTICE, "request_db_wait: %d", state->rd.state);
 
+    printf("state change on redis %d\n", state->rd.state);
+
 	/*
-	 * When we get here, our asynchronous pgsql query has
+     * When we get here, our asynchronous redis query has
 	 * given us something, check the state to figure out what.
 	 */
     switch( state->rd.state )
@@ -159,7 +163,7 @@ int request_db_wait( struct http_request *req )
 		req->fsm_state = REQ_STATE_DB_READ;
 		break;
 	default:
-		/* This MUST be present in order to advance the pgsql state */
+        /* This MUST be present in order to advance the redis state */
         cf_redis_continue( &state->rd );
 		break;
 	}
@@ -171,10 +175,10 @@ int request_db_wait( struct http_request *req )
  * entire result, we'll drop back into REQ_STATE_DB_WAIT (above) in order
  * to continue until the pgsql API returns CF_PGSQL_STATE_COMPLETE.
  ****************************************************************************/
-int request_db_read( struct http_request *req )
+static int request_db_read( struct http_request *req )
 {
-    char *name = NULL;
-    int	i, rows;
+//    char *name = NULL;
+//    int	i, rows;
     struct rstate *state = http_state_get(req);
 
 #ifdef MMM
@@ -207,7 +211,7 @@ int request_error( struct http_request *req )
     return HTTP_STATE_COMPLETE;
 }
 /* Request was completed successfully */
-int request_done( struct http_request *req )
+static int request_done( struct http_request *req )
 {
     struct rstate *state = http_state_get( req );
 

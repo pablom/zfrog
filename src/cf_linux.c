@@ -94,6 +94,7 @@ int cf_platform_event_wait( uint64_t timer )
     uint8_t type;
     int	n, i;
 
+    /* Wait events */
 	n = epoll_wait(efd, events, event_count, timer);
 
     if( n == -1 )
@@ -135,7 +136,10 @@ int cf_platform_event_wait( uint64_t timer )
 #endif
 			default:
 				c = (struct connection *)events[i].data.ptr;
-                cf_connection_disconnect(c);
+                if( type == CF_TYPE_BACKEND )
+                    cf_connection_backend_error(c );
+                else
+                    cf_connection_disconnect(c);
 				break;
 			}
 
@@ -167,6 +171,7 @@ int cf_platform_event_wait( uint64_t timer )
 			break;
 
         case CF_TYPE_CLIENT:
+        case CF_TYPE_BACKEND:
 			c = (struct connection *)events[i].data.ptr;
 
             if( events[i].events & EPOLLIN && !(c->flags & CONN_READ_BLOCK) )

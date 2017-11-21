@@ -225,6 +225,23 @@ void cf_connection_disconnect( struct connection *c )
 	}
 }
 /****************************************************************
+ *  Disconnect connection client helper function
+ ****************************************************************/
+void cf_connection_backend_error( struct connection *c )
+{
+    if( c->state != CONN_STATE_ERROR )
+    {
+        if( c->disconnect )
+            c->disconnect(c, 1);
+
+        /* Set error state */
+        c->state = CONN_STATE_ERROR;
+
+        TAILQ_REMOVE(&connections, c, list);
+        TAILQ_INSERT_TAIL(&disconnected, c, list);
+    }
+}
+/****************************************************************
  *  Connection listener (client connection) handle function
  ****************************************************************/
 int cf_connection_handle( struct connection *c )
@@ -380,6 +397,7 @@ int cf_connection_handle( struct connection *c )
         }
         break;
 	case CONN_STATE_DISCONNECTING:
+    case CONN_STATE_ERROR:
 		break;
 	default:
         log_debug("unknown state on %d (%d)", c->fd, c->state);

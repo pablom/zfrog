@@ -48,15 +48,18 @@ struct redis_db
     LIST_ENTRY(redis_db) rlist;
 };
 
+/*  Redis job structure */
 struct redis_job
 {
     struct cf_redis	*redis;
     TAILQ_ENTRY(redis_job)	list;
-}; 
+};
+
 /*  Redis wait structure */
 struct redis_wait
 {
     struct cf_redis	*redis;
+    struct redis_db *db;
     TAILQ_ENTRY(redis_wait)	list;
 };
 
@@ -65,9 +68,9 @@ struct redis_wait
 static struct redis_conn* redis_conn_next(struct cf_redis*, struct redis_db*);
 static void	redis_set_error(struct cf_redis*, const char*);
 static void redis_schedule(struct cf_redis*);
-static void redis_queue_add(struct cf_redis*);
+static void redis_queue_add(struct cf_redis*, struct redis_db*);
 static void redis_queue_remove(struct cf_redis*);
-static void redis_queue_wakeup(void);
+static void redis_queue_wakeup(uint8_t, const char*);
 static struct redis_conn* redis_conn_create(struct cf_redis*, struct redis_db*);
 static void redis_conn_release(struct cf_redis*);
 static void redis_conn_cleanup(struct redis_conn*);
@@ -157,7 +160,7 @@ int cf_redis_register( char* name, char *host, int port )
 void cf_redis_init( struct cf_redis *redis )
 {
     memset(redis, 0, sizeof(*redis));
-    redis->state = CF_REDIS_STATE_INIT;
+    redis->state = CF_REDIS_STATE_CONNECTING;
 }
 /************************************************************************
  *  Helper function log out Redis error
@@ -201,6 +204,12 @@ int cf_redis_format_command( char **target, const char *format, ... )
 int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
 {
     struct redis_db* db = NULL;
+
+    if( redis->state == CF_REDIS_STATE_ERROR )
+    {
+        redis_set_error(redis, "Couldn't connect to Redis server");
+        return CF_RESULT_ERROR;
+    }
 
     if( (flags & CF_REDIS_ASYNC) && (flags & CF_REDIS_SYNC) )
     {
@@ -432,6 +441,7 @@ static struct redis_conn* redis_conn_next( struct cf_redis *redis, struct redis_
     {
         conn = NULL;
 
+        /* Try to find free connection object first */
         TAILQ_FOREACH(conn, &redis_conn_free_queue, list)
         {
             if( !(conn->flags & REDIS_CONN_FREE ) )
@@ -448,9 +458,9 @@ static struct redis_conn* redis_conn_next( struct cf_redis *redis, struct redis_
         if( db->conn_max != 0 && db->conn_count >= db->conn_max )
         {
             if( redis->flags & CF_REDIS_ASYNC )
-                redis_queue_add( redis );
+                redis_queue_add( redis, db );
             else
-                redis_set_error(redis,"no available connection");
+                redis_set_error(redis,"no available free connections");
 
             return NULL;
         }
@@ -499,7 +509,7 @@ static void redis_schedule( struct cf_redis *redis )
 /************************************************************************
  *  Helper function Redis add to wait queue
  ************************************************************************/
-static void redis_queue_add( struct cf_redis *redis )
+static void redis_queue_add( struct cf_redis *redis, struct redis_db *db )
 {
     struct redis_wait *rw = NULL;
 
@@ -510,6 +520,7 @@ static void redis_queue_add( struct cf_redis *redis )
 
     rw = cf_mem_pool_get( &redis_wait_pool );
     rw->redis = redis;
+    rw->db = db;
     TAILQ_INSERT_TAIL( &redis_wait_queue, rw, list );
 }
 /************************************************************************
@@ -534,7 +545,7 @@ static void redis_queue_remove( struct cf_redis *redis )
  *  Helper function to wakeup Redis query, when new free connection
  *  is available
  ************************************************************************/
-static void redis_queue_wakeup( void )
+static void redis_queue_wakeup( uint8_t	state, const char* db_name )
 {
     struct redis_wait *rw, *next;
 
@@ -545,6 +556,7 @@ static void redis_queue_wakeup( void )
 #ifndef CF_NO_HTTP
         if( rw->redis->req != NULL )
         {
+            /* Try first to check, that HTTP request already need to be deleted */
             if( rw->redis->req->flags & HTTP_REQUEST_DELETE )
             {
                 TAILQ_REMOVE( &redis_wait_queue, rw, list );
@@ -552,9 +564,23 @@ static void redis_queue_wakeup( void )
                 continue;
             }
 
+            /* Check if that query related to current db, if not skip to wakeup */
+            if( db_name && strcmp(rw->db->name, db_name) )
+                continue;
+
+            /* wakeup HTTP request */
             http_request_wakeup(rw->redis->req);
+
+            db_name = NULL; /* Skip to continue check Redis db */
         }
 #endif
+        /* Check if that query related to current db, if not skip to wakeup */
+        if( db_name && strcmp(rw->db->name, db_name) )
+            continue;
+
+        /* Change query state for current wait Redis connection query */
+        if( state != 0 )
+            rw->redis->state = state;
 
         if( rw->redis->cb != NULL )
             rw->redis->cb(rw->redis, rw->redis->arg);
@@ -612,15 +638,15 @@ static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redi
         /* Set the disconnect method for Redis server connections */
         conn->c->disconnect = redis_handle_disconnect;
 
-        conn->c->hdlr_extra = redis; /* Save redis structure to connection */
+        //conn->c->hdlr_extra = redis; /* Save redis structure to connection */
 
         /* Increment connection count */
-        db->conn_count++;
+        //db->conn_count++;
 
         if( redis->flags & CF_REDIS_ASYNC )
             redis->state = CF_REDIS_STATE_CONNECTING;
 
-        redis_queue_add( redis );
+        redis_queue_add( redis, db );
 
         /* Queue write events for the backend connection for now */
         cf_platform_schedule_write(conn->c->fd, conn->c);
@@ -668,7 +694,7 @@ static void redis_conn_release( struct cf_redis *redis )
     if( redis->cb != NULL )
         redis->cb(redis, redis->arg);
 
-    redis_queue_wakeup();
+    redis_queue_wakeup(0, NULL);
 }
 /************************************************************************
  *  Clean up Redis database connection & remove from host's list
@@ -787,7 +813,7 @@ static int redis_handle_connect( struct connection *c )
 
     printf("%p: redis connected\n", (void *)c);
 
-    redis_queue_wakeup();
+    redis_queue_wakeup(0, NULL);
 
     return CF_RESULT_OK;
 }
@@ -809,18 +835,35 @@ static int redis_recv( struct netbuf *nb )
  ****************************************************************/
 static void redis_handle_disconnect( struct connection *c, int err )
 {
-    if( c->state == CONN_STATE_DISCONNECTING )
+    /* Disable catch events */
+    cf_platform_disable_events( c->fd );
+
+    if( err )
     {
-        //struct redis_conn* conn = (struct redis_conn*)c->owner;
-        //conn->job->redis;
+        struct redis_conn* redis_c = (struct redis_conn*)c->owner;
 
-        cf_connection_stop_idletimer( c );
+        //if( c->state == CONN_STATE_CONNECTING )
+        //    redis_set_error(redis, "couldn't connect to Redis server");
 
-        /* Disable read events */
-        cf_platform_disable_events( c->fd );
+        redis_queue_wakeup(CF_REDIS_STATE_ERROR, redis_c->name);
 
-        printf("!!! redis disconected !!!\n");
+        /* Remove disconnect function handler */
+        cf_connection_disconnect( c );
     }
+    else
+    {
+        if( c->state == CONN_STATE_DISCONNECTING )
+        {
+            if( err )
+            //struct redis_conn* conn = (struct redis_conn*)c->owner;
+            //conn->job->redis;
+
+            cf_connection_stop_idletimer( c );
+
+            printf("!!! redis disconected !!!\n");
+        }
+    }
+
 }
 /****************************************************************
  *  Redis server response handler
