@@ -576,6 +576,7 @@ int	cf_server_bind(const char *, const char *, const char *);
     void cf_tls_info_callback(const SSL *, int, int);
 #endif
 
+/* List of support client & backend functions */
 void connection_init(void);
 void connection_cleanup(void);
 void cf_connection_prune( int );
@@ -584,7 +585,7 @@ int connection_add_backend( struct connection * );
 void cf_connection_check_timeout(void);
 int	cf_connection_handle(struct connection *);
 void cf_connection_remove(struct connection *);
-void cf_connection_disconnect(struct connection *, int);
+void cf_connection_disconnect(struct connection *);
 void cf_connection_start_idletimer(struct connection *);
 void cf_connection_stop_idletimer(struct connection *);
 void cf_connection_check_idletimer(uint64_t, struct connection *);

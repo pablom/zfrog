@@ -153,7 +153,7 @@ int cf_platform_event_wait(uint64_t timer)
 #endif
 			default:
 				c = (struct connection *)events[i].udata;
-                cf_connection_disconnect(c, 1);
+                cf_connection_disconnect(c);
 				break;
 			}
 
@@ -192,7 +192,7 @@ int cf_platform_event_wait(uint64_t timer)
 				c->flags |= CONN_WRITE_POSSIBLE;
 
             if( c->handle != NULL && !c->handle(c) )
-                cf_connection_disconnect(c, 0);
+                cf_connection_disconnect(c);
 			break;
 #ifdef CF_PGSQL
         case CF_TYPE_PGSQL_CONN:

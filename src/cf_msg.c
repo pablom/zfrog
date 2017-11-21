@@ -20,8 +20,8 @@ TAILQ_HEAD(, msg_type)	msg_types;
 static struct msg_type	*msg_type_lookup(uint8_t);
 static int msg_recv_packet(struct netbuf *);
 static int msg_recv_data(struct netbuf *);
-static void msg_disconnected_parent(struct connection *);
-static void msg_disconnected_worker(struct connection *);
+static void msg_disconnected_parent(struct connection *, int);
+static void msg_disconnected_worker(struct connection *, int);
 static void msg_type_shutdown(struct cf_msg *msg, const void *data);
 
 #ifndef CF_NO_HTTP
@@ -190,14 +190,14 @@ static int msg_recv_data( struct netbuf *nb )
     return CF_RESULT_OK;
 }
 
-static void msg_disconnected_parent( struct connection *c )
+static void msg_disconnected_parent( struct connection *c, int err )
 {
     cf_log(LOG_ERR, "parent gone, shutting down");
     if( kill(worker->pid, SIGQUIT) == -1 )
         cf_log(LOG_ERR, "failed to send SIGQUIT: %s", errno_s);
 }
 
-static void msg_disconnected_worker( struct connection *c )
+static void msg_disconnected_worker( struct connection *c, int err )
 {
 	c->hdlr_extra = NULL;
 }

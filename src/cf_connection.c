@@ -197,7 +197,7 @@ void cf_connection_prune( int all )
         {
 			cnext = TAILQ_NEXT(c, list);
 			net_send_flush(c);
-            cf_connection_disconnect(c, 0);
+            cf_connection_disconnect(c);
 		}
 	}
 
@@ -209,16 +209,16 @@ void cf_connection_prune( int all )
 	}
 }
 /****************************************************************
- *  Helper function connection disconnect
+ *  Disconnect connection client helper function
  ****************************************************************/
-void cf_connection_disconnect( struct connection *c, int err )
+void cf_connection_disconnect( struct connection *c )
 {
     if( c->state != CONN_STATE_DISCONNECTING )
     {
         log_debug("preparing %p for disconnection", c);
 		c->state = CONN_STATE_DISCONNECTING;
         if( c->disconnect )
-            c->disconnect(c, err);
+            c->disconnect(c, 0);
 
 		TAILQ_REMOVE(&connections, c, list);
 		TAILQ_INSERT_TAIL(&disconnected, c, list);
@@ -470,7 +470,7 @@ void cf_connection_check_idletimer(uint64_t now, struct connection *c)
     if( d >= c->idle_timer.length )
     {
         log_debug("%p idle for %d ms, expiring", c, d);
-        cf_connection_disconnect(c, 0);
+        cf_connection_disconnect(c);
 	}
 }
 /****************************************************************

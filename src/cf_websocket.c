@@ -30,7 +30,7 @@ uint64_t cf_websocket_maxframe = 16384;
 
 static int	websocket_recv_frame(struct netbuf *);
 static int	websocket_recv_opcode(struct netbuf *);
-static void	websocket_disconnect(struct connection *);
+static void	websocket_disconnect(struct connection *, int);
 static void	websocket_frame_build(struct cf_buf *, uint8_t, const void *, size_t);
 
 void cf_websocket_handshake( struct http_request *req,
@@ -352,7 +352,7 @@ static int websocket_recv_frame(struct netbuf *nb)
     return ret;
 }
 
-static void websocket_disconnect(struct connection *c)
+static void websocket_disconnect(struct connection *c, int err)
 {
     if( c->ws_disconnect != NULL )
         cf_runtime_wsdisconnect(c->ws_disconnect, c);
