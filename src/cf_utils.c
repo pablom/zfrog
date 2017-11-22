@@ -667,7 +667,7 @@ char* cf_text_trim( char* string, size_t len )
 /****************************************************************
  *  Helper function to read line by line from file
  ****************************************************************/
-char* cf_read_line( FILE *fp, char *in, size_t len )
+char* cf_fread_line( FILE *fp, char *in, size_t len )
 {
     char *p = NULL;
     char* t = NULL;

@@ -1387,7 +1387,7 @@ int http_state_exists( struct http_request *req )
     return (req->hdlr_extra != NULL);
 }
 
-void* http_state_create(struct http_request *req, size_t len)
+void* http_state_create( struct http_request *req, size_t len )
 {
     if( req->hdlr_extra != NULL )
     {

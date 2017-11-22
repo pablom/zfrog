@@ -2,9 +2,11 @@
 
 CC?=gcc
 AR?=ar
+
 PREFIX?=/usr/share/zfrog/
 OBJDIR?=obj
 OBJDIR_CSTL?=obj/cstl
+LIBDIR?=$(OBJDIR)/lib
 
 ZFROG=zfrog
 ZFROG_CLI=zfrog_cli
@@ -27,7 +29,7 @@ CFLAGS  += -I$(OBJDIR)/include
 CFLAGS  += -m64
 
 LDFLAGS += -m64
-LDFLAGS += -L$(OBJDIR)/lib
+LDFLAGS += -L$(LIBDIR)
 
 LDFLAGS_CLI = $(LDFLAGS)
 
@@ -95,7 +97,7 @@ else
     else
         LDFLAGS += -lssl -lcrypto
         LDFLAGS_CLI += -lssl -lcrypto
-        DEPS += $(OBJDIR)/lib/libssl.a
+        DEPS += $(LIBDIR)/libssl.a
     endif
 endif
 ###########################################################################
@@ -123,7 +125,7 @@ ifeq ($(CF_JSONRPC), 1)
         else
             LDFLAGS += -lyajl_s
         endif
-        DEPS += $(OBJDIR)/lib/libyajl_s.a
+        DEPS += $(LIBDIR)/libyajl_s.a
     endif
 endif
 ###########################################################################
@@ -138,7 +140,7 @@ ifeq ($(CF_PGSQL), 1)
     FEATURES_INC+=-I$(shell pg_config --includedir)
 endif
 ###########################################################################
-#   OracleSQL support
+#   Oracle SQL support
 ###########################################################################
 ifeq ($(CF_ORACLE), 1)
     S_SRC+=src/cf_oci.c
@@ -175,8 +177,8 @@ ifeq ($(CF_LUA), 1)
 		CFLAGS  += -I$(WITH_LUAJIT)/include
 		LDFLAGS += -L$(WITH_LUAJIT)/lib -lluajit
 	else
-		DEPS += $(OBJDIR)/lib/libluajit-5.1.a
-		LDFLAGS += -lm $(OBJDIR)/lib/libluajit-5.1.a
+		DEPS += $(LIBDIR)/libluajit-5.1.a
+		LDFLAGS += -lm $(LIBDIR)/libluajit-5.1.a
 	endif
 endif
 ###########################################################################
@@ -250,8 +252,8 @@ $(ZFROG_CLI): $(OBJDIR) $(S_OBJS_CLI)
 	$(CC) $(S_OBJS_CLI) $(LDFLAGS_CLI) -o $(ZFROG_CLI)
 
 $(CSTL_LIB): $(OBJDIR_CSTL) $(S_OBJS_CSTL)
-	$(AR) rcs $(OBJDIR_CSTL)/libcstl.a $(S_OBJS_CSTL)
-	ranlib $(OBJDIR_CSTL)/libcstl.a
+	$(AR) rcs $(LIBDIR)/libcstl.a $(S_OBJS_CSTL)
+	ranlib $(LIBDIR)/libcstl.a
 
 objects: $(OBJDIR) $(S_OBJS)
 	@echo $(LDFLAGS) > $(OBJDIR)/ldflags
@@ -285,6 +287,10 @@ $(OBJDIR_CSTL)/%.o: src/cstl/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
+	find $(OBJDIR) -mindepth 1 -maxdepth 1 -type f -name \*.o -exec rm {} \;
+	rm -rf $(ZFROG) $(ZFROG_CLI) $(OBJDIR_CSTL)
+
+distclean:
 	find . -type f -name \*.o -exec rm {} \;
 	find examples -type f -name \*.so -exec rm {} \;
 	rm -rf $(ZFROG) $(ZFROG_CLI) $(OBJDIR)

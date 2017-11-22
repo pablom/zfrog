@@ -231,7 +231,7 @@ static void parse_config_file( const char *fpath )
     log_debug("parsing configuration file '%s'", fpath);
 
 	lineno = 1;
-    while( (p = cf_read_line(fp, buf, sizeof(buf))) != NULL )
+    while( (p = cf_fread_line(fp, buf, sizeof(buf))) != NULL )
     {
         if( strlen(p) == 0 )
         {

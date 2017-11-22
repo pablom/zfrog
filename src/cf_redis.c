@@ -59,7 +59,7 @@ struct redis_job
 struct redis_wait
 {
     struct cf_redis	*redis;
-    struct redis_db *db;
+    struct redis_db *db;        /* Link to Redis db host */
     TAILQ_ENTRY(redis_wait)	list;
 };
 
@@ -83,7 +83,11 @@ static int redis_handle(struct connection*);
 static uint32_t countDigits(uint64_t);
 static size_t bulklen(size_t);
 static int redis_vformat_command( char**, const char*, va_list);
+static int redis_get_reply(uint8_t*, size_t);
 
+static int redis_process_line_item(uint8_t*, size_t, uint8_t);
+static int redis_process_bulk_item(uint8_t*, size_t);
+static int redis_process_multi_bulk_item(uint8_t*, size_t);
 
 #define redisConnection(_r) (_r->conn->c)
 #define redisSocket(_r) (_r->conn->c->fd)
@@ -826,6 +830,8 @@ static int redis_recv( struct netbuf *nb )
 
     printf("redis resp: %s (%lu)\n", nb->buf, nb->s_off);
 
+    redis_get_reply(nb->buf, nb->s_off);
+
     log_debug("redis_recv(%p)", c);
 
     return CF_RESULT_OK;
@@ -1100,6 +1106,75 @@ static int redis_vformat_command( char **target, const char *format, va_list ap 
 
     return error_type;
 }
+/************************************************************************
+*  Helper function to get Redis reply function
+************************************************************************/
+static int redis_get_reply( uint8_t* buf, size_t len )
+{
+    if( buf && len > 1 )
+    {
+        uint8_t r_type = 0;
+
+        switch( buf[0] )
+        {
+        case '-':
+            r_type = REDIS_REPLY_ERROR;
+            break;
+        case '+':
+            r_type = REDIS_REPLY_STATUS;
+            break;
+        case ':':
+            r_type = REDIS_REPLY_INTEGER;
+            break;
+        case '$':
+            r_type = REDIS_REPLY_STRING;
+            break;
+        case '*':
+            r_type = REDIS_REPLY_ARRAY;
+            break;
+        default:
+                return CF_RESULT_ERROR;
+        }
+
+        /* process typed item */
+        switch( r_type )
+        {
+        case REDIS_REPLY_ERROR:
+        case REDIS_REPLY_STATUS:
+        case REDIS_REPLY_INTEGER:
+            return redis_process_line_item( buf, len, r_type );
+        case REDIS_REPLY_STRING:
+            return redis_process_bulk_item(buf, len);
+        case REDIS_REPLY_ARRAY:
+            return redis_process_multi_bulk_item(buf, len);
+        default:
+            return CF_RESULT_ERROR;
+        }
+    }
+
+    return CF_RESULT_ERROR;
+}
+/************************************************************************
+*  Helper function to get Redis reply function
+************************************************************************/
+static int redis_process_line_item( uint8_t* buf, size_t len, uint8_t r_type )
+{
+
+    return CF_RESULT_ERROR;
+}
+
+static int redis_process_bulk_item( uint8_t* buf, size_t len )
+{
+    return CF_RESULT_ERROR;
+}
+
+static int redis_process_multi_bulk_item( uint8_t* buf, size_t len )
+{
+    return CF_RESULT_ERROR;
+}
+
+
+
 
 
 

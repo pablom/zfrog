@@ -531,7 +531,7 @@ extern struct cf_domain	    *primary_dom;
 extern struct cf_mem_pool   nb_pool;
 
 void cf_cli_usage(int);
-int	zfrog_cli_main(int, char **);
+int	zfrog_cli_main(int, char**);
 
 void cf_signal(int);
 void cf_worker_wait(int);
@@ -540,49 +540,48 @@ void cf_worker_shutdown(void);
 void cf_worker_privdrop(void);
 void cf_worker_dispatch_signal(int);
 void cf_worker_spawn(uint16_t, uint16_t);
-void cf_worker_entry(struct cf_worker *);
+void cf_worker_entry(struct cf_worker*);
 
 struct cf_worker *cf_worker_data(uint8_t);
 
 void cf_platform_init(void);
 void cf_platform_event_init(void);
 void cf_platform_event_cleanup(void);
-void cf_platform_proctitle(char *);
+void cf_platform_proctitle(char*);
 void cf_platform_disable_events(int);
 void cf_platform_enable_accept(void);
 void cf_platform_disable_accept(void);
-int	 cf_platform_event_wait( uint64_t timer );
-void cf_platform_event_all(int, void *);
-void cf_platform_schedule_read(int, void *);
-void cf_platform_schedule_write(int, void *);
-void cf_platform_event_schedule(int, int, int, void *);
+int	 cf_platform_event_wait(uint64_t);
+void cf_platform_event_all(int, void*);
+void cf_platform_schedule_read(int, void*);
+void cf_platform_schedule_write(int, void*);
+void cf_platform_event_schedule(int, int, int, void*);
 void cf_platform_worker_setcpu(struct cf_worker *);
-int  cf_proc_pidpath( pid_t pid, void *buf, size_t len );
+int  cf_proc_pidpath(pid_t, void *, size_t);
 
 void cf_accesslog_init(void);
 void cf_accesslog_worker_init(void);
-int  cf_accesslog_write(const void *data, uint32_t len);
+int  cf_accesslog_write(const void *, uint32_t);
 
 
 void cf_timer_init(void);
 uint64_t cf_timer_run(uint64_t);
-void cf_timer_remove(struct cf_timer *);
+void cf_timer_remove(struct cf_timer*);
 struct cf_timer *cf_timer_add(void (*cb)(void *, uint64_t), uint64_t, void *, int);
 
 void cf_listener_cleanup(void);
 int	cf_server_bind(const char *, const char *, const char *);
 
 #ifndef CF_NO_TLS
-    int	cf_tls_sni_cb(SSL *, int *, void *);
-    void cf_tls_info_callback(const SSL *, int, int);
+    int	cf_tls_sni_cb(SSL*, int*, void*);
+    void cf_tls_info_callback(const SSL*, int, int);
 #endif
 
 /* List of support client & backend functions */
 void connection_init(void);
 void connection_cleanup(void);
 void cf_connection_prune( int );
-struct connection *cf_connection_new(void* , uint8_t);
-int connection_add_backend( struct connection * );
+struct connection *cf_connection_new(void*, uint8_t);
 void cf_connection_check_timeout(void);
 int	cf_connection_handle(struct connection *);
 void cf_connection_remove(struct connection *);
@@ -591,13 +590,15 @@ void cf_connection_start_idletimer(struct connection *);
 void cf_connection_stop_idletimer(struct connection *);
 void cf_connection_check_idletimer(uint64_t, struct connection *);
 int	connection_accept(struct listener *, struct connection **);
-/* Backend support functions */
-void cf_connection_backend_error( struct connection *);
+
+/* Backend connection support functions */
+int connection_add_backend(struct connection *);
+void cf_connection_backend_error(struct connection *);
 int cf_connection_connect_toaddr(struct connection *);
 
 
 uint64_t cf_time_ms(void);
-void cf_ms2ts( struct timespec *ts, uint64_t ms );
+void cf_ms2ts(struct timespec *ts, uint64_t ms);
 
 void cf_log_init(void);
 
@@ -626,7 +627,7 @@ char *mem_strdup(const char *);
 void cf_log(int, const char *, ...) __attribute__((format (printf, 2, 3)));
 uint64_t cf_strtonum64(const char *, int, int *);
 size_t cf_strlcpy(char *, const char *, const size_t);
-char* cf_strncpy0(char *dst, const char *src, size_t len);
+char* cf_strncpy0(char *, const char *, size_t);
 
 void core_server_disconnect(struct connection *);
 int	cf_split_string(char *, const char *, char **, size_t);
@@ -637,7 +638,7 @@ int cf_base64_encode(const void *, size_t, char **);
 int cf_base64_decode(char *in, size_t ilen, uint8_t **out, size_t *olen);
 void *cf_mem_find(void *, size_t, void *, size_t);
 char *cf_text_trim(char *, size_t);
-char *cf_read_line(FILE *, char *, size_t);
+char *cf_fread_line(FILE *, char *, size_t);
 
 
 void cf_msg_init(void);
