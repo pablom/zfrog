@@ -163,12 +163,12 @@ TAILQ_HEAD(netbuf_head, netbuf);
 
 #define CF_IDLE_TIMER_MAX           20000
 
-#define WEBSOCKET_OP_CONT           0x0000
-#define WEBSOCKET_OP_TEXT           0x0001
-#define WEBSOCKET_OP_BINARY         0x0002
-#define WEBSOCKET_OP_CLOSE          0x0008
-#define WEBSOCKET_OP_PING           0x0009
-#define WEBSOCKET_OP_PONG           0x1000
+#define WEBSOCKET_OP_CONT           0x00
+#define WEBSOCKET_OP_TEXT           0x01
+#define WEBSOCKET_OP_BINARY         0x02
+#define WEBSOCKET_OP_CLOSE          0x08
+#define WEBSOCKET_OP_PING           0x09
+#define WEBSOCKET_OP_PONG           0x10
 
 #define WEBSOCKET_BROADCAST_LOCAL           1
 #define WEBSOCKET_BROADCAST_GLOBAL          2
