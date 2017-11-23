@@ -110,23 +110,20 @@ static int request_perform_init( struct http_request *req )
  ****************************************************************************/
 static int request_perform_query( struct http_request *req )
 {
- //   struct rstate *state = http_state_get(req);
+    struct rstate *state = http_state_get(req);
 
 	/* We want to move to read result after this. */
 	req->fsm_state = REQ_STATE_DB_WAIT;
 
-
-#ifdef MMM
     /* Fire off the query */
-    if( !cf_redis_query( &state->rd,"SELECT * FROM coders, pg_sleep(5)") )
+    if( !cf_redis_query( &state->rd,"PING") )
     {
 		/*
 		 * Let the state machine continue immediately since we
-		 * have an error anyway.
+         * have an error anyway
 		 */
         return HTTP_STATE_CONTINUE;
 	}
-#endif
 
     /* Resume state machine later when the query results start coming in */
     return HTTP_STATE_RETRY;
@@ -173,7 +170,7 @@ static int request_db_wait( struct http_request *req )
 /****************************************************************************
  * Called when there's an actual result to be gotten. After we handle the
  * entire result, we'll drop back into REQ_STATE_DB_WAIT (above) in order
- * to continue until the pgsql API returns CF_PGSQL_STATE_COMPLETE.
+ * to continue until the pgsql API returns CF_REDIS_STATE_COMPLETE.
  ****************************************************************************/
 static int request_db_read( struct http_request *req )
 {

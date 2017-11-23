@@ -45,16 +45,29 @@ extern "C" {
 #endif
 
 
+struct cf_redis_reply
+{
+    uint8_t     type;     /* Redis reply type */
+    long long   integer;  /* The integer when type is REDIS_REPLY_INTEGER */
+    size_t      len;      /* Length of string */
+    char        *str;     /* Used for both REDIS_REPLY_ERROR and REDIS_REPLY_STRING */
+    size_t      elements; /* number of elements, for REDIS_REPLY_ARRAY */
+
+    struct cf_redis_reply **element; /* elements vector for REDIS_REPLY_ARRAY */
+};
+
+
 struct cf_redis
 {
     uint8_t		state;
     int			flags;
     char		*error;
 
-    struct redis_conn *conn;
+    struct redis_conn      *conn;  /* Pointer to Redis connection structure */
+    struct cf_redis_reply  *reply; /* Redis reply */
 
 #ifndef CF_NO_HTTP
-    struct http_request	*req;
+    struct http_request	*req;      /* HTTP request */
 #endif
 
     void *arg;

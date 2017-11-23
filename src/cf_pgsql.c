@@ -673,6 +673,7 @@ static void pgsql_conn_release( struct cf_pgsql *pgsql )
         {
 			fd = PQsocket(pgsql->conn->db);
             cf_platform_disable_events( fd );
+
             if( pgsql->state != CF_PGSQL_STATE_DONE )
                 pgsql_cancel(pgsql);
 		}

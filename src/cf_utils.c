@@ -453,7 +453,7 @@ char* cf_time_to_date( time_t now )
 /****************************************************************
  *  Helper function to get current time in milliseconds
  ****************************************************************/
-uint64_t cf_time_ms()
+uint64_t cf_time_ms( void )
 {
     struct timeval tv;
 
