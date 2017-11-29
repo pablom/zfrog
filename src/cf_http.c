@@ -292,6 +292,10 @@ int http_request_new( struct connection *c, const char *host,
 	LIST_INIT(&(req->pgsqls));
 #endif
 
+#ifdef CF_REDIS
+    LIST_INIT(&(req->redisls));
+#endif
+
 	http_request_count++;
 	TAILQ_INSERT_HEAD(&http_requests, req, list);
 	TAILQ_INSERT_TAIL(&(c->http_requests), req, olist);
@@ -420,7 +424,7 @@ void http_process_request( struct http_request *req )
 
 void http_response_header( struct http_request *req, const char *header, const char *value )
 {
-	struct http_header	*hdr;
+    struct http_header* hdr = NULL;
 
     log_debug("http_response_header(%p, %s, %s)", req, header, value);
 

@@ -249,6 +249,9 @@ void cf_domain_tls_init( struct cf_domain *dom )
 #else
     switch( tls_version )
     {
+    case CF_TLS_VERSION_1_3:
+        method = TLSv1_2_server_method();
+        break;
     case CF_TLS_VERSION_1_2:
 		method = TLSv1_2_server_method();
 		break;
@@ -280,13 +283,17 @@ void cf_domain_tls_init( struct cf_domain *dom )
 
     switch( tls_version )
     {
+    case CF_TLS_VERSION_1_3:
+//        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_3_VERSION) )
+//            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
+//        break;
     case CF_TLS_VERSION_1_2:
         if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_2_VERSION))
             cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
         break;
     case CF_TLS_VERSION_1_0:
         if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_VERSION) )
-            cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
+            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
         break;
     case CF_TLS_VERSION_BOTH:
         break;

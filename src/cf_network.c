@@ -101,7 +101,9 @@ void net_send_stream( struct connection *c, void *data, size_t len, int (*cb)(st
     if( out != NULL )
 		*out = nb;
 }
-
+/****************************************************************
+ *  Reset incoming net buffer
+ ****************************************************************/
 void net_recv_reset( struct connection *c, size_t len, int (*cb)(struct netbuf *) )
 {
     log_debug("net_recv_reset(): %p %zu", c, len);

@@ -3,6 +3,7 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <netinet/tcp.h>
+#include <netdb.h>
 #include <fcntl.h>
 
 #include "zfrog.h"
@@ -365,7 +366,7 @@ int cf_connection_handle( struct connection *c )
         if( c->flags & CONN_WRITE_POSSIBLE )
         {
             /* Try to server connect, if we failed check why, we are non blocking */
-            if( cf_connection_connect_toaddr( c ) == -1 )
+            if( cf_connection_backend_connect( c ) == -1 )
             {
                 /* If we got a real error, disconnect */
                 if( errno != EALREADY && errno != EINPROGRESS && errno != EISCONN )
@@ -512,9 +513,9 @@ void cf_connection_stop_idletimer( struct connection *c )
 	c->idle_timer.start = 0;
 }
 /****************************************************************
- *  Helper function connect to server by address
+ *  Connect to server by address
  ****************************************************************/
-int cf_connection_connect_toaddr( struct connection *c )
+int cf_connection_backend_connect( struct connection *c )
 {
     /* Attempt connecting */
     if( c->addrtype == AF_INET )
@@ -524,5 +525,79 @@ int cf_connection_connect_toaddr( struct connection *c )
 
     return -1;
 }
+/************************************************************************
+ * Init address structure from host & port
+ ************************************************************************/
+void cf_connection_address_init( struct connection *c, const char *host, uint16_t port )
+{
+    struct addrinfo	hints, *results = NULL;
+    char port_str[12];
+    int rc;
 
+    /* Init structure */
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_flags = 0;
+
+    snprintf(port_str, sizeof(port_str), "%hu", port);
+
+    if( (rc = getaddrinfo(host, port_str, &hints, &results)) != 0 ) {
+        cf_fatal("getaddrinfo(%s): %s", host, gai_strerror(rc));
+    }
+
+    /* Set connection address */
+    c->addrtype = results->ai_family;
+
+    if( c->addrtype != AF_INET && c->addrtype != AF_INET6 )
+        cf_fatal("getaddrinfo(): unknown address family %d", c->addrtype);
+
+    if( c->addrtype == AF_INET )
+    {
+        c->addr.ipv4.sin_family = AF_INET;
+        c->addr.ipv4.sin_port = htons( port );
+        c->addr.ipv4.sin_addr.s_addr = inet_addr( host );
+    }
+    else if( c->addrtype == AF_INET6 )
+    {
+        c->addr.ipv6.sin6_family = AF_INET6;
+        c->addr.ipv6.sin6_port = htons( port );
+        if( (rc <= inet_pton(AF_INET6, host, &(c->addr.ipv6.sin6_addr))) )
+        {
+            if( rc == 0 )
+                cf_fatal("inet_pton(%s): %s", host, "Not in presentation format");
+
+            cf_fatal("inet_pton(%s): %s", host, errno_s);
+        }
+    }
+
+    freeaddrinfo(results);
+}
+/************************************************************************
+ *  Create new one backend connection structure
+ ************************************************************************/
+struct connection* cf_connection_backend_new( void *owner, const char *host, uint16_t port )
+{
+    struct connection* c = NULL;
+    cf_connection_new( owner, CF_TYPE_BACKEND );
+
+    /* Set server backend connection address */
+    cf_connection_address_init(c, host, port);
+
+    /* Try to create socket */
+    if( (c->fd = socket(c->addrtype, SOCK_STREAM, 0)) < 0 )
+        cf_log(LOG_ERR, "socket(): %s", errno_s);
+
+    /* Set it to non blocking */
+    if( !cf_socket_nonblock(c->fd, 1) )
+        cf_log(LOG_ERR, "cf_socket_nonblock(): %s", errno_s);
+
+    /* Default write/read callbacks for backend server connection */
+    c->read = net_read;
+    c->write = net_write;
+    c->state = CONN_STATE_CONNECTING;
+
+    return c;
+}
 

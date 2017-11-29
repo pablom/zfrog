@@ -382,14 +382,16 @@ static FILE * config_file_write( void )
 
 #ifndef CF_NO_TLS
 static int configure_tls_version( char *version )
-{
-	if (!strcmp(version, "1.2")) {
+{                    
+    if( !strcmp(version, "1.3") ) {
+        tls_version = CF_TLS_VERSION_1_3;
+    } else if( !strcmp(version, "1.2") ) {
         tls_version = CF_TLS_VERSION_1_2;
-    } else if (!strcmp(version, "1.1")) {
+    } else if( !strcmp(version, "1.1") ) {
         tls_version = CF_TLS_VERSION_1_1;
-    } else if (!strcmp(version, "1.0")) {
+    } else if( !strcmp(version, "1.0") ) {
         tls_version = CF_TLS_VERSION_1_0;
-	} else if (!strcmp(version, "both")) {
+    } else if( !strcmp(version, "both") ) {
         tls_version = CF_TLS_VERSION_BOTH;
     }
     else

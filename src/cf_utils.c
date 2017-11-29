@@ -195,7 +195,9 @@ int cf_snprintf( char *str, size_t size, int *len, const char *fmt, ... )
 
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ * Helper function convert string to integer value
+ ****************************************************************/
 long long cf_strtonum( const char *str, int base, long long min, long long max, int *err )
 {
     long long l;
@@ -230,7 +232,9 @@ long long cf_strtonum( const char *str, int base, long long min, long long max, 
     *err = CF_RESULT_OK;
     return l;
 }
-
+/****************************************************************
+ * Helper function convert string to uint64 value
+ ****************************************************************/
 uint64_t cf_strtonum64( const char *str, int sign, int *err )
 {
     uint64_t l = 0;

@@ -16,9 +16,9 @@
 
 #define REDIS_CONN_FREE             0x0008
 
-#define CF_REDIS_SYNC           0x0001
-#define CF_REDIS_ASYNC          0x0002
-#define CF_REDIS_SCHEDULED		0x0004
+#define CF_REDIS_SYNC               0x0001
+#define CF_REDIS_ASYNC              0x0002
+#define CF_REDIS_SCHEDULED          0x0004
 
 /* Redis state defines */
 #define CF_REDIS_STATE_CONNECTING   1

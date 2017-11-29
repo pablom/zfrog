@@ -67,10 +67,11 @@ extern "C" {
 #define CF_RESULT_OK            1
 #define CF_RESULT_RETRY         2
 
-#define CF_TLS_VERSION_1_2      0
-#define CF_TLS_VERSION_1_1      1
-#define CF_TLS_VERSION_1_0      2
-#define CF_TLS_VERSION_BOTH     3
+#define CF_TLS_VERSION_1_3      0
+#define CF_TLS_VERSION_1_2      1
+#define CF_TLS_VERSION_1_1      2
+#define CF_TLS_VERSION_1_0      3
+#define CF_TLS_VERSION_BOTH     4
 
 #define CF_RESEED_TIME	(1800 * 1000)
 
@@ -594,8 +595,9 @@ int	connection_accept(struct listener *, struct connection **);
 /* Backend connection support functions */
 int connection_add_backend(struct connection *);
 void cf_connection_backend_error(struct connection *);
-int cf_connection_connect_toaddr(struct connection *);
-
+int cf_connection_backend_connect(struct connection *);
+void cf_connection_address_init(struct connection*,const char*, uint16_t);
+struct connection* cf_connection_backend_new(void*, const char*, uint16_t);
 
 uint64_t cf_time_ms(void);
 void cf_ms2ts(struct timespec *ts, uint64_t ms);

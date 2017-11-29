@@ -615,70 +615,46 @@ static void redis_queue_wakeup( uint8_t	state, struct redis_db *db )
  ************************************************************************/
 static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redis_db *db )
 {
-    int fd = -1;
+    struct redis_conn *conn = NULL;
 
     if( db == NULL || db->host == NULL )
         cf_fatal("redis_conn_create: no connection host");
 
-    /* Create socket */
-    if( (fd = cf_tcp_socket( db->host, SOCK_STREAM)) != -1 )
-    {
-        struct redis_conn *conn = NULL;
+    /* Allocate redis_conn structure */
+    conn = mem_malloc( sizeof(*conn) );
+    /* Init structure fields */
+    conn->job = NULL;
+    conn->db = db;      /* Set Redis host DB */
 
-        /* Set it to non blocking */
-        if( !cf_socket_nonblock(fd, 1) )
-        {
-            close( fd );
-            return NULL;
-        }
+    /* Create backend connection structure */
+    conn->c = cf_connection_backend_new( conn, db->host, db->port );
+    /* Connection protocol type & init state as current connecting */
+    conn->c->proto = CONN_PROTO_REDIS;
+    /* Redis server idle timer is set first to connection timeout */
+    conn->c->idle_timer.length = REDIS_CONNECT_TIMEOUT;
+    /* Set callback handler for connection success */
+    conn->c->handle = redis_handle_connect;
+    /* Set the disconnect method for Redis server connections & error callback */
+    conn->c->disconnect = redis_handle_disconnect;
 
-        /* Allocate redis_conn structure */
-        conn = mem_malloc( sizeof(*conn) );
-        /* Init structure fields */
-        conn->job = NULL;
-        conn->db = db;      /* Set Redis host DB */
+    /* Increment connection count for Redis db host */
+    db->conn_count++;
 
-        /* Allocate connection structure & prepare Redis connection */
-        conn->c = cf_connection_new( conn, CF_TYPE_BACKEND );
-        /* Set connection address */
-        conn->c->addrtype = AF_INET;
-        conn->c->addr.ipv4.sin_family = AF_INET;
-        conn->c->addr.ipv4.sin_port = htons( db->port );
-        conn->c->addr.ipv4.sin_addr.s_addr = inet_addr( db->host );
-        /* Set the file descriptor for Redis connection */
-        conn->c->fd = fd;
-        /* Default write/read callbacks for Redis server connection */
-        conn->c->read = net_read;
-        conn->c->write = net_write;
-        /* Connection protocol type & init state as current connecting */
-        conn->c->proto = CONN_PROTO_REDIS;
-        conn->c->state = CONN_STATE_CONNECTING;
-        /* Redis server idle timer is set first to connection timeout */
-        conn->c->idle_timer.length = REDIS_CONNECT_TIMEOUT;
-        /* Set callback handler for connection success */
-        conn->c->handle = redis_handle_connect;
-        /* Set the disconnect method for Redis server connections & error callback */
-        conn->c->disconnect = redis_handle_disconnect;
+    if( redis->flags & CF_REDIS_ASYNC )
+        redis->state = CF_REDIS_STATE_CONNECTING;
 
-        /* Increment connection count for Redis db host */
-        db->conn_count++;
+    redis_queue_add( redis, db );
 
-        if( redis->flags & CF_REDIS_ASYNC )
-            redis->state = CF_REDIS_STATE_CONNECTING;
+    /* Queue write events for the backend connection for now */
+    cf_platform_schedule_write(conn->c->fd, conn->c);
 
-        redis_queue_add( redis, db );
+    connection_add_backend( conn->c );
 
-        /* Queue write events for the backend connection for now */
-        cf_platform_schedule_write(conn->c->fd, conn->c);
+    /* Kick off connecting */
+    conn->c->flags |= CONN_WRITE_POSSIBLE;
+    conn->c->handle( conn->c );
 
-        connection_add_backend( conn->c );
-
-        /* Kick off connecting */
-        conn->c->flags |= CONN_WRITE_POSSIBLE;
-        conn->c->handle( conn->c );
-
-        log_debug("redis_conn_create(): %p", conn);
-    }
+    log_debug("redis_conn_create(): %p", conn);
 
     return NULL;
 }
@@ -794,7 +770,7 @@ static int redis_handle_connect( struct connection *c )
     /* Attempt connecting */
 
     /* If we failed check why, we are non blocking */
-    if( cf_connection_connect_toaddr( c ) == -1 )
+    if( cf_connection_backend_connect( c ) == -1 )
     {
         /* If we got a real error, disconnect */
         if( errno != EALREADY && errno != EINPROGRESS && errno != EISCONN )
@@ -853,9 +829,14 @@ static int redis_recv( struct netbuf *nb )
     if( redis_get_reply( &r, nb->buf, nb->s_off ) == CF_RESULT_OK )
     {
         redis->reply = r;
-        redis->state = CF_REDIS_STATE_COMPLETE;
+        //redis->state = CF_REDIS_STATE_COMPLETE;
+        redis->state = CF_REDIS_STATE_RESULT;
         //redis_queue_wakeup(CF_REDIS_STATE_COMPLETE, conn->name);
     }
+
+    net_recv_reset(c, NETBUF_SEND_PAYLOAD_MAX, redis_recv );
+
+    //net_recv_flush(c);
 
     if( redis->state == CF_REDIS_STATE_WAIT )
     {
@@ -1231,6 +1212,15 @@ static int redis_process_line_item( struct cf_redis_reply** r, uint8_t* buf, siz
 
 static int redis_process_bulk_item( struct cf_redis_reply** r, uint8_t* buf, size_t len )
 {
+    /* Try to find end of line */
+    uint8_t* end_line = cf_mem_find( buf, len, "\r\n", 2);
+
+    /* First we need to read string length */
+    if( end_line )
+    {
+
+    }
+
     return CF_RESULT_ERROR;
 }
 
@@ -1238,6 +1228,12 @@ static int redis_process_multi_bulk_item( struct cf_redis_reply** r, uint8_t* bu
 {
     return CF_RESULT_ERROR;
 }
+
+/*
+static struct cf_redis_reply* redis_create_string_object(const redisReadTask *task, char *str, size_t len)
+{
+*/
+
 /************************************************************************
 *  Helper function to free Redis reply structure
 ************************************************************************/

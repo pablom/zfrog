@@ -183,7 +183,7 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
 {
     struct listener	*l = NULL;
     int on = 1;
-    int	r;
+    int	rc;
     struct addrinfo	hints, *results;
 
     log_debug("cf_server_bind(%s, %s)", ip, port);
@@ -194,8 +194,8 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = 0;
 
-    if( (r = getaddrinfo(ip, port, &hints, &results)) != 0 ) {
-        cf_fatal("getaddrinfo(%s): %s", ip, gai_strerror(r));
+    if( (rc = getaddrinfo(ip, port, &hints, &results)) != 0 ) {
+        cf_fatal("getaddrinfo(%s): %s", ip, gai_strerror(rc));
     }
 
 	l = mem_malloc(sizeof(struct listener));
