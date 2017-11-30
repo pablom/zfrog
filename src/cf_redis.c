@@ -589,6 +589,10 @@ static void redis_queue_wakeup( uint8_t	state, struct redis_db *db )
             if( db && strcmp(rw->db->name, db->name) )
                 continue;
 
+            /* Change query state for current wait Redis connection query */
+            if( state != 0 )
+                rw->redis->state = state;
+
             /* wakeup HTTP request */
             http_request_wakeup(rw->redis->req);
 
@@ -596,12 +600,14 @@ static void redis_queue_wakeup( uint8_t	state, struct redis_db *db )
         }
 #endif
         /* Check if that query related to current db, if not skip to wakeup */
-        if( db && strcmp(rw->db->name, db->name) )
-            continue;
+        if( db )
+        {
+            if( strcmp(rw->db->name, db->name) )
+                continue;
 
-        /* Change query state for current wait Redis connection query */
-        if( state != 0 )
-            rw->redis->state = state;
+            if( state != 0 )
+                rw->redis->state = state;
+        }
 
         if( rw->redis->cb != NULL )
             rw->redis->cb(rw->redis, rw->redis->arg);
@@ -873,24 +879,18 @@ static void redis_handle_disconnect( struct connection *c, int err )
     {
         struct redis_conn* redis_c = (struct redis_conn*)c->owner;
 
-        //if( c->state == CONN_STATE_CONNECTING )
-        //    redis_set_error(redis, "couldn't connect to Redis server");
+      //  if( c->state == CONN_STATE_CONNECTING )
+      //      redis_set_error(redis, "couldn't connect to Redis server");
 
         redis_queue_wakeup(CF_REDIS_STATE_ERROR, redis_c->db);
-
-        /* Remove disconnect function handler */
-        cf_connection_disconnect( c );
+        /* Increment connection count for Redis db host */
+        redis_c->db->conn_count--;
     }
     else
     {
         if( c->state == CONN_STATE_DISCONNECTING )
         {
-            if( err )
-            //struct redis_conn* conn = (struct redis_conn*)c->owner;
-            //conn->redis;
-
             cf_connection_stop_idletimer( c );
-
             printf("!!! redis disconected !!!\n");
         }
     }

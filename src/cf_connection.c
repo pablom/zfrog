@@ -235,7 +235,7 @@ void cf_connection_backend_error( struct connection *c )
         if( c->disconnect )
             c->disconnect(c, 1);
 
-        /* Set error state */
+        /* Set error state for backend connection structure */
         c->state = CONN_STATE_ERROR;
 
         TAILQ_REMOVE(&connections, c, list);
@@ -480,11 +480,9 @@ void cf_connection_remove( struct connection *c )
 /****************************************************************
  *  Helper function check idle timer connection
  ****************************************************************/
-void cf_connection_check_idletimer(uint64_t now, struct connection *c)
+void cf_connection_check_idletimer( uint64_t now, struct connection *c )
 {
-    uint64_t d;
-
-	d = now - c->idle_timer.start;
+    uint64_t d = now - c->idle_timer.start;
 
     if( d >= c->idle_timer.length )
     {
@@ -522,16 +520,17 @@ int cf_connection_backend_connect( struct connection *c )
         return connect(c->fd, (struct sockaddr *)&c->addr.ipv4, sizeof(c->addr.ipv4));
     else if( c->addrtype == AF_INET6 )
         return connect(c->fd, (struct sockaddr *)&c->addr.ipv6, sizeof(c->addr.ipv6));
+    else if( c->addrtype == AF_UNIX )
+        return connect(c->fd, (struct sockaddr *)&c->addr.un, sizeof(c->addr.un));
 
     return -1;
 }
 /************************************************************************
  * Init address structure from host & port
  ************************************************************************/
-void cf_connection_address_init( struct connection *c, const char *host, uint16_t port )
+int cf_connection_address_init( struct connection *c, const char *host, uint16_t port )
 {
     struct addrinfo	hints, *results = NULL;
-    char port_str[12];
     int rc;
 
     /* Init structure */
@@ -541,17 +540,40 @@ void cf_connection_address_init( struct connection *c, const char *host, uint16_
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = 0;
 
-    snprintf(port_str, sizeof(port_str), "%hu", port);
+    //port = 0;
 
-    if( (rc = getaddrinfo(host, port_str, &hints, &results)) != 0 ) {
-        cf_fatal("getaddrinfo(%s): %s", host, gai_strerror(rc));
+    if( port > 0 ) /* AF_INET or AF_INET6 */
+    {
+        char port_str[12];
+        snprintf( port_str, sizeof(port_str), "%hu", port );
+
+        if( (rc = getaddrinfo(host, port_str, &hints, &results)) != 0 )
+        {
+            cf_log(LOG_ERR,"getaddrinfo(%s): %s", host, gai_strerror(rc));
+            return CF_RESULT_ERROR;
+        }
+    }
+    else /* AF_UNIX */
+    {
+/*
+        if( (rc = getaddrinfo(host, NULL, &hints, &results)) != 0 )
+        {
+            cf_log(LOG_ERR,"getaddrinfo(%s): %s", host, gai_strerror(rc));
+            return CF_RESULT_ERROR;
+        }
+*/
     }
 
     /* Set connection address */
     c->addrtype = results->ai_family;
 
-    if( c->addrtype != AF_INET && c->addrtype != AF_INET6 )
-        cf_fatal("getaddrinfo(): unknown address family %d", c->addrtype);
+    //c->addrtype = AF_UNIX;
+
+    /* Delete temporary structure */
+    freeaddrinfo( results );
+
+    if( c->addrtype != AF_INET && c->addrtype != AF_INET6 && c->addrtype != AF_UNIX )
+        cf_log(LOG_ERR, "getaddrinfo(): unknown address family %d", c->addrtype);
 
     if( c->addrtype == AF_INET )
     {
@@ -563,16 +585,24 @@ void cf_connection_address_init( struct connection *c, const char *host, uint16_
     {
         c->addr.ipv6.sin6_family = AF_INET6;
         c->addr.ipv6.sin6_port = htons( port );
+
         if( (rc <= inet_pton(AF_INET6, host, &(c->addr.ipv6.sin6_addr))) )
         {
             if( rc == 0 )
-                cf_fatal("inet_pton(%s): %s", host, "Not in presentation format");
+                cf_log(LOG_ERR,"inet_pton(%s): %s", host, "Not in presentation format");
+            else
+                cf_log(LOG_ERR,"inet_pton(%s): %s", host, errno_s);
 
-            cf_fatal("inet_pton(%s): %s", host, errno_s);
+            return CF_RESULT_ERROR;
         }
     }
+    else if( c->addrtype == AF_UNIX )
+    {
+        c->addr.un.sun_family = AF_UNIX;
+        snprintf( c->addr.un.sun_path, sizeof(c->addr.un.sun_path), "%s", host );
+    }
 
-    freeaddrinfo(results);
+    return CF_RESULT_OK;
 }
 /************************************************************************
  *  Create new one backend connection structure
@@ -580,22 +610,35 @@ void cf_connection_address_init( struct connection *c, const char *host, uint16_
 struct connection* cf_connection_backend_new( void *owner, const char *host, uint16_t port )
 {
     struct connection* c = NULL;
-    cf_connection_new( owner, CF_TYPE_BACKEND );
+
+    c = cf_connection_new( owner, CF_TYPE_BACKEND );
 
     /* Set server backend connection address */
     cf_connection_address_init(c, host, port);
 
     /* Try to create socket */
     if( (c->fd = socket(c->addrtype, SOCK_STREAM, 0)) < 0 )
+    {
+        cf_mem_pool_put( &connection_mem_pool, c );
         cf_log(LOG_ERR, "socket(): %s", errno_s);
+        return NULL;
+    }
 
     /* Set it to non blocking */
-    if( !cf_socket_nonblock(c->fd, 1) )
+    if( !cf_socket_nonblock(c->fd, 0) )
+    {
+        /* Close socket handler */
+        close( c->fd );
+        /* Return allocated connection structure back to memory pool */
+        cf_mem_pool_put( &connection_mem_pool, c );
         cf_log(LOG_ERR, "cf_socket_nonblock(): %s", errno_s);
+        return NULL;
+    }
 
     /* Default write/read callbacks for backend server connection */
     c->read = net_read;
     c->write = net_write;
+    /* Set state as connecting */
     c->state = CONN_STATE_CONNECTING;
 
     return c;

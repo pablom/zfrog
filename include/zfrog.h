@@ -25,7 +25,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/queue.h>
-
+#include <sys/un.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -205,6 +205,7 @@ struct connection
 	union {
 		struct sockaddr_in	ipv4;
 		struct sockaddr_in6	ipv6;
+        struct sockaddr_un  un;
 	} addr;
 
 	struct {
@@ -596,7 +597,7 @@ int	connection_accept(struct listener *, struct connection **);
 int connection_add_backend(struct connection *);
 void cf_connection_backend_error(struct connection *);
 int cf_connection_backend_connect(struct connection *);
-void cf_connection_address_init(struct connection*,const char*, uint16_t);
+int cf_connection_address_init(struct connection*,const char*, uint16_t);
 struct connection* cf_connection_backend_new(void*, const char*, uint16_t);
 
 uint64_t cf_time_ms(void);

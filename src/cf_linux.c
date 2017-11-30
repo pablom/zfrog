@@ -137,7 +137,7 @@ int cf_platform_event_wait( uint64_t timer )
 			default:
 				c = (struct connection *)events[i].data.ptr;
                 if( type == CF_TYPE_BACKEND )
-                    cf_connection_backend_error(c );
+                    cf_connection_backend_error(c);
                 else
                     cf_connection_disconnect(c);
 				break;
@@ -256,7 +256,7 @@ void cf_platform_schedule_write( int fd, void *data )
 void cf_platform_disable_events( int fd )
 {
     if( epoll_ctl(efd, EPOLL_CTL_DEL, fd, NULL) == -1 )
-        cf_fatal("cf_platform_disable_events: %s", errno_s);
+        cf_fatal("cf_platform_disable_events(): %s", errno_s);
 }
 /****************************************************************
  *  Add all listeners to event scheduler
