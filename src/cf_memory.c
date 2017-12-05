@@ -160,7 +160,7 @@ void* mem_realloc( void *ptr, size_t len )
     return nptr;
 }
 /************************************************************************
- *  Helper function memory allocate
+ *  Allocate memory and init with zero
  ************************************************************************/
 void* mem_calloc( size_t memb, size_t len )
 {

@@ -41,16 +41,11 @@ struct redis_conn
     struct connection  *c;  /* Link to physical (socket) connection */
     struct redis_db    *db; /* Link to Redis db host description */
 
-    //uint8_t  state;
     uint8_t  flags;
-
-    uint8_t	 type;
 
     struct redis_job   *job;
     TAILQ_ENTRY(redis_conn) list;
 };
-
-
 
 /*  Redis job structure */
 struct redis_job
@@ -93,6 +88,13 @@ static int redis_process_line_item(struct cf_redis_reply**, uint8_t*, size_t, ui
 static int redis_process_bulk_item(struct cf_redis_reply**, uint8_t*, size_t);
 static int redis_process_multi_bulk_item(struct cf_redis_reply**, uint8_t*, size_t);
 static void redis_free_reply(struct cf_redis*);
+
+/* Helper functions to get Redis reply */
+static struct cf_redis_reply* create_reply_string_object(const uint8_t*, size_t);
+static struct cf_redis_reply* create_reply_integer_object(long long);
+static struct cf_redis_reply* create_reply_nil_object(void);
+static struct cf_redis_reply* create_reply_array_object(size_t);
+static long long redis_readLongLong(uint8_t*);
 
 #define redisConnection(_r) (_r->conn->c)
 #define redisSocket(_r) (_r->conn->c->fd)
@@ -143,6 +145,18 @@ int cf_redis_register( char* name, char *host, int port )
 {
     struct redis_db *db = NULL;
 
+    if( host == NULL || strlen(host) == 0 )
+        return CF_RESULT_ERROR;
+
+    /* Check first unix local socket */
+    if( strncmp(host, "unix@", 5) == 0 )
+    {
+        host += 5;
+        port = 0;
+    }
+    else if( port <= 0 )
+        port = 6379;
+
     LIST_FOREACH(db, &redis_db_hosts_list, rlist)
     {
         if( !strcmp(db->host, host) )
@@ -152,7 +166,7 @@ int cf_redis_register( char* name, char *host, int port )
     db = mem_malloc(sizeof(*db));
     db->name = mem_strdup(name);
     db->host = mem_strdup(host);
-    db->port = port > 0 ? port:6379;
+    db->port = port;
     db->conn_count = 0;
     db->conn_max = redis_serv_conn_max;
 
@@ -815,8 +829,8 @@ static int redis_handle_connect( struct connection *c )
 
     printf("%p: redis connected\n", (void *)c);
 
-    /* Notify wait consumers */
-    redis_queue_wakeup(CF_REDIS_STATE_READY, redis_c->db);
+    /* Notify wait consumers, that state is changed */
+    redis_queue_wakeup(CF_REDIS_STATE_INIT, redis_c->db);
 
     return CF_RESULT_OK;
 }
@@ -830,7 +844,7 @@ static int redis_recv( struct netbuf *nb )
     struct redis_conn *conn = (struct redis_conn*)c->owner;
     struct cf_redis* redis = conn->job->redis;
 
-    printf("redis resp: %s (%lu)\n", nb->buf, nb->s_off);
+    //printf("redis resp: %s (%lu)\n", nb->buf, nb->s_off);
 
     if( redis_get_reply( &r, nb->buf, nb->s_off ) == CF_RESULT_OK )
     {
@@ -838,6 +852,8 @@ static int redis_recv( struct netbuf *nb )
         //redis->state = CF_REDIS_STATE_COMPLETE;
         redis->state = CF_REDIS_STATE_RESULT;
         //redis_queue_wakeup(CF_REDIS_STATE_COMPLETE, conn->name);
+
+        printf("redis reply: %s (%lu)\n", r->str, r->len);
     }
 
     net_recv_reset(c, NETBUF_SEND_PAYLOAD_MAX, redis_recv );
@@ -1180,7 +1196,7 @@ static int redis_get_reply( struct cf_redis_reply** r, uint8_t* buf, size_t len 
     return CF_RESULT_ERROR;
 }
 /************************************************************************
-*  Helper function to get Redis reply function
+*  Helper function to get Redis reply for ERROR, STATUS and INTEGER
 ************************************************************************/
 static int redis_process_line_item( struct cf_redis_reply** r, uint8_t* buf, size_t len, uint8_t r_type )
 {
@@ -1191,25 +1207,20 @@ static int redis_process_line_item( struct cf_redis_reply** r, uint8_t* buf, siz
     {
         ptrdiff_t len_reply = end_line - buf;
 
-        /* Allocate redis reply structure */
-        *r = mem_malloc(sizeof(*r));
-
         if( r_type == REDIS_REPLY_INTEGER )
-        {
-
-        }
+            (*r) = create_reply_integer_object( redis_readLongLong(buf) );
         else /* create string object */
         {
-            (*r)->str = mem_malloc( len_reply + 1 );
-            /* Copy string value */
-            memcpy( (*r)->str, buf, len_reply );
-            (*r)->str[len_reply] = '\0';
+            (*r) = create_reply_string_object( buf, len_reply );
+            (*r)->type = r_type; /* redefine response type */
         }
     }
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+*  Helper function to get Redis reply for STRING type
+************************************************************************/
 static int redis_process_bulk_item( struct cf_redis_reply** r, uint8_t* buf, size_t len )
 {
     /* Try to find end of line */
@@ -1218,31 +1229,151 @@ static int redis_process_bulk_item( struct cf_redis_reply** r, uint8_t* buf, siz
     /* First we need to read string length */
     if( end_line )
     {
+        ptrdiff_t ilen = 2 + end_line - buf;
 
+        /* Read first bulk length */
+        long blen = redis_readLongLong( buf );
+
+        if( blen < 0 )
+        {
+            /* The nil object can always be created */
+            *r = create_reply_nil_object();
+            return CF_RESULT_OK;
+        }
+        else if( (len - ilen) >= (size_t)blen )
+        {
+            /* Allocate redis reply structure */
+            *r = create_reply_string_object( buf + ilen, blen );
+            return CF_RESULT_OK;
+        }
     }
 
     return CF_RESULT_ERROR;
 }
-
+/************************************************************************
+*  Helper function to get Redis reply for ARRAY type
+************************************************************************/
 static int redis_process_multi_bulk_item( struct cf_redis_reply** r, uint8_t* buf, size_t len )
 {
+    long elements = 0;
+
+    /* Try to find end of line */
+    uint8_t* end_line = cf_mem_find( buf, len, "\r\n", 2);
+
+    /* First we need to read string length */
+    if( end_line )
+    {
+        /* Read number of elements in the array */
+        elements = redis_readLongLong( buf );
+
+        (*r) = create_reply_array_object( elements );
+    }
+
     return CF_RESULT_ERROR;
 }
-
-/*
-static struct cf_redis_reply* redis_create_string_object(const redisReadTask *task, char *str, size_t len)
-{
-*/
-
 /************************************************************************
 *  Helper function to free Redis reply structure
 ************************************************************************/
 static void redis_free_reply( struct cf_redis* redis )
 {
+    if( redis && redis->reply )
+    {
+        /* Delete string reply buffer */
+        if( redis->reply->str )
+            mem_free( redis->reply->str );
 
+        if( redis->reply->elements > 0 )
+        {
+            /* Remove each item */
+        }
+
+        /* Delete reply structure itself */
+        mem_free( redis->reply );
+    }
 }
+/************************************************************************
+*  Create Redis reply string object
+************************************************************************/
+static struct cf_redis_reply* create_reply_string_object( const uint8_t *buf, size_t len )
+{
+    struct cf_redis_reply* r = mem_calloc(1, sizeof(struct cf_redis_reply));
+    r->type = REDIS_REPLY_STRING;
+    r->str = mem_malloc( len + 1 );
+    /* Copy string value */
+    memcpy( r->str, buf, len );
+    r->str[len] = '\0';
+    r->len = len;
+    return r;
+}
+/************************************************************************
+*  Create Redis reply integer object
+************************************************************************/
+static struct cf_redis_reply* create_reply_integer_object( long long value )
+{
+    struct cf_redis_reply* r = mem_calloc(1, sizeof(struct cf_redis_reply));
+    r->type = REDIS_REPLY_INTEGER;
+    r->integer = value;
+    return r;
+}
+/************************************************************************
+*  Create Redis reply array object
+************************************************************************/
+static struct cf_redis_reply* create_reply_array_object( size_t elements )
+{
+    struct cf_redis_reply* r = mem_calloc(1, sizeof(struct cf_redis_reply));
+    r->type = REDIS_REPLY_ARRAY;
+    r->elements = elements;
 
+    if( elements > 0 )
+        r->element = mem_calloc(elements, sizeof(struct cf_redis_reply*));
 
+    return r;
+}
+/************************************************************************
+*  Create Redis reply Nil object
+************************************************************************/
+static struct cf_redis_reply* create_reply_nil_object(void)
+{
+    struct cf_redis_reply* r = mem_calloc(1, sizeof(struct cf_redis_reply));
+    r->type = REDIS_REPLY_NIL;
+    return r;
+}
+/************************************************************************
+* Read a long long value starting at *s, under the assumption that it
+* will be terminated by \r\n. Ambiguously returns -1 for unexpected input
+************************************************************************/
+static long long redis_readLongLong( uint8_t *s )
+{
+    long long v = 0;
+    int dec, mult = 1;
+    char c;
 
+    if( *s == '-' )
+    {
+        mult = -1;
+        s++;
+    }
+    else if(*s == '+')
+    {
+        mult = 1;
+        s++;
+    }
+
+    while( (c = *(s++)) != '\r' )
+    {
+        dec = c - '0';
+        if( dec >= 0 && dec < 10 )
+        {
+            v *= 10;
+            v += dec;
+        }
+        else {
+            /* Should not happen */
+            return -1;
+        }
+    }
+
+    return mult*v;
+}
 
 

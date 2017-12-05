@@ -530,21 +530,20 @@ int cf_connection_backend_connect( struct connection *c )
  ************************************************************************/
 int cf_connection_address_init( struct connection *c, const char *host, uint16_t port )
 {
-    struct addrinfo	hints, *results = NULL;
     int rc;
-
-    /* Init structure */
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    hints.ai_flags = 0;
-
-    //port = 0;
 
     if( port > 0 ) /* AF_INET or AF_INET6 */
     {
         char port_str[12];
+        struct addrinfo	hints, *results = NULL;
+
+        /* Init structure */
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_protocol = IPPROTO_TCP;
+        hints.ai_flags = 0;
+
         snprintf( port_str, sizeof(port_str), "%hu", port );
 
         if( (rc = getaddrinfo(host, port_str, &hints, &results)) != 0 )
@@ -552,55 +551,48 @@ int cf_connection_address_init( struct connection *c, const char *host, uint16_t
             cf_log(LOG_ERR,"getaddrinfo(%s): %s", host, gai_strerror(rc));
             return CF_RESULT_ERROR;
         }
-    }
-    else /* AF_UNIX */
-    {
-/*
-        if( (rc = getaddrinfo(host, NULL, &hints, &results)) != 0 )
+
+        /* Set connection address */
+        c->addrtype = results->ai_family;
+
+        /* Delete temporary structure */
+        freeaddrinfo( results );
+
+        if( c->addrtype != AF_INET && c->addrtype != AF_INET6 )
         {
-            cf_log(LOG_ERR,"getaddrinfo(%s): %s", host, gai_strerror(rc));
+            cf_log(LOG_ERR, "getaddrinfo(): unknown address family %d", c->addrtype);
             return CF_RESULT_ERROR;
         }
-*/
-    }
 
-    /* Set connection address */
-    c->addrtype = results->ai_family;
-
-    //c->addrtype = AF_UNIX;
-
-    /* Delete temporary structure */
-    freeaddrinfo( results );
-
-    if( c->addrtype != AF_INET && c->addrtype != AF_INET6 && c->addrtype != AF_UNIX )
-        cf_log(LOG_ERR, "getaddrinfo(): unknown address family %d", c->addrtype);
-
-    if( c->addrtype == AF_INET )
-    {
-        c->addr.ipv4.sin_family = AF_INET;
-        c->addr.ipv4.sin_port = htons( port );
-        c->addr.ipv4.sin_addr.s_addr = inet_addr( host );
-    }
-    else if( c->addrtype == AF_INET6 )
-    {
-        c->addr.ipv6.sin6_family = AF_INET6;
-        c->addr.ipv6.sin6_port = htons( port );
-
-        if( (rc <= inet_pton(AF_INET6, host, &(c->addr.ipv6.sin6_addr))) )
+        if( c->addrtype == AF_INET )
         {
-            if( rc == 0 )
-                cf_log(LOG_ERR,"inet_pton(%s): %s", host, "Not in presentation format");
-            else
-                cf_log(LOG_ERR,"inet_pton(%s): %s", host, errno_s);
-
-            return CF_RESULT_ERROR;
+            c->addr.ipv4.sin_family = AF_INET;
+            c->addr.ipv4.sin_port = htons( port );
+            c->addr.ipv4.sin_addr.s_addr = inet_addr( host );
         }
+        else if( c->addrtype == AF_INET6 )
+        {
+            c->addr.ipv6.sin6_family = AF_INET6;
+            c->addr.ipv6.sin6_port = htons( port );
+
+            if( (rc <= inet_pton(AF_INET6, host, &(c->addr.ipv6.sin6_addr))) )
+            {
+                if( rc == 0 )
+                    cf_log(LOG_ERR,"inet_pton(%s): %s", host, "Not in presentation format");
+                else
+                    cf_log(LOG_ERR,"inet_pton(%s): %s", host, errno_s);
+
+                return CF_RESULT_ERROR;
+            }
+        }
+
+        return CF_RESULT_OK;
     }
-    else if( c->addrtype == AF_UNIX )
-    {
-        c->addr.un.sun_family = AF_UNIX;
-        snprintf( c->addr.un.sun_path, sizeof(c->addr.un.sun_path), "%s", host );
-    }
+
+    /* AF_UNIX connection type */
+    c->addrtype = AF_UNIX;
+    c->addr.un.sun_family = AF_UNIX;
+    snprintf( c->addr.un.sun_path, sizeof(c->addr.un.sun_path), "%s", host );
 
     return CF_RESULT_OK;
 }
@@ -625,7 +617,7 @@ struct connection* cf_connection_backend_new( void *owner, const char *host, uin
     }
 
     /* Set it to non blocking */
-    if( !cf_socket_nonblock(c->fd, 0) )
+    if( !cf_socket_nonblock(c->fd, 1) )
     {
         /* Close socket handler */
         close( c->fd );
