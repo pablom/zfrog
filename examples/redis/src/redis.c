@@ -112,11 +112,11 @@ static int request_perform_query( struct http_request *req )
 {
     struct rstate *state = http_state_get(req);
 
-	/* We want to move to read result after this. */
+    /* We want to move to read result after this */
 	req->fsm_state = REQ_STATE_DB_WAIT;
 
     /* Fire off the query */
-    if( !cf_redis_query( &state->rd,"PING") )
+    if( !cf_redis_query( &state->rd,"TIME") )
     {
 		/*
 		 * Let the state machine continue immediately since we
@@ -192,7 +192,10 @@ static int request_db_read( struct http_request *req )
     cf_redis_continue( &state->rd );
 
     /* Back to our DB waiting state */
-	req->fsm_state = REQ_STATE_DB_WAIT;
+    //req->fsm_state = REQ_STATE_DB_WAIT;
+
+    req->fsm_state = REQ_STATE_DONE;
+
     return HTTP_STATE_CONTINUE;
 }
 /* An error occurred */

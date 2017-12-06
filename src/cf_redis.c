@@ -83,11 +83,11 @@ static uint32_t countDigits(uint64_t);
 static size_t bulklen(size_t);
 static int redis_vformat_command( char**, const char*, va_list);
 
-static int redis_get_reply(struct cf_redis_reply**, uint8_t*, size_t);
-static int redis_process_line_item(struct cf_redis_reply**, uint8_t*, size_t, uint8_t);
-static int redis_process_bulk_item(struct cf_redis_reply**, uint8_t*, size_t);
-static int redis_process_multi_bulk_item(struct cf_redis_reply**, uint8_t*, size_t);
-static void redis_free_reply(struct cf_redis*);
+static int redis_get_reply(struct cf_redis_reply**, uint8_t*, size_t, size_t*);
+static int redis_process_line_item(struct cf_redis_reply**, uint8_t*, size_t, uint8_t, size_t*);
+static int redis_process_bulk_item(struct cf_redis_reply**, uint8_t*, size_t, size_t*);
+static int redis_process_multi_bulk_item(struct cf_redis_reply**, uint8_t*, size_t, size_t*);
+static void redis_free_reply(struct cf_redis_reply*);
 
 /* Helper functions to get Redis reply */
 static struct cf_redis_reply* create_reply_string_object(const uint8_t*, size_t);
@@ -700,7 +700,7 @@ static void redis_conn_release( struct cf_redis *redis )
         cf_mem_pool_put( &redis_job_pool, redis->conn->job );
     }
 
-    redis_free_reply( redis );
+    redis_free_reply( redis->reply );
     redis->conn->job = NULL;
     redis->conn->flags |= REDIS_CONN_FREE;
     TAILQ_INSERT_TAIL( &redis_conn_free_queue, redis->conn, list );
@@ -846,7 +846,7 @@ static int redis_recv( struct netbuf *nb )
 
     //printf("redis resp: %s (%lu)\n", nb->buf, nb->s_off);
 
-    if( redis_get_reply( &r, nb->buf, nb->s_off ) == CF_RESULT_OK )
+    if( redis_get_reply( &r, nb->buf, nb->s_off, NULL ) == CF_RESULT_OK )
     {
         redis->reply = r;
         //redis->state = CF_REDIS_STATE_COMPLETE;
@@ -1150,7 +1150,7 @@ static int redis_vformat_command( char **target, const char *format, va_list ap 
 /************************************************************************
 *  Helper function to get Redis reply function
 ************************************************************************/
-static int redis_get_reply( struct cf_redis_reply** r, uint8_t* buf, size_t len )
+static int redis_get_reply( struct cf_redis_reply** r, uint8_t* buf, size_t len, size_t* r_len )
 {
     if( buf && len > 1 )
     {
@@ -1177,17 +1177,21 @@ static int redis_get_reply( struct cf_redis_reply** r, uint8_t* buf, size_t len 
                 return CF_RESULT_ERROR;
         }
 
+        /* Increment one symbol */
+        if( r_len )
+            (*r_len) += 1;
+
         /* process typed item */
         switch( r_type )
         {
         case REDIS_REPLY_ERROR:
         case REDIS_REPLY_STATUS:
         case REDIS_REPLY_INTEGER:
-            return redis_process_line_item( r, buf + 1, len - 1, r_type );
+            return redis_process_line_item( r, buf + 1, len - 1, r_type, r_len );
         case REDIS_REPLY_STRING:
-            return redis_process_bulk_item( r, buf + 1, len - 1 );
+            return redis_process_bulk_item( r, buf + 1, len - 1, r_len );
         case REDIS_REPLY_ARRAY:
-            return redis_process_multi_bulk_item( r, buf, len );
+            return redis_process_multi_bulk_item( r, buf + 1, len - 1, r_len );
         default:
             return CF_RESULT_ERROR;
         }
@@ -1198,7 +1202,7 @@ static int redis_get_reply( struct cf_redis_reply** r, uint8_t* buf, size_t len 
 /************************************************************************
 *  Helper function to get Redis reply for ERROR, STATUS and INTEGER
 ************************************************************************/
-static int redis_process_line_item( struct cf_redis_reply** r, uint8_t* buf, size_t len, uint8_t r_type )
+static int redis_process_line_item( struct cf_redis_reply** r, uint8_t* buf, size_t len, uint8_t r_type, size_t* r_len )
 {
     /* Try to find end of line */
     uint8_t* end_line = cf_mem_find( buf, len, "\r\n", 2);
@@ -1214,14 +1218,19 @@ static int redis_process_line_item( struct cf_redis_reply** r, uint8_t* buf, siz
             (*r) = create_reply_string_object( buf, len_reply );
             (*r)->type = r_type; /* redefine response type */
         }
+
+        if( r_len )
+            (*r_len) += (len_reply + 2);
+
+        return CF_RESULT_OK;
     }
 
-    return CF_RESULT_OK;
+    return CF_RESULT_ERROR;
 }
 /************************************************************************
 *  Helper function to get Redis reply for STRING type
 ************************************************************************/
-static int redis_process_bulk_item( struct cf_redis_reply** r, uint8_t* buf, size_t len )
+static int redis_process_bulk_item( struct cf_redis_reply** r, uint8_t* buf, size_t len, size_t* r_len )
 {
     /* Try to find end of line */
     uint8_t* end_line = cf_mem_find( buf, len, "\r\n", 2);
@@ -1234,6 +1243,10 @@ static int redis_process_bulk_item( struct cf_redis_reply** r, uint8_t* buf, siz
         /* Read first bulk length */
         long blen = redis_readLongLong( buf );
 
+        /* Increment one symbol */
+        if( r_len )
+            (*r_len) += ilen;
+
         if( blen < 0 )
         {
             /* The nil object can always be created */
@@ -1244,6 +1257,10 @@ static int redis_process_bulk_item( struct cf_redis_reply** r, uint8_t* buf, siz
         {
             /* Allocate redis reply structure */
             *r = create_reply_string_object( buf + ilen, blen );
+
+            if( r_len )
+                (*r_len) += (blen + 2);
+
             return CF_RESULT_OK;
         }
     }
@@ -1253,7 +1270,7 @@ static int redis_process_bulk_item( struct cf_redis_reply** r, uint8_t* buf, siz
 /************************************************************************
 *  Helper function to get Redis reply for ARRAY type
 ************************************************************************/
-static int redis_process_multi_bulk_item( struct cf_redis_reply** r, uint8_t* buf, size_t len )
+static int redis_process_multi_bulk_item(struct cf_redis_reply** r, uint8_t* buf, size_t len, size_t* r_len)
 {
     long elements = 0;
 
@@ -1263,10 +1280,33 @@ static int redis_process_multi_bulk_item( struct cf_redis_reply** r, uint8_t* bu
     /* First we need to read string length */
     if( end_line )
     {
+        /* Calculate readed buffer length */
+        ptrdiff_t ilen = 2 + end_line - buf;
+
         /* Read number of elements in the array */
         elements = redis_readLongLong( buf );
-
+        /* Create reply array object */
         (*r) = create_reply_array_object( elements );
+
+        if( elements > 0 )
+        {
+            int i = 0;
+            uint8_t* p = buf + ilen; /* Set current pointer */
+            size_t r_len_item = 0;
+
+            /* Try to create each response array element */
+            for( i = 0; i < elements; i++, p += r_len_item, r_len_item = 0 )
+            {
+                if( redis_get_reply( &((*r)->element[i]), p, (len - ilen), &r_len_item) == CF_RESULT_OK )
+                {
+                    /* Increment total readed length */
+                    ilen += r_len_item;
+                }
+            }
+        }
+
+        if( r_len )
+            (*r_len) += ilen;
     }
 
     return CF_RESULT_ERROR;
@@ -1274,21 +1314,27 @@ static int redis_process_multi_bulk_item( struct cf_redis_reply** r, uint8_t* bu
 /************************************************************************
 *  Helper function to free Redis reply structure
 ************************************************************************/
-static void redis_free_reply( struct cf_redis* redis )
+static void redis_free_reply( struct cf_redis_reply* r )
 {
-    if( redis && redis->reply )
+    if( r )
     {
         /* Delete string reply buffer */
-        if( redis->reply->str )
-            mem_free( redis->reply->str );
+        if( r->str )
+            mem_free( r->str );
 
-        if( redis->reply->elements > 0 )
+        if( r->elements > 0 )
         {
+            size_t i = 0;
             /* Remove each item */
+            for( i = 0; i < r->elements; i++ )
+                redis_free_reply( r->element[i] );
+
+            /* Delete array itself */
+            mem_free( r->element );
         }
 
         /* Delete reply structure itself */
-        mem_free( redis->reply );
+        mem_free( r );
     }
 }
 /************************************************************************
