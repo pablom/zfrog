@@ -397,6 +397,8 @@ example-lua:
 example-redis:
 	cd examples/redis && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
+example-redis-jsonrpc:
+	cd examples/redis-jsonrpc && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 ########################################################################
 # no HTTP support examples 
 ########################################################################

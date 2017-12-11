@@ -1348,7 +1348,9 @@ ssize_t http_body_read( struct http_request *req, void *out, size_t len )
 
     return ret;
 }
-
+/****************************************************************
+ *  Process state machine for current HTTP request
+ ****************************************************************/
 int http_state_run( struct http_state *states, uint8_t elm, struct http_request *req )
 {
     int	r = 0;
@@ -1385,12 +1387,16 @@ int http_state_run( struct http_state *states, uint8_t elm, struct http_request 
 
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Check that HTTP state is exist
+ ****************************************************************/
 int http_state_exists( struct http_request *req )
 {
     return (req->hdlr_extra != NULL);
 }
-
+/****************************************************************
+ *  Create HTTP state for current request
+ ****************************************************************/
 void* http_state_create( struct http_request *req, size_t len )
 {
     if( req->hdlr_extra != NULL )
@@ -1406,12 +1412,16 @@ void* http_state_create( struct http_request *req, size_t len )
 
     return req->hdlr_extra;
 }
-
+/****************************************************************
+ *  Get state from current HTTP request
+ ****************************************************************/
 void * http_state_get( struct http_request *req )
 {
     return req->hdlr_extra;
 }
-
+/****************************************************************
+ *  Cleanup current state structure for current HTTP request
+ ****************************************************************/
 void http_state_cleanup( struct http_request *req )
 {
     mem_free(req->hdlr_extra);

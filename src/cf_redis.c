@@ -843,10 +843,11 @@ static int redis_recv( struct netbuf *nb )
     struct connection *c = (struct connection *)nb->owner;
     struct redis_conn *conn = (struct redis_conn*)c->owner;
     struct cf_redis* redis = conn->job->redis;
+    size_t r_len = 0;
 
     //printf("redis resp: %s (%lu)\n", nb->buf, nb->s_off);
 
-    if( redis_get_reply( &r, nb->buf, nb->s_off, NULL ) == CF_RESULT_OK )
+    if( redis_get_reply( &r, nb->buf, nb->s_off, &r_len ) == CF_RESULT_OK )
     {
         redis->reply = r;
         //redis->state = CF_REDIS_STATE_COMPLETE;
@@ -1307,6 +1308,8 @@ static int redis_process_multi_bulk_item(struct cf_redis_reply** r, uint8_t* buf
 
         if( r_len )
             (*r_len) += ilen;
+
+        return CF_RESULT_OK;
     }
 
     return CF_RESULT_ERROR;

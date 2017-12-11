@@ -36,7 +36,9 @@ static void free_log(struct jsonrpc_log *root)
 		mem_free(it);
 	}
 }
-
+/****************************************************************
+ *  Init JSON rpc request
+ ****************************************************************/
 static void init_request( struct jsonrpc_request *req )
 {
 	init_log(&req->log);
@@ -51,7 +53,7 @@ static void init_request( struct jsonrpc_request *req )
     req->flags = 0;
 }
 
-void jsonrpc_destroy_request(struct jsonrpc_request *req)
+void jsonrpc_destroy_request( struct jsonrpc_request *req )
 {
     if( req->gen != NULL )
     {
@@ -69,7 +71,7 @@ void jsonrpc_destroy_request(struct jsonrpc_request *req)
 	free_log(&req->log);
 }
 
-void jsonrpc_log(struct jsonrpc_request *req, int lvl, const char *fmt, ...)
+void jsonrpc_log( struct jsonrpc_request *req, int lvl, const char *fmt, ... )
 {
 	va_list	ap;
     char *msg = NULL;
@@ -207,7 +209,9 @@ static int parse_json_body( struct jsonrpc_request *req )
 
     return 0;
 }
-
+/****************************************************************
+ *  Read JSON rpc body from HTTP request
+ ****************************************************************/
 int jsonrpc_read_request( struct http_request *http_req, struct jsonrpc_request *req )
 {
 	int	ret;
