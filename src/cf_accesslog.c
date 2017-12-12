@@ -133,8 +133,8 @@ void cf_accesslog( struct http_request *req )
 
 	logpacket.status = req->status;
 	logpacket.method = req->method;
-	logpacket.worker_id = worker->id;
-	logpacket.worker_cpu = worker->cpu;
+    logpacket.worker_id = server.worker->id;
+    logpacket.worker_cpu = server.worker->cpu;
 	logpacket.time_req = req->total;
 
     if( cf_strlcpy(logpacket.host, req->host, sizeof(logpacket.host)) >= sizeof(logpacket.host) )

@@ -16,17 +16,16 @@
 
 #include "zfrog.h"
 
-struct cf_mem_pool nb_pool;
 
 void net_init( void )
 {
-    cf_mem_pool_init(&nb_pool, "nb_pool", sizeof(struct netbuf), 1000);
+    cf_mem_pool_init(&server.nb_pool, "nb_pool", sizeof(struct netbuf), 1000);
 }
 
 void net_cleanup( void )
 {
     log_debug("net_cleanup()");
-    cf_mem_pool_cleanup(&nb_pool);
+    cf_mem_pool_cleanup(&server.nb_pool);
 }
 
 void net_send_queue( struct connection *c, const void *data, size_t len )
@@ -61,7 +60,7 @@ void net_send_queue( struct connection *c, const void *data, size_t len )
 		}
 	}
 
-    nb = cf_mem_pool_get(&nb_pool);
+    nb = cf_mem_pool_get(&server.nb_pool);
 	nb->flags = 0;
 	nb->cb = NULL;
 	nb->owner = c;
@@ -87,7 +86,7 @@ void net_send_stream( struct connection *c, void *data, size_t len, int (*cb)(st
 
     log_debug("net_send_stream(%p, %p, %zu)", c, data, len);
 
-    nb = cf_mem_pool_get(&nb_pool);
+    nb = cf_mem_pool_get(&server.nb_pool);
 	nb->cb = cb;
 	nb->owner = c;
 	nb->s_off = 0;
@@ -132,7 +131,7 @@ void net_recv_queue( struct connection *c, size_t len, int flags,
     if( c->rnb != NULL )
         cf_fatal("net_recv_queue(): called incorrectly for %p", c);
 
-    c->rnb = cf_mem_pool_get(&nb_pool);
+    c->rnb = cf_mem_pool_get(&server.nb_pool);
 	c->rnb->cb = cb;
 	c->rnb->owner = c;
 	c->rnb->s_off = 0;
@@ -267,7 +266,7 @@ void net_remove_netbuf( struct netbuf_head *list, struct netbuf *nb )
 	}
 
 	TAILQ_REMOVE(list, nb, list);
-    cf_mem_pool_put(&nb_pool, nb);
+    cf_mem_pool_put(&server.nb_pool, nb);
 }
 
 #ifndef CF_NO_TLS

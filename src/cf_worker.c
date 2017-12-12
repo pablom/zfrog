@@ -60,7 +60,7 @@
 #define WORKER_LOCK_TIMEOUT     500
 
 #define WORKER(id)						\
-    (struct cf_worker *)((uint8_t *)cf_workers +	\
+    (struct cf_worker *)((uint8_t *)workers +	\
         (sizeof(struct cf_worker) * id))
 
 struct wlock
@@ -70,28 +70,23 @@ struct wlock
 };
 
 /* Forward static function declaration */
+static void worker_spawn(uint16_t, uint16_t);
+static void worker_entry(struct cf_worker*);
 static int	worker_trylock(void);
 static void	worker_unlock(void);
-static inline int cf_worker_acceptlock_obtain(void);
-static inline void cf_worker_acceptlock_release(void);
+static inline int worker_acceptlock_obtain(void);
+static inline void worker_acceptlock_release(void);
 
 #ifndef CF_NO_TLS
     static void worker_entropy_recv(struct cf_msg *, const void *);
 #endif
 
-static struct cf_worker *cf_workers;
+static struct cf_worker* workers;       /* Array with all allocated workers structure */
 static int              worker_no_lock;
 static int              shm_accept_key;
 static struct wlock     *accept_lock;
 
 extern volatile sig_atomic_t	sig_recv;
-struct cf_worker *worker = NULL;
-uint8_t  worker_set_affinity = 1;
-uint32_t worker_accept_threshold = 0;
-uint32_t worker_rlimit_nofiles = 1024;
-uint32_t worker_max_connections = 250;
-uint32_t worker_active_connections = 0;
-
 
 /****************************************************************
  *  Init workers helper function
@@ -104,15 +99,15 @@ void cf_worker_init(void)
     /* Init no lock workers */
     worker_no_lock = 0;
 
-    if( worker_count == 0 )
-		worker_count = 1;
+    if( server.worker_count == 0 )
+        server.worker_count = 1;
 
 #ifndef CF_NO_TLS
     /* account for the key manager */
-	worker_count += 1;
+    server.worker_count += 1;
 #endif
 
-    len = sizeof(*accept_lock) + (sizeof(struct cf_worker) * worker_count);
+    len = sizeof(*accept_lock) + (sizeof(struct cf_worker) * server.worker_count);
 
 	shm_accept_key = shmget(IPC_PRIVATE, len, IPC_CREAT | IPC_EXCL | 0700);
 
@@ -126,29 +121,29 @@ void cf_worker_init(void)
 	accept_lock->lock = 0;
 	accept_lock->current = 0;
 
-    cf_workers = (struct cf_worker *)((uint8_t *)accept_lock + sizeof(*accept_lock));
-    memset(cf_workers, 0, sizeof(struct cf_worker) * worker_count);
+    workers = (struct cf_worker *)((uint8_t *)accept_lock + sizeof(*accept_lock));
+    memset(workers, 0, sizeof(struct cf_worker) * server.worker_count);
 
-    log_debug("cf_worker_init(): system has %d cpu's", cpu_count);
-    log_debug("cf_worker_init(): starting %d workers", worker_count);
+    log_debug("cf_worker_init(): system has %d cpu's", server.cpu_count);
+    log_debug("cf_worker_init(): starting %d workers", server.worker_count);
 
-    if( worker_count > cpu_count ) {
+    if( server.worker_count > server.cpu_count ) {
         log_debug("cf_worker_init(): more workers than cpu's");
 	}
 
 	cpu = 0;
 
-    for( i = 0; i < worker_count; i++ )
+    for( i = 0; i < server.worker_count; i++ )
     {
-        cf_worker_spawn(i, cpu++);
-        if( cpu == cpu_count )
+        worker_spawn(i, cpu++);
+        if( cpu == server.cpu_count )
 			cpu = 0;
 	}
 }
 /****************************************************************
  *  Fork new one worker
  ****************************************************************/
-void cf_worker_spawn( uint16_t id, uint16_t cpu )
+static void worker_spawn( uint16_t id, uint16_t cpu )
 {
     struct cf_worker *kw = NULL;
 
@@ -172,7 +167,7 @@ void cf_worker_spawn( uint16_t id, uint16_t cpu )
     if( kw->pid == 0 ) /* Child process started */
     {
 		kw->pid = getpid();
-        cf_worker_entry(kw);
+        worker_entry(kw);
 		/* NOTREACHED */
 	}
 }
@@ -181,7 +176,7 @@ void cf_worker_spawn( uint16_t id, uint16_t cpu )
  ****************************************************************/
 struct cf_worker* cf_worker_data( uint8_t id )
 {
-    if( id >= worker_count )
+    if( id >= server.worker_count )
 		cf_fatal("id %u too large for worker count", id);
 
     return WORKER(id);
@@ -198,7 +193,7 @@ void cf_worker_shutdown( void )
     for(;;)
     {
 		done = 0;
-        for( id = 0; id < worker_count; id++ )
+        for( id = 0; id < server.worker_count; id++ )
         {
 			kw = WORKER(id);
             if( kw->pid != 0 )
@@ -207,7 +202,7 @@ void cf_worker_shutdown( void )
 				done++;
 		}
 
-        if( done == worker_count )
+        if( done == server.worker_count )
 			break;
 	}
 
@@ -223,7 +218,7 @@ void cf_worker_dispatch_signal( int sig )
     uint16_t id;
     struct cf_worker *kw = NULL;
 
-    for( id = 0; id < worker_count; id++ )
+    for( id = 0; id < server.worker_count; id++ )
     {
 		kw = WORKER(id);
         if( kill(kw->pid, sig) == -1 ) {
@@ -241,19 +236,19 @@ void cf_worker_privdrop( void )
     struct passwd *pw = NULL;
 
     /* Must happen before chroot */
-    if( skip_runas == 0 )
+    if( server.skip_runas == 0 )
     {
-		pw = getpwnam(runas_user);
+        pw = getpwnam(server.runas_user);
         if (pw == NULL)
         {
-            cf_fatal("cannot getpwnam(\"%s\") runas user: %s", runas_user, errno_s);
+            cf_fatal("cannot getpwnam(\"%s\") runas user: %s", server.runas_user, errno_s);
 		}
 	}
 
-    if( skip_chroot == 0 )
+    if( server.skip_chroot == 0 )
     {
-        if( chroot(chroot_path) == -1 )
-            cf_fatal("cannot chroot(\"%s\"): %s", chroot_path, errno_s);		
+        if( chroot(server.chroot_path) == -1 )
+            cf_fatal("cannot chroot(\"%s\"): %s", server.chroot_path, errno_s);
 
         if( chdir("/") == -1 )
 			cf_fatal("cannot chdir(\"/\"): %s", errno_s);
@@ -267,18 +262,18 @@ void cf_worker_privdrop( void )
         for( fd = 0; fd < rl.rlim_cur; fd++ )
         {
             if( fcntl(fd, F_GETFD, NULL) != -1 )
-				worker_rlimit_nofiles++;
+                server.worker_rlimit_nofiles++;
 		}
 	}
 
-	rl.rlim_cur = worker_rlimit_nofiles;
-	rl.rlim_max = worker_rlimit_nofiles;
+    rl.rlim_cur = server.worker_rlimit_nofiles;
+    rl.rlim_max = server.worker_rlimit_nofiles;
     if( setrlimit(RLIMIT_NOFILE, &rl) == -1 )
     {
-        cf_log(LOG_ERR, "setrlimit(RLIMIT_NOFILE, %d): %s", worker_rlimit_nofiles, errno_s);
+        cf_log(LOG_ERR, "setrlimit(RLIMIT_NOFILE, %d): %s", server.worker_rlimit_nofiles, errno_s);
 	}
 
-    if( skip_runas == 0 )
+    if( server.skip_runas == 0 )
     {
         if( setgroups(1, &pw->pw_gid) ||
 #if defined(__MACH__) || defined(NetBSD) || defined(__sun)
@@ -294,16 +289,18 @@ void cf_worker_privdrop( void )
 /****************************************************************
  *  Worker main entry function
  ****************************************************************/
-void cf_worker_entry( struct cf_worker *kw )
+static void worker_entry( struct cf_worker *kw )
 {
     char buf[16];
     int quit, had_lock, r;
     uint64_t now, next_lock, netwait;
     struct cf_runtime_call *rcall = NULL;
+
 #ifndef CF_NO_TLS
     uint64_t last_seed = 0;
 #endif
-    worker = kw;
+    /* Set worker pointer */
+    server.worker = kw;
 
     snprintf(buf, sizeof(buf), "zfrog [wrk %d]", kw->id);
 
@@ -311,14 +308,14 @@ void cf_worker_entry( struct cf_worker *kw )
     if( kw->id == CF_WORKER_KEYMGR )
         snprintf(buf, sizeof(buf), "zfrog [keymgr]");
 #endif
-
+    /* Set application title */
     cf_platform_proctitle( buf );
 
-    if( worker_set_affinity == 1 ) {
+    if( server.worker_set_affinity == 1 )
         cf_platform_worker_setcpu( kw );
-    }
 
-    cf_pid = kw->pid;
+    /* Redefine server pid with current worker pid */
+    //server.pid = kw->pid;
 
 	sig_recv = 0;
     signal(SIGHUP, cf_signal);
@@ -326,7 +323,7 @@ void cf_worker_entry( struct cf_worker *kw )
     signal(SIGTERM, cf_signal);
 	signal(SIGPIPE, SIG_IGN);
 
-    if( foreground )
+    if( server.foreground )
         signal(SIGINT, cf_signal);
 	else
 		signal(SIGINT, SIG_IGN);
@@ -357,7 +354,6 @@ void cf_worker_entry( struct cf_worker *kw )
 	quit = 0;
 	had_lock = 0;
 	next_lock = 0;
-    worker_active_connections = 0;
 
     cf_platform_event_init();
     cf_msg_worker_init();
@@ -382,11 +378,10 @@ void cf_worker_entry( struct cf_worker *kw )
      cf_redis_sys_init();
 #endif
 
-    if( nlisteners == 0 )
+    if( server.nlisteners == 0 )
         worker_no_lock = 1;
 
     cf_log(LOG_NOTICE, "worker %d (%d) started (cpu#%d)", kw->id, kw->pid, kw->cpu );
-
 
     if( (rcall = cf_runtime_getcall("cf_worker_configure")) != NULL )
     {
@@ -403,7 +398,7 @@ void cf_worker_entry( struct cf_worker *kw )
             switch( sig_recv )
             {
 			case SIGHUP:
-#if !defined(CF_SINGLE_BINARY)
+#ifndef CF_SINGLE_BINARY
                 cf_module_reload(1);
 #endif
 				break;
@@ -436,7 +431,7 @@ void cf_worker_entry( struct cf_worker *kw )
 
         if( now > next_lock )
         {
-            if( cf_worker_acceptlock_obtain() )
+            if( worker_acceptlock_obtain() )
             {
                 if( had_lock == 0 )
                 {
@@ -447,7 +442,7 @@ void cf_worker_entry( struct cf_worker *kw )
 			}
 		}
 
-        if( !worker->has_lock )
+        if( !server.worker->has_lock )
         {
             if( had_lock == 1 )
             {
@@ -460,9 +455,9 @@ void cf_worker_entry( struct cf_worker *kw )
         /* Catch events for all available connections */
         r = cf_platform_event_wait( netwait );
 
-        if( worker->has_lock && r > 0 )
+        if( server.worker->has_lock && r > 0 )
         {
-            cf_worker_acceptlock_release();
+            worker_acceptlock_release();
 			next_lock = now + WORKER_LOCK_TIMEOUT;
 		}
 
@@ -537,7 +532,7 @@ void cf_worker_wait( int final )
     if( pid == 0 )
 		return;
 
-    for( id = 0; id < worker_count; id++ )
+    for( id = 0; id < server.worker_count; id++ )
     {
 		kw = WORKER(id);
         if( kw->pid != pid )
@@ -579,7 +574,7 @@ void cf_worker_wait( int final )
 
             cf_log(LOG_NOTICE, "restarting worker %d", kw->id);
             cf_msg_parent_remove(kw);
-            cf_worker_spawn(kw->id, kw->cpu);
+            worker_spawn(kw->id, kw->cpu);
             cf_msg_parent_add(kw);
         }
         else {
@@ -592,34 +587,34 @@ void cf_worker_wait( int final )
 /****************************************************************
  *  Helper function
  ****************************************************************/
-static inline void cf_worker_acceptlock_release(void)
+static inline void worker_acceptlock_release(void)
 {
-    if( worker_count == 1 || worker_no_lock == 1 )
+    if( server.worker_count == 1 || worker_no_lock == 1 )
 		return;
 
-    if( worker->has_lock != 1 )
+    if( server.worker->has_lock != 1 )
 		return;
 
 	worker_unlock();
-	worker->has_lock = 0;
+    server.worker->has_lock = 0;
 }
 /****************************************************************
  *  Helper function
  ****************************************************************/
-static inline int cf_worker_acceptlock_obtain(void)
+static inline int worker_acceptlock_obtain(void)
 {
     int	r;
 
-    if( worker->has_lock == 1 )
+    if( server.worker->has_lock == 1 )
         return 1;
 
-    if( worker_count == 1 || worker_no_lock == 1 )
+    if( server.worker_count == 1 || worker_no_lock == 1 )
     {
-		worker->has_lock = 1;
+        server.worker->has_lock = 1;
         return 1;
 	}
 
-    if( worker_active_connections >= worker_max_connections ) {
+    if( server.worker_active_connections >= server.worker_max_connections ) {
         return 0;
     }
 
@@ -627,7 +622,7 @@ static inline int cf_worker_acceptlock_obtain(void)
     if( worker_trylock() )
     {
 		r = 1;
-		worker->has_lock = 1;
+        server.worker->has_lock = 1;
 	}
 
     return r;
@@ -640,8 +635,8 @@ static int worker_trylock(void)
     if( !__sync_bool_compare_and_swap(&(accept_lock->lock), 0, 1) )
         return 0;
 
-    worker_debug("wrk#%d grabbed lock (%d/%d)\n", worker->id, worker_active_connections, worker_max_connections);
-	accept_lock->current = worker->pid;
+    worker_debug("wrk#%d grabbed lock (%d/%d)\n", server.worker->id, server.worker_active_connections, server.worker_max_connections);
+    accept_lock->current = server.worker->pid;
     return 1;
 }
 /****************************************************************

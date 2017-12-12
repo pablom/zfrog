@@ -14,8 +14,6 @@
 #endif
 
 
-#define REDIS_CONN_MAX          2   /* Default maximum redis connections */
-
 /* Default timeouts, 5 seconds for connecting, 15 seconds otherwise. */
 #define REDIS_TIMEOUT			(15 * 1000)
 #define REDIS_CONNECT_TIMEOUT	(5 * 1000)
@@ -107,8 +105,6 @@ static LIST_HEAD(, redis_db)     redis_db_hosts_list;  /* List of available Redi
 static TAILQ_HEAD(, redis_conn)	 redis_conn_free_queue;
 static TAILQ_HEAD(, redis_wait)	 redis_wait_queue;
 
-uint16_t redis_serv_conn_max = REDIS_CONN_MAX;
-
 /************************************************************************
  *  Redis system initialization
  ************************************************************************/
@@ -168,7 +164,7 @@ int cf_redis_register( char* name, char *host, int port )
     db->host = mem_strdup(host);
     db->port = port;
     db->conn_count = 0;
-    db->conn_max = redis_serv_conn_max;
+    db->conn_max = server.redis_serv_conn_max;
 
     /* Add Redis host to our internal list */
     LIST_INSERT_HEAD( &redis_db_hosts_list, db, rlist );

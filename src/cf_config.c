@@ -173,9 +173,6 @@ static struct {
 	{ NULL,				NULL },
 };
 
-#if !defined(CF_SINGLE_BINARY)
-    char *config_file = NULL;
-#endif
 
 #ifndef CF_NO_HTTP
     static uint8_t current_method = 0;
@@ -186,10 +183,13 @@ static struct {
 extern const char *__progname;
 static struct cf_domain	*current_domain = NULL;
 
+/************************************************************************
+ *  Parse configuration file
+ ************************************************************************/
 void cf_parse_config(void)
 {
 #ifndef CF_SINGLE_BINARY
-    parse_config_file( config_file );
+    parse_config_file( server.config_file );
 #else
     parse_config_file(NULL);
 #endif
@@ -197,24 +197,26 @@ void cf_parse_config(void)
     if( !cf_module_loaded() )
         cf_fatal("no application module was loaded");
 
-    if( skip_chroot != 1 && chroot_path == NULL )
+    if( server.skip_chroot != 1 && server.chroot_path == NULL )
     {
         cf_fatal("missing a chroot path");
 	}
 
-    if( getuid() != 0 && skip_chroot == 0 ) {
+    if( getuid() != 0 && server.skip_chroot == 0 ) {
         cf_fatal("cannot chroot, use -n to skip it");
 	}
 
-    if( skip_runas != 1 && runas_user == NULL ) {
+    if( server.skip_runas != 1 && server.runas_user == NULL ) {
         cf_fatal("missing runas user, use -r to skip it");
 	}
 
-    if( getuid() != 0 && skip_runas == 0 ) {
+    if( getuid() != 0 && server.skip_runas == 0 ) {
         cf_fatal("cannot drop privileges, use -r to skip it");
 	}
 }
-
+/************************************************************************
+ *  Helper function to parse configuration file
+ ************************************************************************/
 static void parse_config_file( const char *fpath )
 {
     FILE *fp = NULL;
@@ -384,15 +386,15 @@ static FILE * config_file_write( void )
 static int configure_tls_version( char *version )
 {                    
     if( !strcmp(version, "1.3") ) {
-        tls_version = CF_TLS_VERSION_1_3;
+        server.tls_version = CF_TLS_VERSION_1_3;
     } else if( !strcmp(version, "1.2") ) {
-        tls_version = CF_TLS_VERSION_1_2;
+        server.tls_version = CF_TLS_VERSION_1_2;
     } else if( !strcmp(version, "1.1") ) {
-        tls_version = CF_TLS_VERSION_1_1;
+        server.tls_version = CF_TLS_VERSION_1_1;
     } else if( !strcmp(version, "1.0") ) {
-        tls_version = CF_TLS_VERSION_1_0;
+        server.tls_version = CF_TLS_VERSION_1_0;
     } else if( !strcmp(version, "both") ) {
-        tls_version = CF_TLS_VERSION_BOTH;
+        server.tls_version = CF_TLS_VERSION_BOTH;
     }
     else
     {
@@ -405,21 +407,21 @@ static int configure_tls_version( char *version )
 
 static int configure_tls_cipher(char *cipherlist)
 {
-    if( strcmp(cf_tls_cipher_list, CF_DEFAULT_CIPHER_LIST) )
+    if( strcmp(server.tls_cipher_list, CF_DEFAULT_CIPHER_LIST) )
     {
 		printf("tls_cipher specified twice\n");
         return CF_RESULT_ERROR;
 	}
 
-    cf_tls_cipher_list = mem_strdup(cipherlist);
+    server.tls_cipher_list = mem_strdup(cipherlist);
     return CF_RESULT_OK;
 }
 
 static int configure_tls_dhparam( char *path )
 {
-    BIO	*bio;
+    BIO	*bio = NULL;
 
-    if( tls_dhparam != NULL )
+    if( server.tls_dhparam != NULL )
     {
 		printf("tls_dhparam specified twice\n");
         return CF_RESULT_ERROR;
@@ -431,10 +433,10 @@ static int configure_tls_dhparam( char *path )
         return CF_RESULT_ERROR;
 	}
 
-	tls_dhparam = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+    server.tls_dhparam = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
 	BIO_free(bio);
 
-    if( tls_dhparam == NULL )
+    if( server.tls_dhparam == NULL )
     {
 		printf("PEM_read_bio_DHparams(): %s\n", ssl_errno_s);
         return CF_RESULT_ERROR;
@@ -620,12 +622,14 @@ static int configure_accesslog( char *path )
 
     return CF_RESULT_OK;
 }
-
-static int configure_http_header_max(char *option)
+/************************************************************************
+ *  Read HTTP max header from configuration file
+ ************************************************************************/
+static int configure_http_header_max (char *option )
 {
     int	err;
 
-    http_header_max = cf_strtonum(option, 10, 1, 65535, &err);
+    server.http_header_max = cf_strtonum(option, 10, 1, 65535, &err);
 
     if( err != CF_RESULT_OK )
     {
@@ -635,12 +639,14 @@ static int configure_http_header_max(char *option)
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Read HTTP body max limit bytes size from configuration file
+ ************************************************************************/
 static int configure_http_body_max( char *option )
 {
     int	err;
 
-    http_body_max = cf_strtonum(option, 10, 0, LONG_MAX, &err);
+    server.http_body_max = cf_strtonum(option, 10, 0, LONG_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad http_body_max value: %s\n", option);
@@ -654,7 +660,7 @@ static int configure_http_body_disk_offload( char *option )
 {
     int	err;
 
-    http_body_disk_offload = cf_strtonum(option, 10, 0, LONG_MAX, &err);
+    server.http_body_disk_offload = cf_strtonum(option, 10, 0, LONG_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad http_body_disk_offload value: %s\n", option);
@@ -666,10 +672,10 @@ static int configure_http_body_disk_offload( char *option )
 
 static int configure_http_body_disk_path( char *path )
 {
-    if( strcmp(http_body_disk_path, HTTP_BODY_DISK_PATH) )
-        mem_free(http_body_disk_path);
+    if( strcmp(server.http_body_disk_path, HTTP_BODY_DISK_PATH) )
+        mem_free(server.http_body_disk_path);
 
-    http_body_disk_path = mem_strdup(path);
+    server.http_body_disk_path = mem_strdup(path);
     return CF_RESULT_OK;
 }
 
@@ -677,7 +683,7 @@ static int configure_http_hsts_enable( char *option )
 {
     int	err;
 
-    http_hsts_enable = cf_strtonum(option, 10, 0, LONG_MAX, &err);
+    server.http_hsts_enable = cf_strtonum(option, 10, 0, LONG_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad http_hsts_enable value: %s\n", option);
@@ -686,12 +692,14 @@ static int configure_http_hsts_enable( char *option )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Read HTTP keep alive time from configuration file
+ ************************************************************************/
 static int configure_http_keepalive_time( char *option )
 {
     int	err;
 
-    http_keepalive_time = cf_strtonum(option, 10, 0, USHRT_MAX, &err);
+    server.http_keepalive_time = cf_strtonum(option, 10, 0, USHRT_MAX, &err);
     if(err != CF_RESULT_OK)
     {
 		printf("bad http_keepalive_time value: %s\n", option);
@@ -700,12 +708,14 @@ static int configure_http_keepalive_time( char *option )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Read HTTP request limit from configuration file
+ ************************************************************************/
 static int configure_http_request_limit( char *option )
 {
     int	err;
 
-    http_request_limit = cf_strtonum(option, 10, 0, UINT_MAX, &err);
+    server.http_request_limit = cf_strtonum(option, 10, 0, UINT_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad http_request_limit value: %s\n", option);
@@ -951,12 +961,14 @@ static int configure_authentication_uri( char *uri )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Read HTTP websocket max frame from configuration file
+ ************************************************************************/
 static int configure_websocket_maxframe( char *option )
 {
 	int	err;
 
-    cf_websocket_maxframe = cf_strtonum64(option, 1, &err);
+    server.websocket_maxframe = cf_strtonum64(option, 1, &err);
     if( err != CF_RESULT_OK )
     {
         printf("bad cf_websocket_maxframe value: %s\n", option);
@@ -965,12 +977,14 @@ static int configure_websocket_maxframe( char *option )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Read HTTP websocket timeout from configuration file
+ ************************************************************************/
 static int configure_websocket_timeout( char *option )
 {
 	int	err;
 
-    cf_websocket_timeout = cf_strtonum64(option, 1, &err);
+    server.websocket_timeout = cf_strtonum64(option, 1, &err);
 
     if( err != CF_RESULT_OK )
     {
@@ -978,38 +992,35 @@ static int configure_websocket_timeout( char *option )
         return CF_RESULT_ERROR;
 	}
 
-    cf_websocket_timeout = cf_websocket_timeout * 1000;
+    server.websocket_timeout = server.websocket_timeout * 1000;
 
     return CF_RESULT_OK;
 }
-
 #endif /* CF_NO_HTTP */
 
 static int configure_chroot( char *path )
 {
-    if( chroot_path != NULL )
-        mem_free(chroot_path);
-
-    chroot_path = mem_strdup(path);
-
+    if( server.chroot_path != NULL )
+        mem_free(server.chroot_path);
+    server.chroot_path = mem_strdup(path);
     return CF_RESULT_OK;
 }
 
 static int configure_runas( char *user )
 {
-    if( runas_user != NULL )
-        mem_free(runas_user);
-
-    runas_user = mem_strdup(user);
-
+    if( server.runas_user != NULL )
+        mem_free(server.runas_user);
+    server.runas_user = mem_strdup(user);
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Read worker count configuration option
+ ****************************************************************/
 static int configure_workers( char *option )
 {
     int err;
 
-    worker_count = cf_strtonum(option, 10, 1, 255, &err);
+    server.worker_count = cf_strtonum(option, 10, 1, 255, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("%s is not a valid worker number\n", option);
@@ -1018,21 +1029,24 @@ static int configure_workers( char *option )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Read PID file path from configuration file
+ ************************************************************************/
 static int configure_pidfile( char *path )
 {
-    if( strcmp(cf_pidfile, CF_PIDFILE_DEFAULT) )
-        mem_free(cf_pidfile);
-    cf_pidfile = mem_strdup(path);
-
+    if( strcmp(server.pidfile, CF_PIDFILE_DEFAULT) )
+        mem_free(server.pidfile);
+    server.pidfile = mem_strdup(path);
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Read max connection limit per worker from configuration file
+ ************************************************************************/
 static int configure_max_connections( char *option )
 {
     int err;
 
-    worker_max_connections = cf_strtonum(option, 10, 1, UINT_MAX, &err);
+    server.worker_max_connections = cf_strtonum(option, 10, 1, UINT_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad value for worker_max_connections: %s\n", option);
@@ -1046,7 +1060,7 @@ static int configure_rlimit_nofiles( char *option )
 {
     int err;
 
-    worker_rlimit_nofiles = cf_strtonum(option, 10, 1, UINT_MAX, &err);
+    server.worker_rlimit_nofiles = cf_strtonum(option, 10, 1, UINT_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad value for worker_rlimit_nofiles: %s\n", option);
@@ -1060,7 +1074,7 @@ static int configure_accept_threshold( char *option )
 {
     int err;
 
-    worker_accept_threshold = cf_strtonum(option, 0, 1, UINT_MAX, &err);
+    server.worker_accept_threshold = cf_strtonum(option, 0, 1, UINT_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad value for worker_accept_threshold: %s\n", option);
@@ -1069,12 +1083,14 @@ static int configure_accept_threshold( char *option )
 
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Read worker affinity configuration option
+ ****************************************************************/
 static int configure_set_affinity( char *option )
 {
     int err;
 
-    worker_set_affinity = cf_strtonum(option, 10, 0, 1, &err);
+    server.worker_set_affinity = cf_strtonum(option, 10, 0, 1, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad value for worker_set_affinity: %s\n", option);
@@ -1083,12 +1099,14 @@ static int configure_set_affinity( char *option )
 
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Read socket backlog configuration option
+ ****************************************************************/
 static int configure_socket_backlog( char *option )
 {
     int	err;
 
-    cf_socket_backlog = cf_strtonum(option, 10, 0, UINT_MAX, &err);
+    server.socket_backlog = cf_strtonum(option, 10, 0, UINT_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad socket_backlog value: %s\n", option);
@@ -1109,7 +1127,7 @@ static int configure_pgsql_conn_max(char *option)
 {
     int err;
 
-    pgsql_conn_max = cf_strtonum(option, 10, 0, USHRT_MAX, &err);
+    server.pgsql_conn_max = cf_strtonum(option, 10, 0, USHRT_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad value for pgsql_conn_max: %s\n", option);
@@ -1125,7 +1143,7 @@ static int configure_task_threads( char *option )
 {
     int	err;
 
-    cf_task_threads = cf_strtonum(option, 10, 0, UCHAR_MAX, &err);
+    server.task_threads = cf_strtonum(option, 10, 0, UCHAR_MAX, &err);
     if( err != CF_RESULT_OK )
     {
 		printf("bad value for task_threads: %s\n", option);

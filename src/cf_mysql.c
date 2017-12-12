@@ -21,7 +21,7 @@ struct mysql_wait
     TAILQ_ENTRY(mysql_wait)	list;
 };
 
-#define MYSQL_CONN_MAX          2
+
 #define MYSQL_CONN_FREE         0x01
 #define MYSQL_LIST_INSERTED     0x0100
 
@@ -42,8 +42,8 @@ static struct cf_pool mysql_wait_pool;
 static TAILQ_HEAD(, mysql_conn)		mysql_conn_free;
 static TAILQ_HEAD(, mysql_wait)		mysql_wait_queue;
 static LIST_HEAD(, mysql_db)		mysql_db_conn;
+
 static uint16_t mysql_conn_count;
-uint16_t mysql_conn_max = MYSQL_CONN_MAX;
 
 void cf_mysql_sys_init( void )
 {

@@ -6,6 +6,8 @@
 #include <my_config.h>
 #include <mysql.h>
 
+#define MYSQL_CONN_MAX          2
+
 #define CF_MYSQL_FORMAT_TEXT		0
 #define CF_MYSQL_FORMAT_BINARY      1
 
@@ -52,7 +54,6 @@ struct cf_mysql
     LIST_ENTRY(cf_mysql) rlist;
 };
 
-extern uint16_t	mysql_conn_max;
 
 void cf_mysql_sys_init(void);
 

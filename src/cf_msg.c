@@ -2,7 +2,6 @@
 
 #include <sys/socket.h>
 #include <signal.h>
-
 #include "zfrog.h"
 #ifndef CF_NO_HTTP
     #include "cf_http.h"
@@ -11,22 +10,22 @@
 struct msg_type
 {
     uint8_t id;
-    void (*cb)(struct cf_msg *, const void *);
+    void (*cb)(struct cf_msg*, const void*);
     TAILQ_ENTRY(msg_type) list;
 };
 
 TAILQ_HEAD(, msg_type)	msg_types;
 
 static struct msg_type	*msg_type_lookup(uint8_t);
-static int msg_recv_packet(struct netbuf *);
-static int msg_recv_data(struct netbuf *);
-static void msg_disconnected_parent(struct connection *, int);
-static void msg_disconnected_worker(struct connection *, int);
-static void msg_type_shutdown(struct cf_msg *msg, const void *data);
+static int msg_recv_packet(struct netbuf*);
+static int msg_recv_data(struct netbuf*);
+static void msg_disconnected_parent(struct connection*, int);
+static void msg_disconnected_worker(struct connection*, int);
+static void msg_type_shutdown(struct cf_msg*, const void*);
 
 #ifndef CF_NO_HTTP
-    static void	msg_type_accesslog(struct cf_msg *, const void *);
-    static void	msg_type_websocket(struct cf_msg *, const void *);
+    static void	msg_type_accesslog(struct cf_msg*, const void*);
+    static void	msg_type_websocket(struct cf_msg*, const void*);
 #endif /* CF_NO_HTTP */
 
 void cf_msg_init( void )
@@ -36,10 +35,10 @@ void cf_msg_init( void )
 
 void cf_msg_parent_init( void )
 {
-    uint8_t i;
+    uint8_t i = 0;
     struct cf_worker* kw = NULL;
 
-    for( i = 0; i < worker_count; i++ )
+    for( i = 0; i < server.worker_count; i++ )
     {
         kw = cf_worker_data(i);
         cf_msg_parent_add(kw);
@@ -83,21 +82,23 @@ void cf_msg_worker_init(void)
     cf_msg_register(CF_MSG_WEBSOCKET, msg_type_websocket);
 #endif
 
-    worker->msg[1] = cf_connection_new( NULL, CF_TYPE_CLIENT );
-	worker->msg[1]->fd = worker->pipe[1];
-	worker->msg[1]->read = net_read;
-	worker->msg[1]->write = net_write;
-	worker->msg[1]->proto = CONN_PROTO_MSG;
-	worker->msg[1]->state = CONN_STATE_ESTABLISHED;
-	worker->msg[1]->disconnect = msg_disconnected_parent;
-    worker->msg[1]->handle = cf_connection_handle;
+    server.worker->msg[1] = cf_connection_new( NULL, CF_TYPE_CLIENT );
+    server.worker->msg[1]->fd = server.worker->pipe[1];
+    server.worker->msg[1]->read = net_read;
+    server.worker->msg[1]->write = net_write;
+    server.worker->msg[1]->proto = CONN_PROTO_MSG;
+    server.worker->msg[1]->state = CONN_STATE_ESTABLISHED;
+    server.worker->msg[1]->disconnect = msg_disconnected_parent;
+    server.worker->msg[1]->handle = cf_connection_handle;
 
-	TAILQ_INSERT_TAIL(&connections, worker->msg[1], list);
-    cf_platform_event_all(worker->msg[1]->fd, worker->msg[1]);
+    TAILQ_INSERT_TAIL(&connections, server.worker->msg[1], list);
+    cf_platform_event_all(server.worker->msg[1]->fd, server.worker->msg[1]);
 
-    net_recv_queue( worker->msg[1],sizeof(struct cf_msg), 0, msg_recv_packet );
+    net_recv_queue( server.worker->msg[1],sizeof(struct cf_msg), 0, msg_recv_packet );
 }
-
+/****************************************************************
+ *  Register new one message
+ ****************************************************************/
 int cf_msg_register( uint8_t id, void (*cb)(struct cf_msg *, const void *) )
 {
     struct msg_type	*type = NULL;
@@ -113,7 +114,9 @@ int cf_msg_register( uint8_t id, void (*cb)(struct cf_msg *, const void *) )
 
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Helper function to send message
+ ****************************************************************/
 void cf_msg_send( uint16_t dst, uint8_t id, const void *data, uint32_t len )
 {
     struct cf_msg m;
@@ -121,15 +124,14 @@ void cf_msg_send( uint16_t dst, uint8_t id, const void *data, uint32_t len )
 	m.id = id;
 	m.dst = dst;
 	m.length = len;
-	m.src = worker->id;
+    m.src = server.worker->id;
 
-	net_send_queue(worker->msg[1], &m, sizeof(m));
+    net_send_queue(server.worker->msg[1], &m, sizeof(m));
 
-    if( data != NULL && len > 0 ) {
-        net_send_queue(worker->msg[1], data, len);
-    }
+    if( data != NULL && len > 0 )
+        net_send_queue(server.worker->msg[1], data, len);
 
-	net_send_flush(worker->msg[1]);
+    net_send_flush( server.worker->msg[1] );
 }
 
 static int msg_recv_packet( struct netbuf *nb )
@@ -154,9 +156,9 @@ static int msg_recv_data( struct netbuf *nb )
 
     if( (type = msg_type_lookup(msg->id)) != NULL )
     {
-        if( worker == NULL && msg->dst != CF_MSG_PARENT )
+        if( server.worker == NULL && msg->dst != CF_MSG_PARENT )
 			cf_fatal("received parent msg for non parent dst");
-        if( worker != NULL && msg->dst != worker->id )
+        if( server.worker != NULL && msg->dst != server.worker->id )
 			cf_fatal("received message for incorrect worker");
 
         if( msg->length > 0 )
@@ -165,7 +167,7 @@ static int msg_recv_data( struct netbuf *nb )
             type->cb(msg, NULL);
 	}
 
-    if( worker == NULL && type == NULL )
+    if( server.worker == NULL && type == NULL )
     {
 		destination = msg->dst;
         TAILQ_FOREACH(c, &connections, list)
@@ -193,7 +195,7 @@ static int msg_recv_data( struct netbuf *nb )
 static void msg_disconnected_parent( struct connection *c, int err )
 {
     cf_log(LOG_ERR, "parent gone, shutting down");
-    if( kill(worker->pid, SIGQUIT) == -1 )
+    if( kill(server.worker->pid, SIGQUIT) == -1 )
         cf_log(LOG_ERR, "failed to send SIGQUIT: %s", errno_s);
 }
 

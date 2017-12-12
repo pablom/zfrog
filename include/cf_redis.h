@@ -5,13 +5,15 @@
 
 #include <stdint.h>
 
+#define REDIS_CONN_MAX          2   /* Default maximum redis connections */
+
+
 #define REDIS_CONN_READ_POSSIBLE    0x0001
 #define REDIS_CONN_WRITE_POSSIBLE   0x0002
 #define REDIS_CONN_WRITE_BLOCK      0x0004
 
 #define REDIS_CONN_IDLE_TIMER_ACT   0x1000
 #define REDIS_CONN_READ_BLOCK       0x2000
-
 
 
 #define REDIS_CONN_FREE             0x0008
@@ -93,13 +95,6 @@ void cf_redis_bind_callback( struct cf_redis *, void (*cb)(struct cf_redis *, vo
 
 int cf_redis_format_command(char**, const char*, ...);
 int cf_redis_query(struct cf_redis*, const char*, ...);
-
-
-extern uint16_t redis_serv_conn_max;
-
-//typedef struct cf_redis_t  cf_redis;
-
-//struct cf_redis;
 
 
 #if defined(__cplusplus)

@@ -31,7 +31,7 @@ void connection_init( void )
     TAILQ_INIT( &connections );
     TAILQ_INIT( &disconnected );
 
-    cf_mem_pool_init(&connection_mem_pool, "connection_pool", sizeof(struct connection), worker_max_connections);
+    cf_mem_pool_init(&connection_mem_pool, "connection_pool", sizeof(struct connection), server.worker_max_connections);
 }
 /****************************************************************
  *  Helper function clean all global connection's parameters
@@ -149,7 +149,7 @@ int connection_accept( struct listener *listener, struct connection **out )
     cf_connection_start_idletimer(c);
 
     /* Increment count of worker active connections */
-	worker_active_connections++;
+    server.worker_active_connections++;
 
 	*out = c;
     return CF_RESULT_OK;
@@ -164,7 +164,7 @@ int connection_add_backend( struct connection *c )
     /* Start idle timer for the backend */
     cf_connection_start_idletimer( c );
     /* Increment count of worker active connections */
-    worker_active_connections++;
+    server.worker_active_connections++;
 
     return CF_RESULT_OK;
 }
@@ -262,7 +262,7 @@ int cf_connection_handle( struct connection *c )
     case CONN_STATE_SSL_IN_SHAKE:
         if( c->ssl == NULL )
         {
-            c->ssl = SSL_new( primary_dom->ssl_ctx );
+            c->ssl = SSL_new( server.primary_dom->ssl_ctx );
 
             if( c->ssl == NULL )
             {
@@ -335,12 +335,12 @@ int cf_connection_handle( struct connection *c )
 #ifndef CF_NO_HTTP
 		c->proto = CONN_PROTO_HTTP;
 
-        if( http_keepalive_time != 0 )
+        if( server.http_keepalive_time != 0 )
         {
-            c->idle_timer.length = http_keepalive_time * 1000;
+            c->idle_timer.length = server.http_keepalive_time * 1000;
 		}
 
-        net_recv_queue(c, http_header_max, NETBUF_CALL_CB_ALWAYS, http_header_recv);
+        net_recv_queue(c, server.http_header_max, NETBUF_CALL_CB_ALWAYS, http_header_recv);
 #endif
 
 		c->state = CONN_STATE_ESTABLISHED;
@@ -463,19 +463,19 @@ void cf_connection_remove( struct connection *c )
         else if( nb->cb != NULL )
             nb->cb(nb);
 
-        cf_mem_pool_put(&nb_pool, nb);
+        cf_mem_pool_put(&server.nb_pool, nb);
 	}
 
     if( c->rnb != NULL )
     {
 		mem_free(c->rnb->buf);
-        cf_mem_pool_put(&nb_pool, c->rnb);
+        cf_mem_pool_put(&server.nb_pool, c->rnb);
 	}
 
     /* Move back memory to pool */
     cf_mem_pool_put( &connection_mem_pool, c );
     /* Decrement count of working connections */
-	worker_active_connections--;
+    server.worker_active_connections--;
 }
 /****************************************************************
  *  Helper function check idle timer connection

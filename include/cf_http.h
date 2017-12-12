@@ -238,14 +238,6 @@ struct http_state
     int	(*cb)(struct http_request *);
 };
 
-extern int		http_request_count;
-extern uint16_t	http_header_max;
-extern uint64_t	http_body_max;
-extern uint64_t	http_hsts_enable;
-extern uint16_t	http_keepalive_time;
-extern uint32_t	http_request_limit;
-extern uint64_t	http_body_disk_offload;
-extern char		*http_body_disk_path;
 
 void		cf_accesslog(struct http_request *);
 

@@ -33,7 +33,6 @@ struct cf_runtime cf_native_runtime =
     .execute = native_runtime_execute
 };
 
-
 struct cf_runtime_call * cf_runtime_getcall(const char *symbol)
 {
     void *ptr = NULL;

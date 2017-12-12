@@ -51,15 +51,6 @@ static struct cf_mem_pool http_host_pool;
 static struct cf_mem_pool http_path_pool;
 static struct cf_mem_pool http_body_path;
 
-int       http_request_count = 0;
-uint32_t  http_request_limit = HTTP_REQUEST_LIMIT;
-uint64_t  http_hsts_enable = HTTP_HSTS_ENABLE;
-uint16_t  http_header_max = HTTP_HEADER_MAX_LEN;
-uint16_t  http_keepalive_time = HTTP_KEEPALIVE_TIME;
-uint64_t  http_body_max = HTTP_BODY_MAX_LEN;
-uint64_t  http_body_disk_offload = HTTP_BODY_DISK_OFFLOAD;
-char      *http_body_disk_path = HTTP_BODY_DISK_PATH;
-
 /****************************************************************
  *  HTTP global init
  ****************************************************************/
@@ -80,7 +71,7 @@ void http_init( void )
 
 	http_version_len = l;
 
-	prealloc = MIN((worker_max_connections / 10), 1000);
+    prealloc = MIN((server.worker_max_connections / 10), 1000);
     cf_mem_pool_init(&http_request_pool, "http_request_pool", sizeof(struct http_request), prealloc);
     cf_mem_pool_init(&http_header_pool, "http_header_pool", sizeof(struct http_header), prealloc * HTTP_REQ_HEADER_MAX);
     cf_mem_pool_init(&http_cookie_pool, "http_cookie_pool", sizeof(struct http_cookie), prealloc * HTTP_MAX_COOKIES);
@@ -296,7 +287,7 @@ int http_request_new( struct connection *c, const char *host,
     LIST_INIT(&(req->redisls));
 #endif
 
-	http_request_count++;
+    server.http_request_count++;
 	TAILQ_INSERT_HEAD(&http_requests, req, list);
 	TAILQ_INSERT_TAIL(&(c->http_requests), req, olist);
 
@@ -341,7 +332,7 @@ void http_process( void )
 
     for( req = TAILQ_FIRST(&http_requests); req != NULL; req = next )
     {
-        if( count >= http_request_limit )
+        if( count >= server.http_request_limit )
 			break;
 
 		next = TAILQ_NEXT(req, list);
@@ -579,7 +570,7 @@ void http_request_free( struct http_request *req )
     }
 
     cf_mem_pool_put(&http_request_pool, req);
-	http_request_count--;
+    server.http_request_count--;
 }
 
 void http_serveable( struct http_request *req, const void *data, size_t len, const char *etag, const char *type )
@@ -806,7 +797,7 @@ int http_header_recv( struct netbuf *nb )
 
     if( req->flags & HTTP_REQUEST_EXPECT_BODY )
     {
-        if( http_body_max == 0 )
+        if( server.http_body_max == 0 )
         {
 			req->flags |= HTTP_REQUEST_DELETE;
 			http_error_response(req->owner, 405);
@@ -837,9 +828,9 @@ int http_header_recv( struct netbuf *nb )
             return CF_RESULT_OK;
 		}
 
-        if( req->content_length > http_body_max )
+        if( req->content_length > server.http_body_max )
         {
-            cf_log(LOG_NOTICE, "body too large (%ld > %ld)", req->content_length, http_body_max);
+            cf_log(LOG_NOTICE, "body too large (%ld > %ld)", req->content_length, server.http_body_max);
 			req->flags |= HTTP_REQUEST_DELETE;
 			http_error_response(req->owner, 413);
             return CF_RESULT_OK;
@@ -847,10 +838,10 @@ int http_header_recv( struct netbuf *nb )
 
 		req->http_body_length = req->content_length;
 
-        if( http_body_disk_offload > 0 && req->content_length > http_body_disk_offload )
+        if( server.http_body_disk_offload > 0 && req->content_length > server.http_body_disk_offload )
         {
             req->http_body_path = cf_mem_pool_get(&http_body_path);
-            l = snprintf(req->http_body_path, HTTP_BODY_PATH_MAX, "%s/http_body.XXXXXX", http_body_disk_path);
+            l = snprintf(req->http_body_path, HTTP_BODY_PATH_MAX, "%s/http_body.XXXXXX", server.http_body_disk_path);
 
             if( l == -1 || (size_t)l >= HTTP_BODY_PATH_MAX )
             {
@@ -1692,7 +1683,7 @@ static int http_body_recv(struct netbuf *nb)
             return CF_RESULT_ERROR;
 		}
 
-		net_recv_reset(nb->owner, http_header_max, http_header_recv);
+        net_recv_reset(nb->owner, server.http_header_max, http_header_recv);
     }
     else
     {
@@ -1753,10 +1744,10 @@ static void http_response_normal( struct http_request *req, struct connection *c
     /* Note that req CAN be NULL */
     if( req == NULL || req->owner->proto != CONN_PROTO_WEBSOCKET )
     {
-        if( http_keepalive_time && connection_close == 0 )
+        if( server.http_keepalive_time && connection_close == 0 )
         {
             cf_buf_appendf(header_buf, "connection: keep-alive\r\n");
-            cf_buf_appendf(header_buf, "keep-alive: timeout=%d\r\n", http_keepalive_time);
+            cf_buf_appendf(header_buf, "keep-alive: timeout=%d\r\n", server.http_keepalive_time);
         }
         else
         {
@@ -1765,10 +1756,10 @@ static void http_response_normal( struct http_request *req, struct connection *c
 		}
 	}
 
-    if( http_hsts_enable )
+    if( server.http_hsts_enable )
     {
         cf_buf_appendf(header_buf, "strict-transport-security: ");
-        cf_buf_appendf(header_buf, "max-age=%" PRIu64 "; includeSubDomains\r\n", http_hsts_enable);
+        cf_buf_appendf(header_buf, "max-age=%" PRIu64 "; includeSubDomains\r\n", server.http_hsts_enable);
 	}
 
     if( req != NULL )
@@ -1800,7 +1791,7 @@ static void http_response_normal( struct http_request *req, struct connection *c
 		net_send_queue(c, d, len);
 
     if( !(c->flags & CONN_CLOSE_EMPTY) )
-		net_recv_reset(c, http_header_max, http_header_recv);
+        net_recv_reset(c, server.http_header_max, http_header_recv);
 }
 /***************************************************************
  *  Helper function return response cookies

@@ -3,6 +3,11 @@
 #ifndef __CF_INI_H_
 #define __CF_INI_H_
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+
 /************************************************************************
  *  Typedef for prototype of handler function
  ************************************************************************/
@@ -40,5 +45,9 @@ int cf_ini_parse_file(FILE* file, ini_handler handler, void* user);
  *  filename. Used for implementing custom or string-based I/O
  *********************************************************************************/
 int cf_ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,void* user);
+
+#if defined(__cplusplus)
+}
+#endif
 
 #endif /* __CF_INI_H_ */

@@ -18,18 +18,12 @@
     #include "cf_http.h"
 #endif
 
-
 #define SSL_SESSION_ID	"cf_ssl_sessionid"
-
-struct cf_domain_h domains;
-struct cf_domain  *primary_dom = NULL;
 
 #ifndef CF_NO_TLS
     static uint8_t	keymgr_buf[2048];
     static size_t keymgr_buflen = 0;
     static int keymgr_response = 0;
-    DH	*tls_dhparam = NULL;
-    int	tls_version = CF_TLS_VERSION_1_2;
 #endif
 
 static void	domain_load_crl(struct cf_domain *);
@@ -101,7 +95,7 @@ static RSA_METHOD keymgr_rsa =
  ****************************************************************/
 void cf_domain_init(void)
 {
-	TAILQ_INIT(&domains);
+    TAILQ_INIT(&server.domains);
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     if( keymgr_rsa_meth == NULL )
@@ -130,9 +124,9 @@ void cf_domain_cleanup(void)
 {
     struct cf_domain *dom = NULL;
 
-    while( (dom = TAILQ_FIRST(&domains)) != NULL )
+    while( (dom = TAILQ_FIRST(&server.domains)) != NULL )
     {
-		TAILQ_REMOVE(&domains, dom, list);
+        TAILQ_REMOVE(&server.domains, dom, list);
         cf_domain_free(dom);
 	}
 
@@ -173,10 +167,10 @@ int domain_new( char *domain )
 #endif
     dom->domain = mem_strdup(domain);
 	TAILQ_INIT(&(dom->handlers));
-	TAILQ_INSERT_TAIL(&domains, dom, list);
+    TAILQ_INSERT_TAIL(&server.domains, dom, list);
 
-    if( primary_dom == NULL )
-		primary_dom = dom;
+    if( server.primary_dom == NULL )
+        server.primary_dom = dom;
 
     return CF_RESULT_OK;
 }
@@ -191,10 +185,10 @@ void cf_domain_free( struct cf_domain *dom )
     if( dom == NULL )
 		return;
 
-    if( primary_dom == dom )
-		primary_dom = NULL;
+    if( server.primary_dom == dom )
+        server.primary_dom = NULL;
 
-	TAILQ_REMOVE(&domains, dom, list);
+    TAILQ_REMOVE(&server.domains, dom, list);
 
     if( dom->domain != NULL )
         mem_free(dom->domain);
@@ -281,7 +275,7 @@ void cf_domain_tls_init( struct cf_domain *dom )
     if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_2_VERSION) )
         cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
 
-    switch( tls_version )
+    switch( server.tls_version )
     {
     case CF_TLS_VERSION_1_3:
 //        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_3_VERSION) )
@@ -298,7 +292,7 @@ void cf_domain_tls_init( struct cf_domain *dom )
     case CF_TLS_VERSION_BOTH:
         break;
     default:
-        cf_fatal("unknown tls_version: %d", tls_version);
+        cf_fatal("unknown tls_version: %d", server.tls_version);
         return;
     }
 #endif
@@ -356,10 +350,10 @@ void cf_domain_tls_init( struct cf_domain *dom )
     if( !SSL_CTX_check_private_key(dom->ssl_ctx) )
         cf_fatal("Public/Private key for %s do not match", dom->domain);
 
-    if( tls_dhparam == NULL )
+    if( server.tls_dhparam == NULL )
         cf_fatal("No DH parameters given");
 
-	SSL_CTX_set_tmp_dh(dom->ssl_ctx, tls_dhparam);
+    SSL_CTX_set_tmp_dh(dom->ssl_ctx, server.tls_dhparam);
     SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_SINGLE_DH_USE);
 
     if( (ecdh = EC_KEY_new_by_curve_name(NID_secp384r1)) == NULL )
@@ -407,7 +401,7 @@ void cf_domain_tls_init( struct cf_domain *dom )
 #endif
 	SSL_CTX_set_mode(dom->ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
 
-    if( tls_version == CF_TLS_VERSION_BOTH )
+    if( server.tls_version == CF_TLS_VERSION_BOTH )
     {
 		SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_SSLv2);
 		SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_SSLv3);
@@ -415,7 +409,7 @@ void cf_domain_tls_init( struct cf_domain *dom )
 	}
 
 	SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
-    SSL_CTX_set_cipher_list(dom->ssl_ctx, cf_tls_cipher_list);
+    SSL_CTX_set_cipher_list(dom->ssl_ctx, server.tls_cipher_list);
 
     SSL_CTX_set_info_callback(dom->ssl_ctx, cf_tls_info_callback);
     SSL_CTX_set_tlsext_servername_callback(dom->ssl_ctx, cf_tls_sni_cb);
@@ -429,7 +423,7 @@ void cf_domain_callback( void (*cb)(struct cf_domain *) )
 {
     struct cf_domain *dom = NULL;
 
-    TAILQ_FOREACH(dom, &domains, list)
+    TAILQ_FOREACH(dom, &server.domains, list)
 		cb(dom);
 }
 /****************************************************************
@@ -439,7 +433,7 @@ struct cf_domain* cf_domain_lookup( const char *domain )
 {
     struct cf_domain *dom = NULL;
 
-    TAILQ_FOREACH(dom, &domains, list)
+    TAILQ_FOREACH(dom, &server.domains, list)
     {
         if( !strcmp(dom->domain, domain) )
             return dom;
@@ -461,7 +455,7 @@ void cf_domain_closelogs( void )
 {
     struct cf_domain *dom = NULL;
 
-    TAILQ_FOREACH(dom, &domains, list)
+    TAILQ_FOREACH(dom, &server.domains, list)
     {
         if( dom->accesslog != -1 )
             close( dom->accesslog );
@@ -474,7 +468,7 @@ void cf_domain_load_crl( void )
 {
     struct cf_domain *dom = NULL;
 
-	TAILQ_FOREACH(dom, &domains, list)
+    TAILQ_FOREACH(dom, &server.domains, list)
 		domain_load_crl(dom);
 }
 /****************************************************************
@@ -602,7 +596,7 @@ static int keymgr_rsa_privenc(int flen, const unsigned char *from, unsigned char
 	keymgr_buflen = 0;
 	keymgr_response = 0;
 
-    cf_platform_event_all(worker->msg[1]->fd, worker->msg[1]);
+    cf_platform_event_all( server.worker->msg[1]->fd, server.worker->msg[1] );
 
     return ret;
 }
@@ -657,7 +651,7 @@ static ECDSA_SIG * keymgr_ecdsa_sign(const unsigned char *dgst, int dgst_len, co
 
 	keymgr_buflen = 0;
 	keymgr_response = 0;
-    cf_platform_event_all( worker->msg[1]->fd, worker->msg[1] );
+    cf_platform_event_all( server.worker->msg[1]->fd, server.worker->msg[1] );
 
     return sig;
 }
@@ -685,7 +679,7 @@ static void keymgr_await_data( void )
 	 * this worker until either of the above criteria is met.
 	 */
     start = cf_time_ms();
-    cf_platform_disable_events( worker->msg[1]->fd );
+    cf_platform_disable_events( server.worker->msg[1]->fd );
 
 	keymgr_response = 0;
 	memset(keymgr_buf, 0, sizeof(keymgr_buf));
@@ -701,7 +695,7 @@ static void keymgr_await_data( void )
         }
 #endif
 
-		pfd[0].fd = worker->msg[1]->fd;
+        pfd[0].fd = server.worker->msg[1]->fd;
 		pfd[0].events = POLLIN;
 		pfd[0].revents = 0;
 
@@ -733,9 +727,9 @@ static void keymgr_await_data( void )
         if( !(pfd[0].revents & POLLIN) )
 			break;
 
-		worker->msg[1]->flags |= CONN_READ_POSSIBLE;
+        server.worker->msg[1]->flags |= CONN_READ_POSSIBLE;
 
-        if( !net_recv_flush(worker->msg[1]) )
+        if( !net_recv_flush(server.worker->msg[1]) )
 			break;
 
         if( keymgr_response )

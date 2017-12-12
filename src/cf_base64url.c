@@ -1,6 +1,5 @@
 // cf_base64url.c
 
-#include <stdlib.h>
 #include "cf_base64url.h"
 
 const static unsigned char *b64 = (unsigned char *) "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";

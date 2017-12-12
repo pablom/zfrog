@@ -76,14 +76,43 @@ static int write_string_array_params( struct jsonrpc_request *req, void *ctx )
 /*---------------------------------------------------------------------------*/
 int v1( struct http_request *req )
 {
-    /* We only allow POST/PUT methods */
-    if( !http_state_exists(req) &&
-        req->method != HTTP_METHOD_POST &&
-        req->method != HTTP_METHOD_PUT )
+    /* First request */
+    if( !http_state_exists(req) )
     {
-        http_response_header(req, "allow", "POST, PUT");
-        http_response(req, HTTP_STATUS_METHOD_NOT_ALLOWED, NULL, 0);
-        return CF_RESULT_OK;
+        struct rstate *state = NULL;
+        struct jsonrpc_request json_req;
+        int ret;
+
+        /* We only allow POST/PUT methods */
+        if( req->method != HTTP_METHOD_POST &&
+            req->method != HTTP_METHOD_PUT )
+        {
+            http_response_header(req, "allow", "POST, PUT");
+            http_response(req, HTTP_STATUS_METHOD_NOT_ALLOWED, NULL, 0);
+            return CF_RESULT_OK;
+        }
+
+        /* Read JSON-RPC request */
+        if( (ret = jsonrpc_read_request(req, &json_req)) != 0 )
+            return jsonrpc_error(&json_req, ret, NULL);
+
+        /* Check allow methods */
+        if( strcmp(json_req.method, "set") )
+            return jsonrpc_error(&json_req, JSONRPC_METHOD_NOT_FOUND, NULL);
+
+        if( !YAJL_IS_OBJECT(json_req.params) )
+            return jsonrpc_error(&json_req, JSONRPC_INVALID_PARAMS, NULL);
+
+        /* Setup our state context */
+        state = http_state_create(req, sizeof(*state));
+
+        /*
+         * Initialize the cf_redis data structure and bind it
+         * to this request so we can be put to sleep / woken up
+         * by the redis layer when required
+         */
+        cf_redis_init( &state->rd );
+        cf_redis_bind_request( &state->rd, req );
     }
 
     /* Drop into our state machine */
@@ -95,51 +124,7 @@ int v1( struct http_request *req )
  ****************************************************************************/
 static int request_perform_init( struct http_request *req )
 {
-    struct rstate *state = NULL;
-
-    /* Setup our state context (if not yet set). First request */
-    if( !http_state_exists(req) )
-    {
-        struct jsonrpc_request	json_req;
-        int	ret;
-
-        /* Read JSON-RPC request */
-        if( (ret = jsonrpc_read_request(req, &json_req)) != 0 )
-        {
-            jsonrpc_error(&json_req, ret, NULL);
-            return HTTP_STATE_COMPLETE;
-        }
-
-        /* Check allow methods */
-        if( strcmp(json_req.method, "set") )
-        {
-            jsonrpc_error(&json_req, JSONRPC_METHOD_NOT_FOUND, NULL);
-            return HTTP_STATE_COMPLETE;
-        }
-
-        if( strcmp(json_req.method, "set") == 0 )
-        {
-            if( !YAJL_IS_OBJECT(json_req.params) )
-            {
-                jsonrpc_error(&json_req, JSONRPC_INVALID_PARAMS, NULL);
-                return HTTP_STATE_COMPLETE;
-            }
-
-            state = http_state_create(req, sizeof(*state));
-
-            /*
-             * Initialize the cf_redis data structure and bind it
-             * to this request so we can be put to sleep / woken up
-             * by the redis layer when required
-             */
-            cf_redis_init( &state->rd );
-            cf_redis_bind_request( &state->rd, req );
-        }
-    }
-    else
-    {
-        state = http_state_get(req);
-    }
+    struct rstate *state = http_state_get(req);
 
     /*
      * Setup the query to be asynchronous in nature, aka just fire it

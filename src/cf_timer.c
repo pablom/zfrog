@@ -2,7 +2,6 @@
 
 #include <sys/param.h>
 #include <sys/queue.h>
-
 #include "zfrog.h"
 
 TAILQ_HEAD(timerlist, cf_timer)	cf_timers;

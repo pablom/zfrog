@@ -63,10 +63,10 @@ void cf_platform_init()
     if( (n = sysconf(_SC_NPROCESSORS_ONLN)) == -1 )
     {
         log_debug("could not get number of cpu's falling back to 1");
-        cpu_count = 1;
+        server.cpu_count = 1;
     }
     else {
-        cpu_count = (uint16_t)n;
+        server.cpu_count = (uint16_t)n;
     }
 }
 /****************************************************************
@@ -94,7 +94,7 @@ void cf_platform_event_init()
   //      cf_fatal("/dev/poll: %s", errno_s);
   //  }
 
-    event_count = worker_max_connections + nlisteners;
+    event_count = server.worker_max_connections + server.nlisteners;
 
     //events0 = mem_calloc( event_count, sizeof(struct port_event_t) );
     //events = mem_calloc( event_count, sizeof(struct pollfd) );
@@ -220,9 +220,9 @@ int cf_platform_event_wait( uint64_t timer )
         case CF_TYPE_LISTENER:
             l = (struct listener *)events[i].portev_user;
 
-            while( worker_active_connections < worker_max_connections )
+            while( server.worker_active_connections < server.worker_max_connections )
             {
-                if( worker_accept_threshold != 0 && r >= worker_accept_threshold )
+                if( server.worker_accept_threshold != 0 && r >= server.worker_accept_threshold )
                     break;
 
                 if( !connection_accept(l, &c) )

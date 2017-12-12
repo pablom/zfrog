@@ -38,13 +38,13 @@ void cf_platform_init()
     if( sysctl(mib, 2, &n, &len, NULL, 0) == -1 )
     {
         log_debug("cf_platform_init(): sysctl %s", errno_s);
-		cpu_count = 1;
+        server.cpu_count = 1;
     }
     else {
-        cpu_count = (uint16_t)n;
+        server.cpu_count = (uint16_t)n;
 	}
 #else
-	cpu_count = 0;
+    server.cpu_count = 0;
 #endif /* __MACH__ || __FreeBSD_version */
 }
 /****************************************************************
@@ -73,7 +73,7 @@ void cf_platform_event_init()
     if( (kfd = kqueue()) == -1 )
 		cf_fatal("kqueue(): %s", errno_s);
 
-	event_count = (worker_max_connections * 2) + nlisteners;
+    event_count = (worker_max_connections * 2) + server.nlisteners;
     events = mem_calloc(event_count, sizeof(struct kevent));
 
     /* Hack to check if we're running under the parent or not */
@@ -165,9 +165,9 @@ int cf_platform_event_wait(uint64_t timer)
         case CF_TYPE_LISTENER:
 			l = (struct listener *)events[i].udata;
 
-            while( worker_active_connections < worker_max_connections )
+            while( server.worker_active_connections < server.worker_max_connections )
             {
-                if( worker_accept_threshold != 0 && r >= worker_accept_threshold )
+                if( server.worker_accept_threshold != 0 && r >= server.worker_accept_threshold )
 					break;
 
                 if( !connection_accept(l, &c) )

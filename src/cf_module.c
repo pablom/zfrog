@@ -47,7 +47,7 @@ void cf_module_cleanup(void)
 
 void cf_module_load( const char *path, const char *onload, int type )
 {
-#if !defined(CF_SINGLE_BINARY)
+#ifndef CF_SINGLE_BINARY
     struct stat	st;
 #endif
     struct cf_module *module = NULL;
@@ -60,7 +60,7 @@ void cf_module_load( const char *path, const char *onload, int type )
     module->onload = NULL;
     module->handle = NULL;
 
-#if !defined(CF_SINGLE_BINARY)
+#ifndef CF_SINGLE_BINARY
     if( stat(path, &st) == -1 )
         cf_fatal("stat(%s): %s", path, errno_s);
 
@@ -112,7 +112,7 @@ void cf_module_load( const char *path, const char *onload, int type )
 
 void cf_module_onload( void )
 {
-#if !defined(CF_SINGLE_BINARY)
+#ifndef CF_SINGLE_BINARY
     struct cf_module *module = NULL;
 
     TAILQ_FOREACH(module, &modules, list)
@@ -127,7 +127,7 @@ void cf_module_onload( void )
 
 void cf_module_reload( int cbs )
 {
-#if !defined(CF_SINGLE_BINARY)
+#ifndef CF_SINGLE_BINARY
     struct stat st;
     int	ret;
     struct cf_domain *dom = NULL;
@@ -180,7 +180,7 @@ void cf_module_reload( int cbs )
         cf_log(LOG_NOTICE, "reloaded '%s' module", module->path);
     }
 
-    TAILQ_FOREACH(dom, &domains, list)
+    TAILQ_FOREACH(dom, &server.domains, list)
     {
         TAILQ_FOREACH(hdlr, &(dom->handlers), list)
         {

@@ -11,8 +11,6 @@
 #include <sys/time.h>
 #include <sys/ioctl.h>
 #include <netdb.h>
-
-//#include <sys/socket.h>
 #include <netinet/tcp.h>
 
 #include "zfrog.h"
@@ -95,19 +93,19 @@ void log_debug_internal(char *file, int line, const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
 
-    printf("[%d] %s:%d - %s\n", (int)cf_pid, file, line, buf);
+    printf("[%d] %s:%d - %s\n", (int)server.pid, file, line, buf);
 }
 
 void cf_log_init( void )
 {
-#if defined(CF_SINGLE_BINARY)
+#ifdef CF_SINGLE_BINARY
     extern const char *__progname;
     const char *name = __progname;
 #else
     const char *name = "zfrog";
 #endif
 
-    if( !foreground )
+    if( !server.foreground )
 		openlog(name, LOG_NDELAY | LOG_PID, LOG_DAEMON);
 }
 
@@ -120,21 +118,21 @@ void cf_log(int prio, const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
 
-    if( worker != NULL )
+    if( server.worker != NULL )
     {
-        snprintf(tmp, sizeof(tmp), "wrk %d", worker->id);
+        snprintf(tmp, sizeof(tmp), "wrk %d", server.worker->id);
 #ifndef CF_NO_TLS
-        if( worker->id == CF_WORKER_KEYMGR )
+        if( server.worker->id == CF_WORKER_KEYMGR )
             cf_strlcpy(tmp, "keymgr", sizeof(tmp));
 #endif
-        if( foreground )
+        if( server.foreground )
 			printf("[%s]: %s\n", tmp, buf);
 		else
 			syslog(prio, "[%s]: %s", tmp, buf);
     }
     else
     {
-        if( foreground )
+        if( server.foreground )
 			printf("[parent]: %s\n", buf);
 		else
 			syslog(prio, "[parent]: %s", buf);
@@ -196,7 +194,7 @@ int cf_snprintf( char *str, size_t size, int *len, const char *fmt, ... )
     return CF_RESULT_OK;
 }
 /****************************************************************
- * Helper function convert string to integer value
+ * Convert string to integer value
  ****************************************************************/
 long long cf_strtonum( const char *str, int base, long long min, long long max, int *err )
 {
@@ -233,7 +231,7 @@ long long cf_strtonum( const char *str, int base, long long min, long long max, 
     return l;
 }
 /****************************************************************
- * Helper function convert string to uint64 value
+ * Convert string to uint64 value
  ****************************************************************/
 uint64_t cf_strtonum64( const char *str, int sign, int *err )
 {
@@ -281,7 +279,7 @@ uint64_t cf_strtonum64( const char *str, int sign, int *err )
     return ((sign) ? (uint64_t)ll : l);
 }
 /****************************************************************
- *  Helper function split string by delimiter
+ *  Split string by delimiter
  ****************************************************************/
 int cf_split_string( char *input, const char *delim, char **out, size_t ele )
 {
@@ -455,7 +453,7 @@ char* cf_time_to_date( time_t now )
     return tbuf;
 }
 /****************************************************************
- *  Helper function to get current time in milliseconds
+ *  Return the UNIX time in milliseconds
  ****************************************************************/
 uint64_t cf_time_ms( void )
 {
@@ -467,7 +465,19 @@ uint64_t cf_time_ms( void )
     return tv.tv_sec * 1000 + (tv.tv_usec / 1000);
 }
 /****************************************************************
- *  Helper function convert milliseconds to timespec structure
+ *  Return the UNIX time in microseconds
+ ****************************************************************/
+uint64_t cf_time_us( void )
+{
+    struct timeval tv;
+
+    if( (gettimeofday( &tv, NULL) == -1) )
+        return 0;
+
+    return ((uint64_t)tv.tv_sec)*1000000 + (uint64_t)tv.tv_usec;
+}
+/****************************************************************
+ *  Convert milliseconds to timespec structure
  ****************************************************************/
 void cf_ms2ts( struct timespec *ts, uint64_t ms )
 {
@@ -714,11 +724,11 @@ void cf_fatal( const char *fmt, ... )
     vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
 
-    if( !foreground )
+    if( !server.foreground )
         cf_log(LOG_ERR, "%s", buf);
 
 #ifndef CF_NO_TLS
-    if( worker != NULL && worker->id == CF_WORKER_KEYMGR )
+    if( server.worker != NULL && server.worker->id == CF_WORKER_KEYMGR )
         cf_keymgr_cleanup();
 #endif
 

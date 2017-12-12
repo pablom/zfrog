@@ -4,10 +4,6 @@
 #include <sys/queue.h>
 #include <sys/socket.h>
 
-#include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "zfrog.h"
 
 #ifndef CF_NO_HTTP
@@ -16,11 +12,9 @@
 
 #include "cf_tasks.h"
 
-/* Global variables */
+/* Static (local) global variables */
 static uint8_t threads;
 static TAILQ_HEAD(, cf_task_thread)	task_threads;
-
-uint16_t cf_task_threads = CF_TASK_THREADS;
 
 /* Forward function declaration */
 static void	*task_thread(void *arg);
@@ -44,6 +38,7 @@ static void	task_thread_spawn(struct cf_task_thread **out);
  ****************************************************************/
 void cf_task_init(void)
 {
+    server.task_threads = CF_TASK_THREADS;
 	threads = 0;
     TAILQ_INIT( &task_threads );
 }
@@ -69,11 +64,11 @@ void cf_task_create( struct cf_task *t, int (*entry)(struct cf_task *) )
  ****************************************************************/
 void cf_task_run( struct cf_task *t )
 {
-    struct cf_task_thread *tt;
+    struct cf_task_thread *tt = NULL;
 
     cf_platform_schedule_read( t->fds[0], t);
 
-    if( threads < cf_task_threads )
+    if( threads < server.task_threads )
     {
         /* task_thread_spawn() will lock tt->lock for us */
         task_thread_spawn( &tt );

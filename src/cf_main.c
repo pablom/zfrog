@@ -1,20 +1,28 @@
 // cf_main.c
 
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include <sys/socket.h>
-#include <sys/resource.h>
-
 #include <stdio.h>
 #include <netdb.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/resource.h>
+#include <sys/utsname.h>
 
 #include "zfrog.h"
 
 #ifndef CF_NO_HTTP
     #include "cf_http.h"
+#endif
+
+#ifdef CF_PGSQL
+    #include "cf_pgsql.h"
+#endif
+
+#ifdef CF_MYSQL
+    #include "cf_mysql.h"
 #endif
 
 #ifdef CF_PYTHON
@@ -25,24 +33,11 @@
     #include "cf_lua.h"
 #endif
 
-#include "cf_redis.h"
+#ifdef CF_REDIS
+    #include "cf_redis.h"
+#endif
 
 volatile sig_atomic_t sig_recv;
-
-struct listener_head listeners;
-uint8_t nlisteners;
-pid_t cf_pid = -1;
-uint16_t cpu_count = 1;
-int	foreground = 0;
-int	log_debug = 0;
-uint8_t worker_count = 0;
-int	skip_chroot = 0;
-char *chroot_path = NULL;
-int	skip_runas = 0;
-char *runas_user = NULL;
-uint32_t  cf_socket_backlog = 5000;
-char *cf_pidfile = CF_PIDFILE_DEFAULT;
-char *cf_tls_cipher_list = CF_DEFAULT_CIPHER_LIST;
 
 #ifdef __sun
     const char	*__progname = "zfrog";
@@ -51,16 +46,76 @@ char *cf_tls_cipher_list = CF_DEFAULT_CIPHER_LIST;
 #endif
 
 
-static void	cf_server_start(void);
-static void	cf_write_pid(void);
-static void	cf_server_sslstart(void);
+/* Global vars */
+struct zfrogServer  server; /* Server global state */
 
+/* Local static function declaration */
+static void initServerConfig(void);
+static void	server_start(void);
+static void	server_sslstart(void);
+static void	write_pid(void);
+
+
+static void testfn( void )
+{
+#include <locale.h>
+#include <xlocale.h>
+    time_t		time_value;
+    struct tm	time_info;
+    char		timestamp[133];
+    struct tm	*(*gettm)(const time_t *, struct tm *) = localtime_r;
+
+
+    setlocale(LC_COLLATE,"");
+
+    //setenv("LC_ALL", "C",1);
+    //gettm = gmtime_r;
+
+    if( (time_value = time(NULL)) == -1 )
+        return;
+
+    if( gettm(&time_value, &time_info) == NULL )
+        return;
+
+    memset(timestamp, 0, sizeof(timestamp));
+
+    strftime_l(timestamp, sizeof(timestamp) - 1, "%a, %d %b %Y %T %z", &time_info, LC_GLOBAL_LOCALE);
+}
+
+/****************************************************************
+ *  Print out builtin information
+ ****************************************************************/
+static void builtin_report(void)
+{
+#ifdef CF_PGSQL
+    cf_log(LOG_NOTICE, "pgsql built-in enabled");
+#endif
+#ifdef CF_MYSQL
+    cf_log(LOG_NOTICE, "mysql built-in enabled");
+#endif
+#ifdef CF_TASKS
+    cf_log(LOG_NOTICE, "tasks built-in enabled");
+#endif
+#ifdef CF_JSONRPC
+    cf_log(LOG_NOTICE, "jsonrpc built-in enabled");
+#endif
+#ifdef CF_PYTHON
+    cf_log(LOG_NOTICE, "python built-in enabled");
+#endif
+#ifdef CF_LUA
+    cf_log(LOG_NOTICE, "lua built-in enabled");
+#endif
+#ifdef CF_REDIS
+    cf_log(LOG_NOTICE, "redis built-in enabled");
+#endif
+}
 /****************************************************************
  *  Helper function return usage information
  ****************************************************************/
 static void usage( void )
 {
-#if !defined(CF_SINGLE_BINARY)
+    testfn();
+#ifndef CF_SINGLE_BINARY
     fprintf(stderr, "Usage: zfrog [options]\n");
 #else
 	fprintf(stderr, "Usage: %s [options]\n", __progname);
@@ -68,7 +123,7 @@ static void usage( void )
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Available options:\n");
 
-#if !defined(CF_SINGLE_BINARY)
+#ifndef CF_SINGLE_BINARY
 	fprintf(stderr, "\t-c\tconfiguration to use\n");
 #endif
 
@@ -89,6 +144,8 @@ static void usage( void )
  ****************************************************************/
 static void version( void )
 {
+    struct utsname os_name;
+
     printf("%d.%d.%d-%s ", CF_VERSION_MAJOR, CF_VERSION_MINOR, CF_VERSION_PATCH, CF_VERSION_STATE);
 
 #ifndef CF_NO_TLS
@@ -131,8 +188,88 @@ static void version( void )
     printf("redis ");
 #endif
 
-	printf("\n");
+    /* Get current OS name & information */
+    uname( &os_name );
+
+    printf("\n\nSystem information:");
+    printf("\nos:\t\t%s %s %s", os_name.sysname, os_name.release, os_name.machine);
+    printf("\narch_bits:\t%d", (sizeof(long) == 8) ? 64 : 32);
+    printf("\ngcc_version:\t%d.%d.%d",
+#ifdef __GNUC__
+           __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__);
+#else
+            0,0,0);
+#endif
+
+    printf("\n\n");
 	exit(0);
+}
+/****************************************************************
+ *  Init server default options
+ ****************************************************************/
+static void initServerConfig( void )
+{
+#ifndef CF_SINGLE_BINARY
+    server.config_file = NULL;
+#endif
+
+    server.worker_count = 0;
+    server.worker_rlimit_nofiles = 1024;
+    server.worker_set_affinity = 1;
+    server.worker_max_connections = 250;
+    server.worker_active_connections = 0;
+    server.worker_accept_threshold = 0;
+
+    server.socket_backlog = 5000;
+
+    server.cpu_count = 1;
+    server.nlisteners = 0;
+
+    /* Set server main PID */
+    server.pid = getpid();
+    server.debug_log = 0;
+    server.foreground = 0;
+    server.skip_chroot = 0;
+    server.chroot_path = NULL;
+    server.skip_runas = 0;
+    server.runas_user = NULL;
+
+    /* Set default pid file path */
+    server.pidfile = CF_PIDFILE_DEFAULT;
+
+#ifndef CF_NO_TLS
+    server.tls_cipher_list = CF_DEFAULT_CIPHER_LIST;
+    server.tls_version = CF_TLS_VERSION_1_2;
+#endif
+
+#ifndef CF_NO_HTTP
+    server.http_body_max = HTTP_BODY_MAX_LEN;
+    server.http_keepalive_time = HTTP_KEEPALIVE_TIME;
+    server.http_header_max = HTTP_HEADER_MAX_LEN;
+    server.http_request_limit = HTTP_REQUEST_LIMIT;
+    server.http_body_disk_offload = HTTP_BODY_DISK_OFFLOAD;
+    server.http_hsts_enable = HTTP_HSTS_ENABLE;
+    server.http_body_disk_path = HTTP_BODY_DISK_PATH;
+    server.http_request_count = 0;
+    /* Web sockets settings */
+    server.websocket_timeout = 120000;
+    server.websocket_maxframe = 16384;
+#endif
+
+#ifdef CF_PGSQL
+    server.pgsql_conn_max = PGSQL_CONN_MAX;
+#endif
+
+#ifdef CF_MYSQL
+    server.mysql_conn_max = MYSQL_CONN_MAX;
+#endif
+
+#ifdef CF_REDIS
+    server.redis_serv_conn_max = REDIS_CONN_MAX;
+#endif
+
+    server.worker = NULL;
+    server.primary_dom = NULL;
 }
 
 #ifndef CF_NO_TLS
@@ -252,7 +389,7 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
 
 	freeaddrinfo(results);
 
-    if( listen(l->fd, cf_socket_backlog) == -1 )
+    if( listen(l->fd, server.socket_backlog) == -1 )
     {
 		close(l->fd);
         mem_free( l );
@@ -274,10 +411,10 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
 		l->connect = NULL;
 	}
 
-	nlisteners++;
-	LIST_INSERT_HEAD(&listeners, l, list);
+    server.nlisteners++;
+    LIST_INSERT_HEAD(&server.listeners, l, list);
 
-    if( foreground )
+    if( server.foreground )
     {
 #ifndef CF_NO_TLS
     #ifndef CF_NO_HTTP
@@ -303,9 +440,9 @@ void cf_listener_cleanup( void )
 {
     struct listener	*l = NULL;
 
-    while( !LIST_EMPTY(&listeners) )
+    while( !LIST_EMPTY(&server.listeners) )
     {
-		l = LIST_FIRST(&listeners);
+        l = LIST_FIRST(&server.listeners);
 		LIST_REMOVE(l, list);
 		close(l->fd);
 		mem_free(l);
@@ -321,7 +458,7 @@ void cf_signal( int sig )
 /****************************************************************
  *  Helper function to init SSL library
  ****************************************************************/
-static void cf_server_sslstart( void )
+static void server_sslstart( void )
 {
 #ifndef CF_NO_TLS
     log_debug("cf_server_sslstart()");
@@ -333,7 +470,7 @@ static void cf_server_sslstart( void )
 /****************************************************************
  *  Helper function server start
  ****************************************************************/
-static void cf_server_start( void )
+static void server_start( void )
 {
     uint32_t tmp;
     int	quit;
@@ -342,44 +479,16 @@ static void cf_server_start( void )
 #ifdef __sun
 
 #else
-    if( foreground == 0 && daemon(1, 1) == -1 )
+    if( server.foreground == 0 && daemon(1, 1) == -1 )
         cf_fatal("cannot daemon(): %s", errno_s);
 #endif
 
-    cf_pid = getpid();
+    if( !server.foreground )
+        write_pid();
 
-    if( !foreground )
-        cf_write_pid();
+    cf_log(LOG_NOTICE, "%s is starting up (%d)", __progname, server.pid);
 
-    cf_log(LOG_NOTICE, "%s is starting up (%d)", __progname, cf_pid);
-
-#ifdef CF_PGSQL
-    cf_log(LOG_NOTICE, "pgsql built-in enabled");
-#endif
-
-#ifdef CF_MYSQL
-    cf_log(LOG_NOTICE, "mysql built-in enabled");
-#endif
-
-#ifdef CF_TASKS
-    cf_log(LOG_NOTICE, "tasks built-in enabled");
-#endif
-
-#ifdef CF_JSONRPC
-    cf_log(LOG_NOTICE, "jsonrpc built-in enabled");
-#endif
-
-#ifdef CF_PYTHON
-    cf_log(LOG_NOTICE, "python built-in enabled");
-#endif
-
-#ifdef CF_LUA
-    cf_log(LOG_NOTICE, "lua built-in enabled");
-#endif
-
-#ifdef CF_REDIS
-    cf_log(LOG_NOTICE, "redis built-in enabled");
-#endif
+    builtin_report();
 
 #ifndef CF_SINGLE_BINARY
     if( (rcall = cf_runtime_getcall("cf_parent_configure")) != NULL )
@@ -394,8 +503,8 @@ static void cf_server_start( void )
     cf_worker_init();
 
     /* Set worker_max_connections for connection_init() */
-	tmp = worker_max_connections;
-	worker_max_connections = worker_count;
+    tmp = server.worker_max_connections;
+    server.worker_max_connections = server.worker_count;
 
 	net_init();
     connection_init();
@@ -403,7 +512,7 @@ static void cf_server_start( void )
     cf_msg_parent_init();
 
 	quit = 0;
-	worker_max_connections = tmp;
+    server.worker_max_connections = tmp;
 
     while( quit != 1 )
     {
@@ -442,23 +551,23 @@ static void cf_server_start( void )
 /************************************************************************
  *  Helper function to write proccess pid to file
  ************************************************************************/
-static void cf_write_pid( void )
+static void write_pid( void )
 {
     int fd;
     FILE *fp = NULL;
     struct flock lock;
     struct stat sb;
 
-    if( stat(cf_pidfile, &sb) == 0 )
+    if( stat(server.pidfile, &sb) == 0 )
     {
         /* file exists, perhaps previously kepts by SIGKILL */
-        if( unlink(cf_pidfile) == -1 ) {
-            cf_fatal("Couldn't remove old pid file '%s' (%s)", cf_pidfile, errno_s);
+        if( unlink(server.pidfile) == -1 ) {
+            cf_fatal("Couldn't remove old pid file '%s' (%s)", server.pidfile, errno_s);
         }
     }
 
-    if( (fd = open(cf_pidfile, O_WRONLY | O_CREAT | O_CLOEXEC, 0444)) < 0 ) {
-         cf_fatal("Couldn't create pid file '%s' (%s)", cf_pidfile, errno_s);
+    if( (fd = open(server.pidfile, O_WRONLY | O_CREAT | O_CLOEXEC, 0444)) < 0 ) {
+         cf_fatal("Couldn't create pid file '%s' (%s)", server.pidfile, errno_s);
     }
 
     /* create a write exclusive lock for the entire file */
@@ -470,17 +579,17 @@ static void cf_write_pid( void )
      if( fcntl(fd, F_SETLK, &lock) < 0 )
      {
          close( fd );
-         cf_fatal("Couldn't set the lock for the pid file '%s' (%s)", cf_pidfile, errno_s);
+         cf_fatal("Couldn't set the lock for the pid file '%s' (%s)", server.pidfile, errno_s);
      }
 
     if( (fp = fdopen(fd, "w+")) == NULL )
     {
         close( fd );
-        cf_fatal("Couldn't write pid to %s (%s)", cf_pidfile, errno_s);
+        cf_fatal("Couldn't write pid to %s (%s)", server.pidfile, errno_s);
     }
 
     /* Write pid to file */
-    fprintf(fp, "%d\n", (int)cf_pid);
+    fprintf(fp, "%d\n", (int)server.pid);
     /* Close file descriptor */
     fclose( fp );
 }
@@ -492,7 +601,10 @@ int main( int argc, char *argv[] )
     int	ch;
     int flags = 0;
 
-#if !defined(CF_SINGLE_BINARY)
+    /* Init default global variables */
+    initServerConfig();
+
+#ifndef CF_SINGLE_BINARY
     while( (ch = getopt(argc, argv, "c:dfhnrv")) != -1 )
     {
 #else
@@ -501,28 +613,28 @@ int main( int argc, char *argv[] )
         flags++;
         switch( ch )
         {
-#if !defined(CF_SINGLE_BINARY)
+#ifndef CF_SINGLE_BINARY
         case 'c':
-            config_file = optarg;
+            server.config_file = optarg;
             break;
 #endif
 
 #ifdef CF_DEBUG
         case 'd':
-            log_debug = 1;
+            server.debug_log = 1;
             break;
 #endif
         case 'f':
-            foreground = 1;
+            server.foreground = 1;
             break;
         case 'h':
             usage();
             break;
         case 'n':
-            skip_chroot = 1;
+            server.skip_chroot = 1;
             break;
         case 'r':
-            skip_runas = 1;
+            server.skip_runas = 1;
             break;
         case 'v':
             version();
@@ -540,9 +652,7 @@ int main( int argc, char *argv[] )
     if( argc > 0 )
         cf_fatal("did you mean to run `zfrog_cli instead?");
 
-    cf_pid = getpid();
-    nlisteners = 0;
-    LIST_INIT(&listeners);
+    LIST_INIT(&server.listeners);
 
     cf_log_init();
 
@@ -562,10 +672,10 @@ int main( int argc, char *argv[] )
     cf_domain_init();
     cf_module_init();
     /* Start SSL server */
-    cf_server_sslstart();
+    server_sslstart();
 
 #ifndef CF_SINGLE_BINARY
-    if( config_file == NULL )
+    if( server.config_file == NULL )
         usage();
 #else
     cf_module_load( NULL, NULL, CF_MODULE_NATIVE );
@@ -573,17 +683,17 @@ int main( int argc, char *argv[] )
 
     /* Read configuration file */
     cf_parse_config();
-    /* Platform initialisation */
+    /* Platform initialization */
     cf_platform_init();
 
 #ifndef CF_NO_HTTP
     cf_accesslog_init();
 
-    if( http_body_disk_offload > 0 )
+    if( server.http_body_disk_offload > 0 )
     {
-        if( mkdir(http_body_disk_path, 0700) == -1 && errno != EEXIST )
+        if( mkdir(server.http_body_disk_path, 0700) == -1 && errno != EEXIST )
         {
-            printf("can't create http_body_disk_path '%s': %s\n", http_body_disk_path, errno_s);
+            printf("can't create http_body_disk_path '%s': %s\n", server.http_body_disk_path, errno_s);
             return CF_RESULT_ERROR;
         }
     }
@@ -594,19 +704,19 @@ int main( int argc, char *argv[] )
     signal( SIGQUIT, cf_signal );
     signal( SIGTERM, cf_signal );
 
-    if( foreground )
+    if( server.foreground )
         signal(SIGINT, cf_signal);
     else
         signal(SIGINT, SIG_IGN);
 
     /* Start server */
-    cf_server_start();
+    server_start();
 
     cf_log(LOG_NOTICE, "server shutting down");
     cf_worker_shutdown();
 
-    if( !foreground )
-        unlink(cf_pidfile);
+    if( !server.foreground )
+        unlink( server.pidfile );
 
     cf_listener_cleanup();
     cf_log(LOG_NOTICE, "goodbye cruel world");

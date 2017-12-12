@@ -4,6 +4,9 @@
 #ifndef __CF_TASKS_H__
 #define __CF_TASKS_H__
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
 #include <pthread.h>
 
 #define CF_TASK_STATE_CREATED		1
@@ -54,29 +57,26 @@ struct cf_task_thread
 };
 
 void cf_task_init(void);
-void cf_task_run(struct cf_task *t);
-void cf_task_finish(struct cf_task *t);
-void cf_task_destroy(struct cf_task *t);
-int	cf_task_finished(struct cf_task *t);
-void cf_task_handle(struct cf_task *t, int finished);
+void cf_task_run(struct cf_task*);
+void cf_task_finish(struct cf_task*);
+void cf_task_destroy(struct cf_task*);
+int	cf_task_finished(struct cf_task*);
+void cf_task_handle(struct cf_task*, int);
 
 #ifndef CF_NO_HTTP
-    void cf_task_bind_request(struct cf_task *t, struct http_request *req);
+    void cf_task_bind_request(struct cf_task*, struct http_request*);
 #endif
 
-void cf_task_bind_callback(struct cf_task *, void (*cb)(struct cf_task *));
-void cf_task_create(struct cf_task *t, int (*entry)(struct cf_task *));
+void cf_task_bind_callback(struct cf_task*, void (*cb)(struct cf_task*));
+void cf_task_create(struct cf_task*, int (*entry)(struct cf_task*));
 
-uint32_t cf_task_channel_read(struct cf_task *t, void *out, uint32_t len);
-void cf_task_channel_write(struct cf_task *t, void *data, uint32_t len);
+uint32_t cf_task_channel_read(struct cf_task*, void*, uint32_t);
+void cf_task_channel_write(struct cf_task*, void*, uint32_t);
+void cf_task_set_state(struct cf_task*,int);
+void cf_task_set_result(struct cf_task*,int);
+int cf_task_state(struct cf_task*);
+int cf_task_result(struct cf_task*);
 
-void cf_task_set_state(struct cf_task *t, int state);
-void cf_task_set_result(struct cf_task *t, int result);
-
-int cf_task_state(struct cf_task *t);
-int cf_task_result(struct cf_task *t);
-
-extern uint16_t cf_task_threads;
 
 #if defined(__cplusplus)
 }

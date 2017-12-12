@@ -44,8 +44,6 @@ static TAILQ_HEAD(, pgsql_conn)		pgsql_conn_free;
 static TAILQ_HEAD(, pgsql_wait)		pgsql_wait_queue;
 static LIST_HEAD(, pgsql_db)		pgsql_db_conn_strings;
 
-uint16_t                            pgsql_conn_max = PGSQL_CONN_MAX;
-
 /************************************************************************
  *  Helper function PGSQL system initialization
  ************************************************************************/

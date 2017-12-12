@@ -24,10 +24,6 @@
 
 #define WEBSOCKET_SERVER_RESPONSE	"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-
-uint64_t cf_websocket_timeout = 120000;
-uint64_t cf_websocket_maxframe = 16384;
-
 static int	websocket_recv_frame(struct netbuf *);
 static int	websocket_recv_opcode(struct netbuf *);
 static void	websocket_disconnect(struct connection *, int);
@@ -92,7 +88,7 @@ void cf_websocket_handshake( struct http_request *req,
 	req->owner->rnb->flags &= ~NETBUF_CALL_CB_ALWAYS;
 
     req->owner->idle_timer.start = cf_time_ms();
-    req->owner->idle_timer.length = cf_websocket_timeout;
+    req->owner->idle_timer.length = server.websocket_timeout;
 
     if( onconnect != NULL )
     {
@@ -291,7 +287,7 @@ static int websocket_recv_frame(struct netbuf *nb)
 		break;
 	}
 
-    if( len > cf_websocket_maxframe )
+    if( len > server.websocket_maxframe )
     {
         log_debug("%p: frame too big", c);
         return CF_RESULT_ERROR;

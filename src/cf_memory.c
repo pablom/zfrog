@@ -44,7 +44,6 @@ static TAILQ_HEAD(, tag)	tags;
 static struct cf_mem_pool	tag_pool;
 static struct memblock      blocks[MALLOC_MEM_BLOCKS];
 
-
 /************************************************************************
  *  Helper function memory pool init
  ************************************************************************/

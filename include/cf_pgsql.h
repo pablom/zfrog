@@ -52,8 +52,6 @@ struct cf_pgsql
     LIST_ENTRY(cf_pgsql) rlist;
 };
 
-extern uint16_t pgsql_conn_max;
-
 void cf_pgsql_sys_init(void);
 void cf_pgsql_sys_cleanup(void);
 int	 cf_pgsql_init(struct cf_pgsql *);

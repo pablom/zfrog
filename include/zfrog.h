@@ -84,7 +84,7 @@ extern "C" {
 
 #if defined(CF_DEBUG)
 #define log_debug(...)		\
-    if (log_debug)		\
+    if( server.debug_log )		\
         log_debug_internal(__FILE__, __LINE__, __VA_ARGS__)
 #else
 #define log_debug(...)
@@ -359,9 +359,8 @@ struct cf_module_handle
     struct cf_auth	*auth;
     TAILQ_HEAD(, cf_handler_params)	params;
 #endif
-    TAILQ_ENTRY(cf_module_handle)		list;
+    TAILQ_ENTRY(cf_module_handle)	list;
 };
-
 
 struct cf_worker
 {
@@ -405,9 +404,9 @@ struct cf_validator
     char	  *name;
     char	  *arg;
     regex_t	  rctx;
-    struct cf_runtime_call	*rcall;
+    struct cf_runtime_call* rcall;
 
-    TAILQ_ENTRY(cf_validator)	list;
+    TAILQ_ENTRY(cf_validator) list;
 };
 #endif
 
@@ -495,45 +494,88 @@ struct cf_keyreq
 };
 #endif
 
-#if !defined(CF_SINGLE_BINARY)
-    extern char	*config_file;
+/*-----------------------------------------------------------------------------
+ *  zFrog server structure
+ *----------------------------------------------------------------------------*/
+struct zfrogServer
+{
+#ifndef CF_SINGLE_BINARY
+    char	*config_file;   /* Configuration file path */
 #endif
 
-extern pid_t  cf_pid;
-extern int	foreground;
-extern int	log_debug;
-extern int	skip_chroot;
-extern char	*chroot_path;
-extern int	skip_runas;
-extern char	*runas_user;
-extern char	*cf_pidfile;
-extern char	*cf_tls_cipher_list;
-extern int	tls_version;
+    pid_t  pid;         /* Main process pid */
+    char*  pidfile;     /* Store the pid of the main process in this file */
+
+    uint8_t     worker_count;               /* Number of workers */
+    uint32_t    worker_rlimit_nofiles;      /* Limit of maximum open files per worker */
+    uint8_t     worker_set_affinity;        /* Workers bind themselves to a single CPU by default */
+    uint32_t    worker_max_connections;     /* The number of active connections each worker can handle */
+    uint32_t    worker_active_connections;  /* Current number of active connections per worker */
+    uint32_t    worker_accept_threshold;
+
+    uint32_t    socket_backlog; /* Socket backlog */
+    uint16_t    cpu_count;
+    uint8_t     nlisteners;     /* Number of current listeners */
+
+    char*   chroot_path; /* */
+    int     foreground;
+    int     skip_chroot;
+    int     skip_runas;
+    char*   runas_user;
+    int     debug_log;
 
 #ifndef CF_NO_TLS
-    extern DH *tls_dhparam;
+    int    tls_version;      /* TLS version     */
+    char*  tls_cipher_list;  /* TLS cipher list */
+    DH*    tls_dhparam;      /* DH parameters   */
 #endif
 
-extern uint8_t	nlisteners;
-extern uint16_t cpu_count;
-extern uint8_t	worker_count;
-extern uint8_t	worker_set_affinity;
-extern uint32_t worker_rlimit_nofiles;
-extern uint32_t worker_max_connections;
-extern uint32_t worker_active_connections;
-extern uint32_t worker_accept_threshold;
-extern uint64_t cf_websocket_maxframe;
-extern uint64_t cf_websocket_timeout;
-extern uint32_t cf_socket_backlog;
+#ifndef CF_NO_HTTP
+    uint64_t    http_body_max;
+    uint16_t    http_keepalive_time;
+    uint16_t    http_header_max;
+    uint32_t    http_request_limit;
+    uint64_t    http_body_disk_offload;
+    uint64_t    http_hsts_enable;
+    char*       http_body_disk_path;
+    int         http_request_count;
 
-extern struct listener_head	listeners;
-extern struct cf_worker	    *worker;
-extern struct cf_domain_h   domains;
-extern struct cf_domain	    *primary_dom;
-extern struct cf_mem_pool   nb_pool;
+    uint64_t    websocket_maxframe;
+    uint64_t    websocket_timeout;
+#endif
 
-void cf_cli_usage(int);
-int	zfrog_cli_main(int, char**);
+#ifdef CF_TASKS
+    uint16_t    task_threads;
+#endif
+
+#ifdef CF_PGSQL
+    uint16_t    pgsql_conn_max;
+#endif
+
+#ifdef CF_MYSQL
+    uint16_t	mysql_conn_max;
+#endif
+
+#ifdef CF_REDIS
+    uint16_t redis_serv_conn_max;
+#endif
+
+    struct cf_worker*   worker; /* Current worker */
+
+    struct cf_domain    *primary_dom;
+    struct cf_domain_h  domains;
+
+    struct listener_head    listeners;
+    struct cf_mem_pool      nb_pool;
+
+    long long stat_net_input_bytes;     /* Bytes read from network */
+    long long stat_net_output_bytes;    /* Bytes written to network */
+};
+/*-----------------------------------------------------------------------------
+ *  Extern declarations
+ *----------------------------------------------------------------------------*/
+extern struct zfrogServer server;
+
 
 void cf_signal(int);
 void cf_worker_wait(int);
@@ -541,8 +583,6 @@ void cf_worker_init(void);
 void cf_worker_shutdown(void);
 void cf_worker_privdrop(void);
 void cf_worker_dispatch_signal(int);
-void cf_worker_spawn(uint16_t, uint16_t);
-void cf_worker_entry(struct cf_worker*);
 
 struct cf_worker *cf_worker_data(uint8_t);
 
@@ -601,6 +641,7 @@ int cf_connection_address_init(struct connection*,const char*, uint16_t);
 struct connection* cf_connection_backend_new(void*, const char*, uint16_t);
 
 uint64_t cf_time_ms(void);
+uint64_t cf_time_us(void);
 void cf_ms2ts(struct timespec *ts, uint64_t ms);
 
 void cf_log_init(void);
@@ -632,30 +673,30 @@ uint64_t cf_strtonum64(const char *, int, int *);
 size_t cf_strlcpy(char *, const char *, const size_t);
 char* cf_strncpy0(char *, const char *, size_t);
 
-void core_server_disconnect(struct connection *);
-int	cf_split_string(char *, const char *, char **, size_t);
-void cf_strip_chars(char *, const char, char **);
-int	cf_snprintf(char *, size_t, int *, const char *, ...);
-long long	cf_strtonum(const char *, int, long long, long long, int *);
-int cf_base64_encode(const void *, size_t, char **);
-int cf_base64_decode(char *in, size_t ilen, uint8_t **out, size_t *olen);
-void *cf_mem_find(void *, size_t, void *, size_t);
-char *cf_text_trim(char *, size_t);
-char *cf_fread_line(FILE *, char *, size_t);
+void core_server_disconnect(struct connection*);
+int	cf_split_string(char*, const char*, char**, size_t);
+void cf_strip_chars(char*, const char, char**);
+int	cf_snprintf(char *, size_t, int*, const char*, ...);
+long long	cf_strtonum(const char*, int, long long, long long, int*);
+int cf_base64_encode(const void*, size_t, char**);
+int cf_base64_decode(char*, size_t, uint8_t**, size_t*);
+void *cf_mem_find(void*, size_t, void*, size_t);
+char *cf_text_trim(char*, size_t);
+char *cf_fread_line(FILE*, char*, size_t);
 
 
 void cf_msg_init(void);
 void cf_msg_worker_init(void);
 void cf_msg_parent_init(void);
-void cf_msg_parent_add(struct cf_worker *);
-void cf_msg_parent_remove(struct cf_worker *);
-void cf_msg_send(uint16_t, uint8_t, const void *, uint32_t);
-int	 cf_msg_register(uint8_t, void (*cb)(struct cf_msg *, const void *));
+void cf_msg_parent_add(struct cf_worker*);
+void cf_msg_parent_remove(struct cf_worker*);
+void cf_msg_send(uint16_t, uint8_t, const void*, uint32_t);
+int	 cf_msg_register(uint8_t, void (*cb)(struct cf_msg *, const void*));
 
 void cf_domain_init(void);
 void cf_domain_cleanup(void);
-int  domain_new(char *domain );
-void cf_domain_free(struct cf_domain *);
+int  domain_new(char*);
+void cf_domain_free(struct cf_domain*);
 
 void cf_module_init(void);
 void cf_module_cleanup(void);
@@ -679,84 +720,84 @@ int	   cf_runtime_onload(struct cf_runtime_call *, int);
 void   cf_runtime_connect(struct cf_runtime_call *, struct connection *);
 
 #ifndef CF_NO_HTTP
-    int	cf_auth_run(struct http_request *, struct cf_auth *);
+    int	cf_auth_run(struct http_request*, struct cf_auth*);
     void cf_auth_init(void);
-    int cf_auth_new(const char *);
-    struct cf_auth *cf_auth_lookup(const char *);
-    void cf_websocket_handshake(struct http_request *, const char *, const char *, const char *);
-    void cf_websocket_send(struct connection *, uint8_t, const void *, size_t);
-    void cf_websocket_broadcast(struct connection *, uint8_t, const void *, size_t, int);
-    int cf_runtime_http_request(struct cf_runtime_call *, struct http_request *);
-    int cf_runtime_validator(struct cf_runtime_call *, struct http_request *, void *);
-    void cf_runtime_wsconnect(struct cf_runtime_call *, struct connection *);
-    void cf_runtime_wsdisconnect(struct cf_runtime_call *, struct connection *);
-    void cf_runtime_wsmessage(struct cf_runtime_call *, struct connection *, uint8_t, const void *, size_t);
+    int cf_auth_new(const char*);
+    struct cf_auth *cf_auth_lookup(const char*);
+    void cf_websocket_handshake(struct http_request*, const char*, const char*, const char*);
+    void cf_websocket_send(struct connection*, uint8_t, const void*, size_t);
+    void cf_websocket_broadcast(struct connection*, uint8_t, const void *, size_t, int);
+    int cf_runtime_http_request(struct cf_runtime_call*, struct http_request *);
+    int cf_runtime_validator(struct cf_runtime_call*, struct http_request *, void *);
+    void cf_runtime_wsconnect(struct cf_runtime_call*, struct connection *);
+    void cf_runtime_wsdisconnect(struct cf_runtime_call*, struct connection *);
+    void cf_runtime_wsmessage(struct cf_runtime_call*, struct connection *, uint8_t, const void *, size_t);
     void cf_validator_init(void);
     void cf_validator_reload(void);
-    int	cf_validator_add(const char *, uint8_t, const char *);
-    int	cf_validator_run(struct http_request *, const char *, char *);
-    int	cf_validator_check(struct http_request *, struct cf_validator *, void *);
-    struct cf_validator *cf_validator_lookup(const char *);
+    int	cf_validator_add(const char*, uint8_t, const char*);
+    int	cf_validator_run(struct http_request*, const char*, char*);
+    int	cf_validator_check(struct http_request*, struct cf_validator*, void*);
+    struct cf_validator *cf_validator_lookup(const char*);
 #endif
 
-struct cf_domain *cf_domain_lookup(const char *);
-struct cf_module_handle *cf_module_handler_find(const char *, const char *);
+struct cf_domain *cf_domain_lookup(const char*);
+struct cf_module_handle *cf_module_handler_find(const char*, const char*);
 
 void cf_fatal(const char *, ...) __attribute__((noreturn));
 void log_debug_internal(char *, int, const char *, ...);
 
-uint16_t net_read16(uint8_t *);
-uint32_t net_read32(uint8_t *);
-uint64_t net_read64(uint8_t *);
-void	 net_write16(uint8_t *, uint16_t);
-void	 net_write32(uint8_t *, uint32_t);
-void	 net_write64(uint8_t *, uint64_t);
+uint16_t net_read16(uint8_t*);
+uint32_t net_read32(uint8_t*);
+uint64_t net_read64(uint8_t*);
+void	 net_write16(uint8_t*, uint16_t);
+void	 net_write32(uint8_t*, uint32_t);
+void	 net_write64(uint8_t*, uint64_t);
 
 void net_init(void);
 void net_cleanup(void);
-int  net_send(struct connection *);
-int	 net_send_flush(struct connection *);
-int	 net_recv_flush(struct connection *);
-int	 net_read(struct connection *, size_t  *);
-int	 net_read_tls(struct connection *, size_t  *);
-int	 net_write(struct connection *, size_t, size_t *);
-int	 net_write_tls(struct connection *, size_t, size_t *);
-void net_recv_reset(struct connection *, size_t, int (*cb)(struct netbuf *));
-void net_remove_netbuf(struct netbuf_head *, struct netbuf *);
-void net_recv_queue(struct connection *, size_t, int, int (*cb)(struct netbuf *));
-void net_recv_expand(struct connection *c, size_t, int (*cb)(struct netbuf *));
-void net_send_queue(struct connection *, const void *, size_t);
-void net_send_stream(struct connection *, void *, size_t, int (*cb)(struct netbuf *), struct netbuf **);
+int  net_send(struct connection*);
+int	 net_send_flush(struct connection*);
+int	 net_recv_flush(struct connection*);
+int	 net_read(struct connection*, size_t*);
+int	 net_read_tls(struct connection*, size_t*);
+int	 net_write(struct connection*, size_t, size_t*);
+int	 net_write_tls(struct connection*, size_t, size_t*);
+void net_recv_reset(struct connection*, size_t, int (*cb)(struct netbuf *));
+void net_remove_netbuf(struct netbuf_head*, struct netbuf*);
+void net_recv_queue(struct connection*, size_t, int, int (*cb)(struct netbuf *));
+void net_recv_expand(struct connection*, size_t, int (*cb)(struct netbuf *));
+void net_send_queue(struct connection*, const void *, size_t);
+void net_send_stream(struct connection*, void*, size_t, int (*cb)(struct netbuf *), struct netbuf**);
 
-void cf_buf_free(struct cf_buf *);
-struct cf_buf *cf_buf_alloc(size_t initial_size);
-void cf_buf_init(struct cf_buf *, size_t);
-void cf_buf_append(struct cf_buf *, const void *, size_t);
-uint8_t *cf_buf_release(struct cf_buf *, size_t *);
-void cf_buf_reset(struct cf_buf *);
-void cf_buf_cleanup(struct cf_buf *);
+void cf_buf_free(struct cf_buf*);
+struct cf_buf *cf_buf_alloc(size_t);
+void cf_buf_init(struct cf_buf*, size_t);
+void cf_buf_append(struct cf_buf*, const void*, size_t);
+uint8_t *cf_buf_release(struct cf_buf*, size_t*);
+void cf_buf_reset(struct cf_buf*);
+void cf_buf_cleanup(struct cf_buf*);
 
-char *cf_buf_stringify(struct cf_buf *, size_t *);
-void cf_buf_appendf(struct cf_buf *, const char *, ...);
-void cf_buf_appendv(struct cf_buf *, const char *, va_list);
-void cf_buf_replace_string(struct cf_buf *, char *, void *, size_t);
-void cf_buf_replace_position_string( struct cf_buf *, char *, size_t, void *, size_t );
-void cf_buf_replace_first_string( struct cf_buf *, char *, void *, size_t );
+char *cf_buf_stringify(struct cf_buf*, size_t*);
+void cf_buf_appendf(struct cf_buf*, const char*, ...);
+void cf_buf_appendv(struct cf_buf*, const char*, va_list);
+void cf_buf_replace_string(struct cf_buf*, char*, void*, size_t);
+void cf_buf_replace_position_string(struct cf_buf*, char*, size_t, void*, size_t);
+void cf_buf_replace_first_string(struct cf_buf*, char*, void*, size_t);
 
 void cf_keymgr_run(void);
 void cf_keymgr_cleanup(void);
 void cf_init_pkcs11_module(void);
 
-int cf_cloexec_ioctl(int fd, int set);
+int cf_cloexec_ioctl(int, int);
 int cf_get_backlog_size(void);
 
 int	cf_socket_nonblock(int, int);
-int cf_socket_opt( int fd, int what, int opt );
+int cf_socket_opt(int, int, int);
 
-size_t cf_random_buffer( unsigned char [], size_t, int );
-const char * cf_file_extension( const char * );
-size_t cf_uuid_buffer( char [], size_t );
-int cf_is_hex_digit( char c );
+size_t cf_random_buffer(unsigned char [], size_t, int);
+const char* cf_file_extension(const char*);
+size_t cf_uuid_buffer(char [], size_t);
+int cf_is_hex_digit(char);
 
 int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ );
 

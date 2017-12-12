@@ -5,6 +5,10 @@
 
 #include <string.h>
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 typedef struct
 {
     FILE *fp;
@@ -29,5 +33,9 @@ int cf_fclose(CF_FILE *fp);
 
 #define arewind(f) \
     rewind(f->fp)
+
+#if defined(__cplusplus)
+}
+#endif
 
 #endif /* __CF_FILE_H_ */
