@@ -133,9 +133,9 @@ void cf_log(int prio, const char *fmt, ...)
     else
     {
         if( server.foreground )
-			printf("[parent]: %s\n", buf);
+            printf("[root]: %s\n", buf);
 		else
-			syslog(prio, "[parent]: %s", buf);
+            syslog(prio, "[root]: %s", buf);
 	}
 }
 
@@ -951,13 +951,58 @@ size_t cf_uuid_buffer( char buffer[], size_t size )
     return data_bytes;
 }
 /****************************************************************
- * Helper function that returns non zero if 'c'
- * is a valid hex digit
+ *  Helper function that returns non zero if 'c'
+ *  is a valid hex digit
  ****************************************************************/
 int cf_is_hex_digit( char c )
 {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
            (c >= 'A' && c <= 'F');
+}
+/****************************************************************
+*  Convert an amount of bytes into a human readable string in
+*  the form of 100B, 2G, 100M, 4K, and so forth
+****************************************************************/
+void cf_bytes_to_human( char* s, unsigned long long n )
+{
+    double d = 0.0f;
+
+    if( n < 1024 )
+    {
+        /* Bytes */
+        sprintf(s,"%lluB",n);
+        return;
+    }
+    else if( n < (1024*1024) )
+    {
+        d = (double)n/(1024);
+        sprintf(s,"%.2fK",d);
+    }
+    else if( n < (1024LL*1024*1024) )
+    {
+        d = (double)n/(1024*1024);
+        sprintf(s,"%.2fM",d);
+    }
+    else if( n < (1024LL*1024*1024*1024) )
+    {
+        d = (double)n/(1024LL*1024*1024);
+        sprintf(s,"%.2fG",d);
+    }
+    else if( n < (1024LL*1024*1024*1024*1024) )
+    {
+        d = (double)n/(1024LL*1024*1024*1024);
+        sprintf(s,"%.2fT",d);
+    }
+    else if( n < (1024LL*1024*1024*1024*1024*1024) )
+    {
+        d = (double)n/(1024LL*1024*1024*1024*1024);
+        sprintf(s,"%.2fP",d);
+    }
+    else
+    {
+        /* Let's hope we never need this */
+        sprintf(s,"%lluB",n);
+    }
 }
 /************************************************************************
  *  Helper function create TCP/IP socket

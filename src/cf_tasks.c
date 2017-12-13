@@ -13,8 +13,8 @@
 #include "cf_tasks.h"
 
 /* Static (local) global variables */
-static uint8_t threads;
-static TAILQ_HEAD(, cf_task_thread)	task_threads;
+static uint8_t threads;                             /* Current count of working threads */
+static TAILQ_HEAD(, cf_task_thread)	task_threads;   /* List with thread tasks */
 
 /* Forward function declaration */
 static void	*task_thread(void *arg);
@@ -38,7 +38,6 @@ static void	task_thread_spawn(struct cf_task_thread **out);
  ****************************************************************/
 void cf_task_init(void)
 {
-    server.task_threads = CF_TASK_THREADS;
 	threads = 0;
     TAILQ_INIT( &task_threads );
 }
@@ -322,7 +321,7 @@ static void task_channel_read(int fd, void *out, uint32_t len)
 	}
 }
 /****************************************************************
- *  Internal helper function
+ *  Create new one thread
  ****************************************************************/
 static void task_thread_spawn( struct cf_task_thread **out )
 {

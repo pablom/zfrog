@@ -94,8 +94,8 @@ void cf_redis_bind_callback( struct cf_redis *, void (*cb)(struct cf_redis *, vo
 
 
 int cf_redis_format_command(char**, const char*, ...);
-int cf_redis_query(struct cf_redis*, const char*, ...);
-
+int cf_redis_query(struct cf_redis*, const char*, size_t);
+int cf_redis_queryv(struct cf_redis*, const char*, ...);
 
 #if defined(__cplusplus)
 }

@@ -298,7 +298,7 @@ void cf_redis_bind_request( struct cf_redis *redis, struct http_request *req )
 /************************************************************************
  *  Make request (query) to Redis server
  ************************************************************************/
-int cf_redis_query( struct cf_redis *redis, const char *format, ... )
+int cf_redis_queryv( struct cf_redis *redis, const char *format, ... )
 {
     if( redis->conn == NULL )
     {
@@ -324,26 +324,44 @@ int cf_redis_query( struct cf_redis *redis, const char *format, ... )
         va_end( ap );
 
         if( query_len > 0 && query != NULL )
-        {
-            /* Flush data out towards destination. */
-            net_send_queue( redisConnection(redis), query, query_len );
-
+        {             
+            int rc = cf_redis_query(redis, query, query_len);
             /* Delete temporary buffer */
             mem_free( query );
-
-            if( net_send_flush( redisConnection(redis) ) != CF_RESULT_OK )
-            {
-                redis_set_error(redis, "net_send_flush error");
-                return CF_RESULT_ERROR;
-            }
-
-            redis_schedule( redis );
+            return rc;
         }
         else
         {
             redis_set_error(redis, "redis_vformat_command error");
             return CF_RESULT_ERROR;
         }
+    }
+
+    return CF_RESULT_ERROR;
+}
+/************************************************************************
+ *  Make request (query) to Redis server
+ ************************************************************************/
+int cf_redis_query( struct cf_redis *redis, const char *query, size_t query_len )
+{
+    if( redis->conn == NULL )
+    {
+        redis_set_error(redis, "no connection was set before query");
+        return CF_RESULT_ERROR;
+    }
+
+    if( query_len > 0 && query != NULL )
+    {
+        /* Flush data out towards destination. */
+        net_send_queue( redisConnection(redis), query, query_len );
+
+        if( net_send_flush( redisConnection(redis) ) != CF_RESULT_OK )
+        {
+            redis_set_error(redis, "net_send_flush error");
+            return CF_RESULT_ERROR;
+        }
+
+        redis_schedule( redis );
     }
 
     return CF_RESULT_OK;

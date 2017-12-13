@@ -357,7 +357,7 @@ static int write_error(struct jsonrpc_request *req, int code, const char *messag
     return status;
 }
 
-static const char * known_msg( int code )
+static const char* known_msg( int code )
 {
     switch( code )
     {

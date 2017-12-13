@@ -42,8 +42,47 @@ struct rstate
 {
     int             cnt;
     struct cf_redis	rd;
+    uint8_t*        redis_cmd;
+    struct jsonrpc_request  json_req;
 };
+/*---------------------------------------------------------------------------*/
+static int check_jsonrpc_request( struct jsonrpc_request *req, uint8_t** r_cmd )
+{
+    if( req )
+    {
+        const char *key_path[] = {"key", NULL};
+        const char *val_path[] = {"value", NULL};
+        yajl_val key;
+        yajl_val val;
 
+        if( !strcmp(req->method, "set") )
+        {
+            if( YAJL_IS_OBJECT(req->params) )
+            {
+                key = yajl_tree_get(req->params, key_path, yajl_t_string);
+                val = yajl_tree_get(req->params, val_path, yajl_t_string);
+
+                if( key && val )
+                {
+                    cf_redis_format_command(r_cmd, "SET %s %s", YAJL_GET_STRING(key), YAJL_GET_STRING(val));
+                    return 0;
+                }
+            }
+
+            return -2;
+        }
+        else if( !strcmp(req->method, "get") )
+        {
+
+        }
+        else if( !strcmp(req->method, "info") )
+        {
+
+        }
+    }
+
+    return -1;
+}
 /*---------------------------------------------------------------------------*/
 static int write_string( struct jsonrpc_request *req, void *ctx )
 {
@@ -81,6 +120,7 @@ int v1( struct http_request *req )
     {
         struct rstate *state = NULL;
         struct jsonrpc_request json_req;
+        uint8_t* r_cmd = NULL;
         int ret;
 
         /* We only allow POST/PUT methods */
@@ -92,19 +132,25 @@ int v1( struct http_request *req )
             return CF_RESULT_OK;
         }
 
+        state = http_state_create(req, sizeof(*state));
+
         /* Read JSON-RPC request */
-        if( (ret = jsonrpc_read_request(req, &json_req)) != 0 )
-            return jsonrpc_error(&json_req, ret, NULL);
+        if( (ret = jsonrpc_read_request(req, &(state->json_req))) != 0 )
+            return jsonrpc_error(&(state->json_req), ret, NULL);
 
-        /* Check allow methods */
-        if( strcmp(json_req.method, "set") )
-            return jsonrpc_error(&json_req, JSONRPC_METHOD_NOT_FOUND, NULL);
+        /* Check allow methods & create Redis cmd */
+        if( (ret = check_jsonrpc_request( &(state->json_req), &r_cmd)) )
+        {
+            if( ret == -1 )
+                return jsonrpc_error(&(state->json_req), JSONRPC_METHOD_NOT_FOUND, NULL);
 
-        if( !YAJL_IS_OBJECT(json_req.params) )
-            return jsonrpc_error(&json_req, JSONRPC_INVALID_PARAMS, NULL);
+            return jsonrpc_error(&(state->json_req), JSONRPC_INVALID_PARAMS, NULL);
+        }
 
         /* Setup our state context */
-        state = http_state_create(req, sizeof(*state));
+        //state = http_state_create(req, sizeof(*state));
+        state->redis_cmd = r_cmd; /* Set redis cmd request */
+        //state->json_req = json_req;
 
         /*
          * Initialize the cf_redis data structure and bind it
@@ -169,7 +215,7 @@ static int request_perform_query( struct http_request *req )
     req->fsm_state = REQ_STATE_DB_WAIT;
 
     /* Fire off the query */
-    if( !cf_redis_query( &state->rd,"TIME") )
+    if( !cf_redis_query( &state->rd, state->redis_cmd, strlen(state->redis_cmd) ) )
     {
         /*
          * Let the state machine continue immediately since we
@@ -256,10 +302,15 @@ static int request_done( struct http_request *req )
 {
     struct rstate *state = http_state_get( req );
 
+    if( state->redis_cmd )
+        mem_free( state->redis_cmd );
+
     cf_redis_cleanup( &state->rd );
     http_state_cleanup(req);
 
-    http_response(req, 200, NULL, 0);
+    jsonrpc_result( &(state->json_req), write_string, state->rd.reply->str);
+
+    //http_response(req, 200, NULL, 0);
 
     return HTTP_STATE_COMPLETE;
 }

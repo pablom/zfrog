@@ -17,6 +17,10 @@
     #include "cf_http.h"
 #endif
 
+#ifdef CF_TASKS
+    #include "cf_tasks.h"
+#endif
+
 #ifdef CF_PGSQL
     #include "cf_pgsql.h"
 #endif
@@ -50,7 +54,7 @@ volatile sig_atomic_t sig_recv;
 struct zfrogServer  server; /* Server global state */
 
 /* Local static function declaration */
-static void initServerConfig(void);
+static void init_server_config(void);
 static void	server_start(void);
 static void	server_sslstart(void);
 static void	write_pid(void);
@@ -207,7 +211,7 @@ static void version( void )
 /****************************************************************
  *  Init server default options
  ****************************************************************/
-static void initServerConfig( void )
+static void init_server_config( void )
 {
 #ifndef CF_SINGLE_BINARY
     server.config_file = NULL;
@@ -254,6 +258,10 @@ static void initServerConfig( void )
     /* Web sockets settings */
     server.websocket_timeout = 120000;
     server.websocket_maxframe = 16384;
+#endif
+
+#ifdef CF_TASKS
+    server.task_threads = CF_MAX_TASK_THREADS;
 #endif
 
 #ifdef CF_PGSQL
@@ -602,7 +610,7 @@ int main( int argc, char *argv[] )
     int flags = 0;
 
     /* Init default global variables */
-    initServerConfig();
+    init_server_config();
 
 #ifndef CF_SINGLE_BINARY
     while( (ch = getopt(argc, argv, "c:dfhnrv")) != -1 )

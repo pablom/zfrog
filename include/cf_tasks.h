@@ -14,7 +14,7 @@
 #define CF_TASK_STATE_FINISHED      3
 #define CF_TASK_STATE_ABORT         4
 
-#define CF_TASK_THREADS             2
+#define CF_MAX_TASK_THREADS         2
 
 #if defined(__cplusplus)
 extern "C" {
