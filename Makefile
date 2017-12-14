@@ -301,8 +301,10 @@ distclean:
 LUAJIT  := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/LuaJIT*.tar.gz)))
 OPENSSL := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/openssl*.tar.gz)))
 YAJL    := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/yajl*.tar.gz)))
+LSODIUM := $(notdir $(patsubst %.tar.gz,%,$(wildcard deps/libsodium*.tar.gz)))
 
 OPENSSL_OPTS = no-psk no-srp no-dtls no-idea --prefix=$(abspath $(OBJDIR))
+LSODIUM_OPTS = --enable-shared=no --enable-static=yes --prefix=$(abspath $(OBJDIR))
 
 ifneq ($(OPENSSL_SO),1)
 	OPENSSL_OPTS += no-shared
@@ -321,11 +323,14 @@ $(OBJDIR)/$(OPENSSL): deps/$(OPENSSL).tar.gz | $(OBJDIR)
 $(OBJDIR)/$(YAJL):  deps/$(YAJL).tar.gz | $(OBJDIR)
 	@tar -C $(OBJDIR) -xf $<
 
-$(OBJDIR)/lib/libluajit-5.1.a: $(OBJDIR)/$(LUAJIT)
+$(OBJDIR)/$(LSODIUM):  deps/$(LSODIUM).tar.gz | $(OBJDIR)
+	@tar -C $(OBJDIR) -xf $<
+
+$(LIBDIR)/libluajit-5.1.a: $(OBJDIR)/$(LUAJIT)
 	@echo Building LuaJIT...
 	@$(MAKE) -C $< PREFIX=$(abspath $(OBJDIR)) BUILDMODE=static install
 
-$(OBJDIR)/lib/libssl.a: $(OBJDIR)/$(OPENSSL)
+$(LIBDIR)/libssl.a: $(OBJDIR)/$(OPENSSL)
 	@echo Building OpenSSL...
 ifeq ($(TARGET), darwin)
 	@$(SHELL) -c "cd $< && ./Configure $(OPENSSL_OPTS) darwin64-x86_64-cc"
@@ -337,11 +342,22 @@ endif
 	@$(MAKE) -C $< install_sw
 	@touch $@
 
-$(OBJDIR)/lib/libyajl_s.a: $(OBJDIR)/$(YAJL)
+$(LIBDIR)/libyajl_s.a: $(OBJDIR)/$(YAJL)
 	@echo Building Yet Another JSON Library...
 	@$(SHELL) -c "cd $< && ./configure -p $(abspath $(OBJDIR))"
 	@$(MAKE) -C $< install
 	@touch $@
+
+$(LIBDIR)/libsodium.a: $(OBJDIR)/$(LSODIUM)
+	@echo Building libsodium Library...
+	@$(SHELL) -c "cd $< && ./configure $(LSODIUM_OPTS)"
+	@$(MAKE) -C $< install
+	@touch $@
+
+# Build only openssl
+openssl: $(LIBDIR)/libssl.a
+# Build only libsodium
+libsodium: $(LIBDIR)/libsodium.a
 
 ########################################################################
 #  Example applications build section
