@@ -238,8 +238,6 @@ static int request_db_wait( struct http_request *req )
 
     cf_log(LOG_NOTICE, "request_db_wait: %d", state->rd.state);
 
-    printf("state change on redis %d\n", state->rd.state);
-
     /*
      * When we get here, our asynchronous redis query has
      * given us something, check the state to figure out what.
@@ -269,7 +267,7 @@ static int request_db_wait( struct http_request *req )
 /****************************************************************************
  * Called when there's an actual result to be gotten. After we handle the
  * entire result, we'll drop back into REQ_STATE_DB_WAIT (above) in order
- * to continue until the pgsql API returns CF_REDIS_STATE_COMPLETE.
+ * to continue until the redis API returns CF_REDIS_STATE_COMPLETE.
  ****************************************************************************/
 static int request_db_read( struct http_request *req )
 {

@@ -390,7 +390,7 @@ int net_write(struct connection *c, size_t len, size_t *written)
 			c->flags &= ~CONN_WRITE_POSSIBLE;
             return CF_RESULT_OK;
 		default:
-            log_debug("write: %s", errno_s);
+            log_debug("write(): %s", errno_s);
             return CF_RESULT_ERROR;
 		}
 	}

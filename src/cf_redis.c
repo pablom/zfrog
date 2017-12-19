@@ -13,7 +13,6 @@
     #include "cf_http.h"
 #endif
 
-
 /* Default timeouts, 5 seconds for connecting, 15 seconds otherwise. */
 #define REDIS_TIMEOUT			(15 * 1000)
 #define REDIS_CONNECT_TIMEOUT	(5 * 1000)
@@ -29,6 +28,7 @@ struct redis_db
     uint16_t   port;
     uint16_t   conn_max;
     uint16_t   conn_count;
+    uint8_t    flags;
 
     LIST_ENTRY(redis_db) rlist;
 };
@@ -65,8 +65,8 @@ struct redis_wait
 static struct redis_conn* redis_conn_next(struct cf_redis*, struct redis_db*);
 static void	redis_set_error(struct cf_redis*, const char*);
 static void redis_schedule(struct cf_redis*);
-static void redis_queue_add(struct cf_redis*, struct redis_db*);
-static void redis_queue_remove(struct cf_redis*);
+static void redis_queue_wait_add(struct cf_redis*, struct redis_db*);
+static void redis_queue_wait_remove(struct cf_redis*);
 static void redis_queue_wakeup(uint8_t, struct redis_db*);
 static struct redis_conn* redis_conn_create(struct cf_redis*, struct redis_db*);
 static void redis_conn_release(struct cf_redis*);
@@ -137,7 +137,7 @@ void cf_redis_sys_cleanup( void )
 /************************************************************************
  *  Helper function to add new one Redis server host connection
  ************************************************************************/
-int cf_redis_register( char* name, char *host, int port )
+int cf_redis_register( char* name, char *host, int port, uint8_t flags )
 {
     struct redis_db *db = NULL;
 
@@ -165,6 +165,7 @@ int cf_redis_register( char* name, char *host, int port )
     db->port = port;
     db->conn_count = 0;
     db->conn_max = server.redis_serv_conn_max;
+    db->flags = flags;
 
     /* Add Redis host to our internal list */
     LIST_INSERT_HEAD( &redis_db_hosts_list, db, rlist );
@@ -248,9 +249,6 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
         }
     }
 
-    /* Add request's flag */
-    redis->flags |= flags;
-
     /* Try to find register Redis DB host */
     LIST_FOREACH(db, &redis_db_hosts_list, rlist)
     {
@@ -265,12 +263,14 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
         return CF_RESULT_ERROR;
     }
 
+    /* Add request's flag */
+    redis->flags |= flags;
+
     /* Try to find available connection */
     if( (redis->conn = redis_conn_next(redis, db)) == NULL )
         return CF_RESULT_ERROR;
 
     /* Free connection is found, so try to use it */
-
     if( redis->flags & CF_REDIS_ASYNC )
     {
         redis->conn->job = cf_mem_pool_get( &redis_job_pool );
@@ -315,7 +315,7 @@ int cf_redis_queryv( struct cf_redis *redis, const char *format, ... )
     else
     {
         char* query = NULL;
-        int query_len = 0;
+        size_t query_len = 0;
         va_list ap;
 
         va_start(ap, format);
@@ -374,7 +374,7 @@ void cf_redis_cleanup( struct cf_redis *redis )
     log_debug("cf_redis_cleanup(%p)", redis);
 
     /* Remove redis query from waitable list */
-    redis_queue_remove( redis );
+    redis_queue_wait_remove( redis );
 
     if( redis->error != NULL )
         mem_free( redis->error );
@@ -402,13 +402,7 @@ void cf_redis_continue( struct cf_redis *redis )
         mem_free(redis->error);
         redis->error = NULL;
     }
-/*
-    if( redis->result )
-    {
-        //PQclear(pgsql->result);
-        redis->result = NULL;
-    }
-*/
+
     switch( redis->state )
     {
     case CF_REDIS_STATE_INIT:
@@ -505,7 +499,7 @@ static struct redis_conn* redis_conn_next( struct cf_redis *redis, struct redis_
         {
             /* No more connection create */
             if( redis->flags & CF_REDIS_ASYNC )
-                redis_queue_add( redis, db ); /* Wait for available */
+                redis_queue_wait_add( redis, db ); /* Wait for available connection */
             else
                 redis_set_error(redis,"no available free connections");
 
@@ -558,7 +552,7 @@ static void redis_schedule( struct cf_redis *redis )
 /************************************************************************
  *  Add Redis query to wait queue
  ************************************************************************/
-static void redis_queue_add( struct cf_redis *redis, struct redis_db *db )
+static void redis_queue_wait_add( struct cf_redis *redis, struct redis_db *db )
 {
     struct redis_wait *rw = NULL;
 
@@ -575,7 +569,7 @@ static void redis_queue_add( struct cf_redis *redis, struct redis_db *db )
 /************************************************************************
  *  Remove Redis query from wait queue
  ************************************************************************/
-static void redis_queue_remove( struct cf_redis *redis )
+static void redis_queue_wait_remove( struct cf_redis *redis )
 {
     struct redis_wait *rw, *next;
 
@@ -677,7 +671,8 @@ static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redi
     if( redis->flags & CF_REDIS_ASYNC )
         redis->state = CF_REDIS_STATE_CONNECTING;
 
-    redis_queue_add( redis, db );
+    /* Add current redis connection to wait queue */
+    redis_queue_wait_add( redis, db );
 
     /* Queue write events for the backend connection for now */
     cf_platform_schedule_write(conn->c->fd, conn->c);
@@ -688,7 +683,8 @@ static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redi
     conn->c->flags |= CONN_WRITE_POSSIBLE;
     conn->c->handle( conn->c );
 
-    log_debug("redis_conn_create(): %p", conn);
+    if( conn->c->state == CONN_STATE_ESTABLISHED )
+        return conn;
 
     return NULL;
 }
@@ -716,8 +712,11 @@ static void redis_conn_release( struct cf_redis *redis )
 
     redis_free_reply( redis->reply );
     redis->conn->job = NULL;
-    redis->conn->flags |= REDIS_CONN_FREE;
-    TAILQ_INSERT_TAIL( &redis_conn_free_queue, redis->conn, list );
+
+    redis_conn_cleanup( redis->conn );
+
+ //   redis->conn->flags |= REDIS_CONN_FREE;
+ //  TAILQ_INSERT_TAIL( &redis_conn_free_queue, redis->conn, list );
 
     redis->conn = NULL;
     redis->state = CF_REDIS_STATE_COMPLETE;
@@ -748,23 +747,24 @@ static void redis_conn_cleanup( struct redis_conn *conn )
         if( redis->req != NULL )
             http_request_wakeup( redis->req );
 #endif
-
         redis->conn = NULL;
-        //redis_set_error(redis, "");
+
+        /* Delete error if present */
+        if( redis->error != NULL )
+            mem_free( redis->error );
 
         cf_mem_pool_put( &redis_job_pool, conn->job );
         conn->job = NULL;
     }
 
     /* Disconnect from server */
-/*
-    if( conn->db != NULL )
-        PQfinish(conn->db);
-*/
+    conn->c->disconnect = NULL;
+    cf_connection_disconnect( conn->c );
+
     /* Delete Redis host from host's list */
     LIST_FOREACH(redisdb, &redis_db_hosts_list, rlist)
     {
-        if( strcmp(redisdb->name, conn->db->name) )
+        if( !strcmp(redisdb->name, conn->db->name) )
         {
             redisdb->conn_count--;
             break;
@@ -833,7 +833,7 @@ static int redis_handle_connect( struct connection *c )
     net_recv_queue(c, NETBUF_SEND_PAYLOAD_MAX, NETBUF_CALL_CB_ALWAYS, redis_recv);
 
     redis_c = (struct redis_conn*)c->owner;
-    redis_c->flags = REDIS_CONN_FREE;
+    redis_c->flags |= REDIS_CONN_FREE;
     /* Add to the free connection's list */
     TAILQ_INSERT_TAIL( &redis_conn_free_queue, redis_c, list);
 
@@ -841,11 +841,10 @@ static int redis_handle_connect( struct connection *c )
     /* Allow for all events now */
     cf_platform_event_all(c->fd, c);
 
-    printf("%p: redis connected\n", (void *)c);
-
     /* Notify wait consumers, that state is changed */
     redis_queue_wakeup(CF_REDIS_STATE_INIT, redis_c->db);
 
+    cf_log(LOG_NOTICE, "redis (%s) [%s:%d]: connected", redis_c->db->name, redis_c->db->host, redis_c->db->port);
     return CF_RESULT_OK;
 }
 /****************************************************************
@@ -868,7 +867,7 @@ static int redis_recv( struct netbuf *nb )
         redis->state = CF_REDIS_STATE_RESULT;
         //redis_queue_wakeup(CF_REDIS_STATE_COMPLETE, conn->name);
 
-        printf("redis reply: %s (%lu)\n", r->str, r->len);
+        //printf("redis reply: %s (%lu)\n", r->str, r->len);
     }
 
     net_recv_reset(c, NETBUF_SEND_PAYLOAD_MAX, redis_recv );
@@ -894,8 +893,6 @@ static int redis_recv( struct netbuf *nb )
             redis->cb(redis, redis->arg);
     }
 
-    log_debug("redis_recv(%p)", c);
-
     return CF_RESULT_OK;
 }
 /****************************************************************
@@ -910,8 +907,8 @@ static void redis_handle_disconnect( struct connection *c, int err )
     {
         struct redis_conn* redis_c = (struct redis_conn*)c->owner;
 
-      //  if( c->state == CONN_STATE_CONNECTING )
-      //      redis_set_error(redis, "couldn't connect to Redis server");
+        //if( c->state == CONN_STATE_CONNECTING )
+        //    redis_set_error(redis, "couldn't connect to Redis server");
 
         redis_queue_wakeup(CF_REDIS_STATE_ERROR, redis_c->db);
         /* Increment connection count for Redis db host */
@@ -934,30 +931,6 @@ static int redis_handle( struct connection *c )
 {
     //printf("redis handle\n");
     return cf_connection_handle(c);
-}
-/****************************************************************************
- *  Return the number of digits of 'v' when converted to string in radix 10
- ***************************************************************************/
-static uint32_t countDigits( uint64_t v )
-{
-    uint32_t result = 1;
-
-    for(;;)
-    {
-        if( v < 10 ) return result;
-        if( v < 100 ) return result + 1;
-        if( v < 1000 ) return result + 2;
-        if( v < 10000 ) return result + 3;
-        v /= 10000U;
-        result += 4;
-    }
-}
-/*************************************************************************
-*  Helper that calculates the bulk length given a certain string length
-*************************************************************************/
-static size_t bulklen( size_t len )
-{
-    return 1 + countDigits(len) + 2 + len + 2;
 }
 /************************************************************************
 *  Helper function create Redis format command
@@ -1438,5 +1411,30 @@ static long long redis_readLongLong( uint8_t *s )
 
     return mult*v;
 }
+/****************************************************************************
+ *  Return the number of digits of 'v' when converted to string in radix 10
+ ***************************************************************************/
+static uint32_t countDigits( uint64_t v )
+{
+    uint32_t result = 1;
+
+    for(;;)
+    {
+        if( v < 10 ) return result;
+        if( v < 100 ) return result + 1;
+        if( v < 1000 ) return result + 2;
+        if( v < 10000 ) return result + 3;
+        v /= 10000U;
+        result += 4;
+    }
+}
+/*************************************************************************
+*  Helper that calculates the bulk length given a certain string length
+*************************************************************************/
+static size_t bulklen( size_t len )
+{
+    return 1 + countDigits(len) + 2 + len + 2;
+}
+
 
 
