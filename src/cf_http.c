@@ -222,6 +222,11 @@ int http_request_new( struct connection *c, const char *host,
         m = HTTP_METHOD_OPTIONS;
         flags = HTTP_REQUEST_COMPLETE;
     }
+    else if( !strcasecmp(method, "patch") )
+    {
+        m = HTTP_METHOD_PATCH;
+        flags = HTTP_REQUEST_EXPECT_BODY;
+    }
     else
     {
 		http_error_response(c, 400);
@@ -1111,7 +1116,9 @@ void http_response_cookie(struct http_request *req, const char *name,
     if( out != NULL )
         *out = ck;
 }
-
+/****************************************************************
+ *  Helper function to parse (populate) cookies
+ ****************************************************************/
 void http_populate_cookies(struct http_request *req)
 {
     struct http_cookie *ck = NULL;
@@ -1142,7 +1149,7 @@ void http_populate_cookies(struct http_request *req)
     mem_free(header);
 }
 /****************************************************************
- *  Helper function to parse (populate) POSt options
+ *  Helper function to parse (populate) POST options
  ****************************************************************/
 void http_populate_post( struct http_request *req )
 {
@@ -1284,16 +1291,17 @@ int http_body_rewind( struct http_request *req )
             return CF_RESULT_ERROR;
         }
     }
-    else {
+    else
         cf_buf_reset(req->http_body);
-    }
 
     req->http_body_offset = 0;
     req->http_body_length = req->content_length;
 
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Read HTTP body
+ ****************************************************************/
 ssize_t http_body_read( struct http_request *req, void *out, size_t len )
 {
     ssize_t ret;
@@ -1998,6 +2006,9 @@ const char* http_method_text( int method )
 		break;
     case HTTP_METHOD_OPTIONS:
         r = "OPTIONS";
+        break;
+    case HTTP_METHOD_PATCH:
+        r = "PATCH";
         break;
 	default:
 		r = "";

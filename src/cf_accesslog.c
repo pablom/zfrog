@@ -72,6 +72,9 @@ int cf_accesslog_write(const void *data, uint32_t len)
 	case HTTP_METHOD_HEAD:
 		method = "HEAD";
 		break;
+    case HTTP_METHOD_PATCH:
+        method = "PATCH";
+        break;
 	default:
 		method = "UNKNOWN";
 		break;

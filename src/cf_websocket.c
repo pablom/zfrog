@@ -124,12 +124,14 @@ void cf_websocket_handshake( struct http_request *req,
 
 void cf_websocket_send(struct connection *c, uint8_t op, const void *data, size_t len)
 {
-    struct cf_buf	*frame = NULL;
+    struct cf_buf frame;
 
-    frame = cf_buf_alloc(len);
-	websocket_frame_build(frame, op, data, len);
-	net_send_queue(c, frame->data, frame->offset);
-    cf_buf_free(frame);
+    cf_buf_init(&frame, len);
+    websocket_frame_build(&frame, op, data, len);
+    /* net_send_stream() takes over the buffer data pointer */
+    net_send_stream(c, frame.data, frame.offset, NULL, NULL);
+    frame.data = NULL;
+    cf_buf_cleanup( &frame );
 
 	net_send_flush(c);
 }
