@@ -281,9 +281,12 @@ LIST_HEAD(listener_head, listener);
 
 #ifndef CF_NO_HTTP
 
+#define CF_PARAMS_QUERY_STRING	0x0001
+
 struct cf_handler_params
 {
     char*   name;
+    int		flags;
     uint8_t method;
     struct cf_validator *validator;
 

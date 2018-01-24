@@ -28,14 +28,14 @@
 #endif
 
 static int	http_body_recv(struct netbuf *);
-static void	http_error_response(struct connection *, int);
-static void	http_write_response_cookie(struct http_cookie *);
-static void	http_argument_add(struct http_request *, char *, char *);
-static void	http_response_normal(struct http_request *, struct connection *, int, const void *, size_t);
-static void	multipart_add_field(struct http_request *, struct cf_buf *, char *, const char *, const int);
-static void	multipart_file_add(struct http_request *, struct cf_buf *, const char *, const char *, const char *, const int);
-static int	multipart_find_data(struct cf_buf *, struct cf_buf *, size_t *, struct http_request *, const void *, size_t);
-static int	multipart_parse_headers(struct http_request *, struct cf_buf *, struct cf_buf *, const char *, const int);
+static void	http_error_response(struct connection*, int);
+static void	http_write_response_cookie(struct http_cookie*);
+static void	http_argument_add(struct http_request*, char*, char*, int);
+static void	http_response_normal(struct http_request*, struct connection*, int, const void*, size_t);
+static void	multipart_add_field(struct http_request*, struct cf_buf*, char*, const char*, const int);
+static void	multipart_file_add(struct http_request*, struct cf_buf*, const char*, const char*, const char*, const int);
+static int	multipart_find_data(struct cf_buf*, struct cf_buf*, size_t*, struct http_request*, const void*, size_t);
+static int	multipart_parse_headers(struct http_request*, struct cf_buf*, struct cf_buf*, const char*, const int);
 
 static struct cf_buf    *header_buf;
 static struct cf_buf	*ckhdr_buf;
@@ -253,7 +253,7 @@ int http_request_new( struct connection *c, const char *host,
 	req->http_body_path = NULL;
 
 #ifdef CF_PYTHON
-    req->py_object = NULL;
+    req->py_coro = NULL;
 #endif
 
     req->host = cf_mem_pool_get(&http_host_pool);
@@ -466,7 +466,7 @@ void http_request_free( struct http_request *req )
 #endif
 
 #ifdef CF_PYTHON
-    Py_XDECREF( req->py_object );
+    Py_XDECREF( req->py_coro );
 #endif
 
 #ifdef CF_PGSQL
@@ -1193,7 +1193,7 @@ void http_populate_post( struct http_request *req )
     {
 		cf_split_string(args[i], "=", val, 3);
         if( val[0] != NULL && val[1] != NULL )
-			http_argument_add(req, val[0], val[1]);
+            http_argument_add(req, val[0], val[1], 0);
 	}
 
     if( body != NULL )
@@ -1202,12 +1202,13 @@ void http_populate_post( struct http_request *req )
 /****************************************************************
  *  Helper function to parse GET options
  ****************************************************************/
-void http_populate_get( struct http_request *req )
+void http_populate_qs( struct http_request *req )
 {
     int	i, v;
-    char *query, *args[HTTP_MAX_QUERY_ARGS], *val[3];
+    char *query = NULL;
+    char *args[HTTP_MAX_QUERY_ARGS], *val[3];
 
-    if( req->method != HTTP_METHOD_GET || req->query_string == NULL )
+    if( req->query_string == NULL )
 		return;
 
 	query = mem_strdup(req->query_string);
@@ -1218,7 +1219,7 @@ void http_populate_get( struct http_request *req )
 		cf_split_string(args[i], "=", val, 3);
 
         if( val[0] != NULL && val[1] != NULL )
-			http_argument_add(req, val[0], val[1]);
+            http_argument_add(req, val[0], val[1], 1);
 	}
 
 	mem_free(query);
@@ -1227,7 +1228,7 @@ void http_populate_get( struct http_request *req )
 void http_populate_multipart_form( struct http_request *req )
 {
     int	h, blen;
-    struct cf_buf *in, *out;
+    struct cf_buf in, out;
     char *type, *val, *args[3];
     char boundary[HTTP_BOUNDARY_MAX];
 
@@ -1252,32 +1253,32 @@ void http_populate_multipart_form( struct http_request *req )
     if( blen == -1 || (size_t)blen >= sizeof(boundary) )
 		return;
 
-    in = cf_buf_alloc(128);
-    out = cf_buf_alloc(128);
+    /* Allocate (init) input buffer */
+    cf_buf_init(&in, 128);
 
-    if( !multipart_find_data(in, NULL, NULL, req, boundary, blen) )
-    {
-        cf_buf_free(in);
-        cf_buf_free(out);
-        return;
+    if( multipart_find_data(&in, NULL, NULL, req, boundary, blen) )
+    {            
+        /* Allocate (init) output buffer */
+        cf_buf_init(&out, 128);
+
+        for(;;)
+        {
+            if( !multipart_find_data(&in, NULL, NULL, req, "\r\n", 2) )
+                break;
+            if( in.offset < 4 && req->http_body_length == 0 )
+                break;
+            if( !multipart_find_data(&in, &out, NULL, req, "\r\n\r\n", 4) )
+                break;
+            if( !multipart_parse_headers(req, &in, &out, boundary, blen) )
+                break;
+
+            cf_buf_reset(&out);
+        }
     }
 
-    for(;;)
-    {
-        if( !multipart_find_data(in, NULL, NULL, req, "\r\n", 2) )
-			break;
-        if( in->offset < 4 && req->http_body_length == 0 )
-			break;
-        if( !multipart_find_data(in, out, NULL, req, "\r\n\r\n", 4) )
-			break;
-        if( !multipart_parse_headers(req, in, out, boundary, blen) )
-			break;
-
-        cf_buf_reset(out);
-	}
-
-    cf_buf_free(in);
-    cf_buf_free(out);
+    /* Cleanup buffers */
+    cf_buf_cleanup(&in);
+    cf_buf_cleanup(&out);
 }
 
 int http_body_rewind( struct http_request *req )
@@ -1593,7 +1594,7 @@ static void multipart_add_field(struct http_request *req, struct cf_buf *in, cha
 
 	data->offset -= 2;
     string = cf_buf_stringify(data, NULL);
-	http_argument_add(req, name, string);
+    http_argument_add(req, name, string, 0);
     cf_buf_free(data);
 }
 
@@ -1621,7 +1622,7 @@ static void multipart_file_add(struct http_request *req, struct cf_buf *in, cons
 	TAILQ_INSERT_TAIL(&(req->files), f, list);
 }
 
-static void http_argument_add( struct http_request *req, char *name, char *value )
+static void http_argument_add( struct http_request *req, char *name, char *value, int qs )
 {
     struct http_arg	*q = NULL;
     struct cf_handler_params *p = NULL;
@@ -1630,8 +1631,15 @@ static void http_argument_add( struct http_request *req, char *name, char *value
 
     TAILQ_FOREACH(p, &(req->hdlr->params), list)
     {
+        if( qs == 1 && !(p->flags & CF_PARAMS_QUERY_STRING) )
+            continue;
+
+        if( qs == 0 && (p->flags & CF_PARAMS_QUERY_STRING) )
+            continue;
+
         if( p->method != req->method )
 			continue;
+
         if( strcmp(p->name, name) )
 			continue;
 

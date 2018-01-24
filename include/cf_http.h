@@ -10,6 +10,9 @@
 extern "C" {
 #endif
 
+/* Keep the http_populate_get symbol around */
+#define http_populate_get	http_populate_qs
+
 #define HTTP_KEEPALIVE_TIME     20
 #define HTTP_HSTS_ENABLE        31536000
 #define HTTP_HEADER_MAX_LEN     4096
@@ -57,11 +60,11 @@ struct http_header
 
 struct http_cookie
 {
-    char *name;
-    char *value;
-    char *path;
-    char *domain;
-    int  maxage;
+    char        *name;
+    char        *value;
+    char        *path;
+    char        *domain;
+    uint32_t    maxage;
 
     time_t      expires;
     u_int16_t   flags;
@@ -72,8 +75,8 @@ struct http_cookie
 
 struct http_arg
 {
-    char *name;
-    char *s_value;
+    char    *name;
+    char    *s_value;
 
 	TAILQ_ENTRY(http_arg)	list;
 };
@@ -207,7 +210,7 @@ struct http_request
     struct cf_module_handle	*hdlr;
 
 #ifdef CF_PYTHON
-    void  *py_object;
+    void  *py_coro;
 #endif
 
 #ifdef CF_TASKS
@@ -244,8 +247,8 @@ void		cf_accesslog(struct http_request *);
 
 void		http_init(void);
 void		http_cleanup(void);
-void		http_process(void);
 void 		http_server_version(const char *);
+void		http_process(void);
 const char *http_status_text(int);
 const char *http_method_text(int);
 time_t		http_date_to_time(char *);
@@ -275,7 +278,7 @@ void  *http_state_create(struct http_request *, size_t);
 
 int  http_argument_urldecode(char *);
 int  http_header_recv(struct netbuf *);
-void http_populate_get(struct http_request *);
+void http_populate_qs(struct http_request *);
 void http_populate_post(struct http_request *);
 void http_populate_multipart_form(struct http_request *);
 void http_populate_cookies(struct http_request *);

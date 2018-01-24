@@ -5,11 +5,11 @@ static PyObject	*python_fatal(PyObject *, PyObject *);
 static PyObject	*python_listen(PyObject *, PyObject *);
 
 #ifndef CF_NO_HTTP
-    static PyObject	*python_websocket_broadcast(PyObject *, PyObject *);
+    static PyObject	*python_websocket_broadcast(PyObject*, PyObject*);
 #endif
 
 #ifdef CF_PGSQL
-    static PyObject	*python_pgsql_register(PyObject *, PyObject *);
+    static PyObject	*python_pgsql_register(PyObject*, PyObject*);
 #endif
 
 #define METHOD(n, c, a)		{ n, (PyCFunction)c, a, NULL }
@@ -24,6 +24,9 @@ static struct PyMethodDef pycf_methods[] =
     METHOD("listen", python_listen, METH_VARARGS),
 #ifndef CF_NO_HTTP
     METHOD("websocket_broadcast", python_websocket_broadcast, METH_VARARGS),
+#endif
+#ifdef CF_PGSQL
+    METHOD("register_database", python_pgsql_register, METH_VARARGS),
 #endif
 	{ NULL, NULL, 0, NULL }
 };
@@ -81,6 +84,7 @@ struct pyhttp_request
 {
 	PyObject_HEAD
 	struct http_request	*req;
+    PyObject		*data;
 };
 
 struct pyhttp_file
@@ -92,6 +96,7 @@ struct pyhttp_file
 static void	pyhttp_dealloc(struct pyhttp_request *);
 static void	pyhttp_file_dealloc(struct pyhttp_file *);
 
+static PyObject *pyhttp_cookie(struct pyhttp_request *, PyObject *);
 static PyObject	*pyhttp_response(struct pyhttp_request *, PyObject *);
 static PyObject *pyhttp_argument(struct pyhttp_request *, PyObject *);
 static PyObject	*pyhttp_body_read(struct pyhttp_request *, PyObject *);
@@ -99,12 +104,18 @@ static PyObject	*pyhttp_file_lookup(struct pyhttp_request *, PyObject *);
 static PyObject	*pyhttp_populate_get(struct pyhttp_request *, PyObject *);
 static PyObject	*pyhttp_populate_post(struct pyhttp_request *, PyObject *);
 static PyObject	*pyhttp_populate_multi(struct pyhttp_request *, PyObject *);
+static PyObject	*pyhttp_populate_cookies(struct pyhttp_request *, PyObject *);
 static PyObject	*pyhttp_request_header(struct pyhttp_request *, PyObject *);
 static PyObject	*pyhttp_response_header(struct pyhttp_request *, PyObject *);
 static PyObject *pyhttp_websocket_handshake(struct pyhttp_request *, PyObject *);
 
+
 static PyMethodDef pyhttp_request_methods[] =
 {
+#ifdef CF_PGSQL
+    METHOD("pgsql", pyhttp_pgsql, METH_VARARGS),
+#endif
+    METHOD("cookie", pyhttp_cookie, METH_VARARGS),
 	METHOD("response", pyhttp_response, METH_VARARGS),
     METHOD("argument", pyhttp_argument, METH_VARARGS),
 	METHOD("body_read", pyhttp_body_read, METH_VARARGS),
@@ -112,19 +123,17 @@ static PyMethodDef pyhttp_request_methods[] =
 	METHOD("populate_get", pyhttp_populate_get, METH_NOARGS),
 	METHOD("populate_post", pyhttp_populate_post, METH_NOARGS),
     METHOD("populate_multi", pyhttp_populate_multi, METH_NOARGS),
+    METHOD("populate_cookies", pyhttp_populate_cookies, METH_NOARGS),
 	METHOD("request_header", pyhttp_request_header, METH_VARARGS),
 	METHOD("response_header", pyhttp_response_header, METH_VARARGS),
     METHOD("websocket_handshake", pyhttp_websocket_handshake, METH_VARARGS),
 	METHOD(NULL, NULL, -1)
 };
 
-static int	pyhttp_set_state(struct pyhttp_request *, PyObject *, void *);
-
 static PyObject	*pyhttp_get_host(struct pyhttp_request *, void *);
 static PyObject	*pyhttp_get_path(struct pyhttp_request *, void *);
 static PyObject	*pyhttp_get_body(struct pyhttp_request *, void *);
 static PyObject	*pyhttp_get_agent(struct pyhttp_request *, void *);
-static PyObject	*pyhttp_get_state(struct pyhttp_request *, void *);
 static PyObject	*pyhttp_get_method(struct pyhttp_request *, void *);
 static PyObject	*pyhttp_get_body_path(struct pyhttp_request *, void *);
 static PyObject	*pyhttp_get_connection(struct pyhttp_request *, void *);
@@ -139,7 +148,6 @@ static PyGetSetDef pyhttp_request_getset[] =
 	GETTER("method", pyhttp_get_method),
     GETTER("body_path", pyhttp_get_body_path),
 	GETTER("connection", pyhttp_get_connection),
-	GETSET("state", pyhttp_get_state, pyhttp_set_state),
 	GETTER(NULL, NULL)
 };
 
@@ -203,6 +211,10 @@ struct py_pgsql
     PyObject *result;
     struct cf_pgsql	sql;
 };
+
+#ifndef CF_NO_HTTP
+static PyObject	*pyhttp_pgsql(struct pyhttp_request*, PyObject*);
+#endif
 
 static void	python_pgsql_dealloc(struct py_pgsql *);
 int	python_pgsql_result(struct py_pgsql *);

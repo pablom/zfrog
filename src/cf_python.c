@@ -22,13 +22,14 @@ static void             python_log_error(const char *);
 static PyObject*        pyconnection_alloc(struct connection *);
 static PyObject*        python_callable(PyObject *, const char *);
 
-static void	python_append_path(const char *);
-static void	python_push_integer(PyObject *, const char *, long);
-static void	python_push_type(const char *, PyObject *, PyTypeObject *);
+static void	python_append_path(const char*);
+static void	python_push_integer(PyObject*, const char*, long);
+static void	python_push_type(const char*, PyObject*, PyTypeObject*);
 
 #ifndef CF_NO_HTTP
-    static PyObject	*pyhttp_request_alloc(struct http_request *);
-    static PyObject *pyhttp_file_alloc(struct http_file *);
+    static PyObject	*pyhttp_request_alloc(struct http_request*);
+    static int	python_coroutine_run(struct http_request*);
+    static PyObject *pyhttp_file_alloc(struct http_file*);
 
     static int	python_runtime_http_request(void *, struct http_request *);
     static int	python_runtime_validator(void *, struct http_request *, void *);
@@ -142,19 +143,17 @@ void cf_python_cleanup(void)
     }
 }
 
-static void * python_malloc(void *ctx, size_t len)
+static void* python_malloc(void *ctx, size_t len)
 {
     return mem_malloc(len);
 }
 
-static void * python_calloc(void *ctx, size_t memb, size_t len)
+static void* python_calloc(void *ctx, size_t memb, size_t len)
 {
-    void* ptr = mem_calloc(memb, len);
-	memset(ptr, 0, len);
-    return ptr;
+    return mem_calloc(memb, len);
 }
 
-static void * python_realloc(void *ctx, void *ptr, size_t len)
+static void* python_realloc(void *ctx, void *ptr, size_t len)
 {
     return mem_realloc(ptr, len);
 }
@@ -168,7 +167,7 @@ static void python_log_error(const char *function)
 {
     PyObject *type, *value, *traceback;
 
-    if( !PyErr_Occurred() )
+    if( !PyErr_Occurred() || PyErr_ExceptionMatches(PyExc_StopIteration) )
 		return;
 
 	PyErr_Fetch(&type, &value, &traceback);
@@ -230,7 +229,9 @@ static void pyconnection_dealloc( struct pyconnection *pyc )
 {
 	PyObject_Del((PyObject *)pyc);
 }
-
+/****************************************************************
+ *  Execute python function
+ ****************************************************************/
 static void python_runtime_execute( void *addr )
 {
     PyObject *args, *pyret;
@@ -294,9 +295,8 @@ static int python_runtime_onload( void *addr, int action )
 
 static void python_runtime_connect(void *addr, struct connection *c)
 {
-    PyObject *pyc, *pyret, *args, *callable;
-
-	callable = (PyObject *)addr;
+    PyObject *pyc, *pyret, *args;
+    PyObject *callable = (PyObject *)addr;
 
     if( (pyc = pyconnection_alloc(c)) == NULL )
     {
@@ -332,7 +332,7 @@ static PyMODINIT_FUNC python_module_init(void)
     PyObject *py_obj = NULL;
 
     if( (py_obj = PyModule_Create(&pycf_module)) == NULL )
-        cf_fatal("python_module_init: failed to setup pycf module");
+        cf_fatal("python_module_init: failed to setup pyzfrog module");
 
     python_push_type("pyconnection", py_obj, &pyconnection_type);
 
@@ -460,7 +460,7 @@ static PyObject* python_import( const char *path )
     return module;
 }
 
-static PyObject * python_callable( PyObject *module, const char *symbol )
+static PyObject* python_callable( PyObject *module, const char *symbol )
 {
     PyObject *obj = NULL;
 
@@ -538,24 +538,51 @@ static PyObject * pyconnection_get_addr(struct pyconnection *pyc, void *closure)
 
 #ifndef CF_NO_HTTP
 
-static void pyhttp_dealloc(struct pyhttp_request *pyreq)
+static void pyhttp_dealloc( struct pyhttp_request *pyreq )
 {
+    Py_XDECREF(pyreq->data);
     PyObject_Del((PyObject *)pyreq);
+}
+
+static int python_coroutine_run( struct http_request *req )
+{
+    PyObject *item = NULL;
+
+    for (;;)
+    {
+        PyErr_Clear();
+        item = _PyGen_Send((PyGenObject *)req->py_coro, NULL);
+        if( item == NULL )
+        {
+            python_log_error("coroutine");
+            Py_DECREF(req->py_coro);
+            req->py_coro = NULL;
+            return CF_RESULT_OK;
+        }
+
+        if( item == Py_None )
+        {
+            Py_DECREF(item);
+            break;
+        }
+
+        Py_DECREF(item);
+    }
+
+    return CF_RESULT_RETRY;
 }
 
 static int python_runtime_http_request(void *addr, struct http_request *req)
 {
-    int	ret;
     PyObject *pyret, *pyreq, *args;
 
     PyObject *callable = (PyObject *)addr;
 
+    if( req->py_coro != NULL )
+        return python_coroutine_run(req);
+
     if( (pyreq = pyhttp_request_alloc(req)) == NULL )
-    {
-        cf_log(LOG_ERR, "cannot create new pyhttp_request");
-        http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
-        return CF_RESULT_OK;
-    }
+        cf_fatal("python_runtime_http_request: pyreq alloc failed");
 
     if( (args = PyTuple_New(1)) == NULL ) {
         cf_fatal("python_runtime_http_request: PyTuple_New failed");
@@ -571,26 +598,25 @@ static int python_runtime_http_request(void *addr, struct http_request *req)
 
     if( pyret == NULL )
     {
-        Py_XDECREF(req->py_object);
         python_log_error("python_runtime_http_request");
-        http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
-        return CF_RESULT_OK;
+        cf_fatal("failed to execute python call");
     }
 
-    if( !PyLong_Check(pyret) ) {
+    if( PyCoro_CheckExact(pyret) )
+    {
+        req->py_coro = pyret;
+        return python_coroutine_run(req);
+    }
+
+    if( pyret != Py_None )
         cf_fatal("python_runtime_http_request: unexpected return type");
-    }
 
-    ret = (int)PyLong_AsLong(pyret);
-    if( ret != CF_RESULT_RETRY )
-        Py_XDECREF(req->py_object);
+    Py_DECREF( pyret );
 
-    Py_DECREF(pyret);
-
-    return ret;
+    return CF_RESULT_OK;
 }
 
-static int python_runtime_validator(void *addr, struct http_request *req, void *data)
+static int python_runtime_validator( void *addr, struct http_request *req, void *data )
 {
     int	ret;
     PyObject *pyret, *pyreq, *args, *arg;
@@ -598,31 +624,17 @@ static int python_runtime_validator(void *addr, struct http_request *req, void *
     PyObject *callable = (PyObject *)addr;
 
     if( (pyreq = pyhttp_request_alloc(req)) == NULL )
-    {
-        cf_log(LOG_ERR, "cannot create new pyhttp_request");
-        http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
-        return CF_RESULT_OK;
-    }
+        cf_fatal("python_runtime_validator: pyreq alloc failed");
 
     if( req->flags & HTTP_VALIDATOR_IS_REQUEST )
     {
         if( (arg = pyhttp_request_alloc(data)) == NULL )
-        {
-            Py_DECREF(pyreq);
-            cf_log(LOG_ERR, "cannot create new pyhttp_request");
-            http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
-            return CF_RESULT_OK;
-        }
+            cf_fatal("python_runtime_validator: pyreq failed");
     }
     else
     {
         if( (arg = PyUnicode_FromString(data)) == NULL )
-        {
-            Py_DECREF(pyreq);
-            cf_log(LOG_ERR, "cannot create new pyhttp_request");
-            http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
-            return CF_RESULT_OK;
-        }
+            cf_fatal("python_runtime_validator: PyUnicode failed");
     }
 
     if( (args = PyTuple_New(2)) == NULL )
@@ -640,8 +652,7 @@ static int python_runtime_validator(void *addr, struct http_request *req, void *
     if( pyret == NULL )
     {
         python_log_error("python_runtime_validator");
-        http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
-        return CF_RESULT_OK;
+        cf_fatal("failed to execute python call");
     }
 
     if( !PyLong_Check(pyret) ) {
@@ -701,7 +712,7 @@ static void python_runtime_wsmessage(void *addr, struct connection *c, uint8_t o
     Py_DECREF(pyret);
 }
 
-static PyObject* pyhttp_request_alloc(struct http_request *req)
+static PyObject* pyhttp_request_alloc( struct http_request *req )
 {
     struct pyhttp_request *pyreq = NULL;
 
@@ -710,6 +721,7 @@ static PyObject* pyhttp_request_alloc(struct http_request *req)
     }
 
 	pyreq->req = req;
+    pyreq->data = NULL;
 
     return (PyObject *)pyreq;
 }
@@ -718,8 +730,7 @@ static PyObject* pyhttp_file_alloc(struct http_file *file)
 {
     struct pyhttp_file *pyfile = NULL;
 
-    pyfile = PyObject_New(struct pyhttp_file, &pyhttp_file_type);
-    if(pyfile == NULL )
+    if( (pyfile = PyObject_New(struct pyhttp_file, &pyhttp_file_type)) == NULL )
         return NULL;
 
     pyfile->file = file;
@@ -749,7 +760,7 @@ static PyObject* pyhttp_response(struct pyhttp_request *pyreq, PyObject *args)
     Py_RETURN_TRUE;
 }
 
-static PyObject * pyhttp_response_header(struct pyhttp_request *pyreq, PyObject *args)
+static PyObject* pyhttp_response_header(struct pyhttp_request *pyreq, PyObject *args)
 {
     const char	*header, *value;
 
@@ -764,7 +775,7 @@ static PyObject * pyhttp_response_header(struct pyhttp_request *pyreq, PyObject 
 	Py_RETURN_TRUE;
 }
 
-static PyObject * pyhttp_request_header(struct pyhttp_request *pyreq, PyObject *args)
+static PyObject* pyhttp_request_header(struct pyhttp_request *pyreq, PyObject *args)
 {
     char *value = NULL;
     const char *header = NULL;
@@ -776,7 +787,7 @@ static PyObject * pyhttp_request_header(struct pyhttp_request *pyreq, PyObject *
         return NULL;
 	}
 
-	if (!http_request_header(pyreq->req, header, &value)) {
+    if( !http_request_header(pyreq->req, header, &value) ) {
 		Py_RETURN_NONE;
 	}
 
@@ -791,7 +802,7 @@ static PyObject* pyhttp_body_read(struct pyhttp_request *pyreq, PyObject *args)
     ssize_t	ret;
     size_t	len;
     Py_ssize_t pylen;
-    PyObject *result;
+    PyObject *result = NULL;
     uint8_t buf[1024];
 
     if( !PyArg_ParseTuple(args, "n", &pylen) || pylen < 0 )
@@ -914,7 +925,7 @@ static PyObject* pyconnection_websocket_send(struct pyconnection *pyc, PyObject 
     Py_RETURN_TRUE;
 }
 
-static PyObject* python_websocket_broadcast(PyObject *self, PyObject *args)
+static PyObject* python_websocket_broadcast( PyObject *self, PyObject *args )
 {
     struct connection *c = NULL;
     struct pyconnection	*pyc = NULL;
@@ -1039,31 +1050,6 @@ static PyObject* pyhttp_get_agent(struct pyhttp_request *pyreq, void *closure)
     return agent;
 }
 
-static int pyhttp_set_state(struct pyhttp_request *pyreq, PyObject *value, void *closure)
-{
-    if( value == NULL )
-    {
-        PyErr_SetString(PyExc_TypeError, "pyhttp_set_state: value is NULL");
-        return -1;
-	}
-
-	Py_XDECREF(pyreq->req->py_object);
-	pyreq->req->py_object = value;
-	Py_INCREF(pyreq->req->py_object);
-
-    return 0;
-}
-
-static PyObject* pyhttp_get_state(struct pyhttp_request *pyreq, void *closure)
-{
-    if( pyreq->req->py_object == NULL )
-		Py_RETURN_NONE;
-
-	Py_INCREF(pyreq->req->py_object);
-
-    return pyreq->req->py_object;
-}
-
 static PyObject* pyhttp_get_method(struct pyhttp_request *pyreq, void *closure)
 {
     PyObject *method = NULL;
@@ -1087,9 +1073,13 @@ static PyObject* pyhttp_get_body_path( struct pyhttp_request *pyreq, void *closu
     return path;
 }
 
-static PyObject * pyhttp_get_connection(struct pyhttp_request *pyreq, void *closure)
+static PyObject* pyhttp_get_connection( struct pyhttp_request *pyreq, void *closure )
 {
     PyObject *pyc = NULL;
+
+    if( pyreq->req->owner == NULL ) {
+        Py_RETURN_NONE;
+    }
 
     if( (pyc = pyconnection_alloc(pyreq->req->owner)) == NULL )
         return PyErr_NoMemory();
@@ -1188,6 +1178,34 @@ static PyObject* pyhttp_populate_multi(struct pyhttp_request *pyreq, PyObject *a
     Py_RETURN_TRUE;
 }
 
+static PyObject* pyhttp_populate_cookies( struct pyhttp_request *pyreq, PyObject *args )
+{
+    http_populate_cookies(pyreq->req);
+    Py_RETURN_TRUE;
+}
+
+static PyObject* pyhttp_cookie( struct pyhttp_request *pyreq, PyObject *args )
+{
+    const char	*name = NULL;
+    PyObject	*value = NULL;
+    char		*string = NULL;
+
+    if( !PyArg_ParseTuple(args, "s", &name) )
+    {
+        PyErr_SetString(PyExc_TypeError, "invalid parameters");
+        return NULL;
+    }
+
+    if( !http_request_cookie(pyreq->req, name, &string) ) {
+        Py_RETURN_NONE;
+    }
+
+    if( (value = PyUnicode_FromString(string)) == NULL )
+        return (PyErr_NoMemory());
+
+    return value;
+}
+
 #endif  /* CF_NO_HTTP */
 
 
@@ -1241,6 +1259,11 @@ static PyObject* python_pgsql_iternext( struct py_pgsql *pysql )
 {
     switch( pysql->state )
     {
+    case PYKORE_PGSQL_PREINIT:
+        cf_pgsql_init(&pysql->sql);
+        cf_pgsql_bind_request(&pysql->sql, pysql->req);
+        pysql->state = PYCF_PGSQL_INITIALIZE;
+        /* fallthrough */
     case PYCF_PGSQL_INITIALIZE:
         if( !cf_pgsql_query_init(&pysql->sql, pysql->req, pysql->db, CF_PGSQL_ASYNC) )
         {
