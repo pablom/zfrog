@@ -541,7 +541,7 @@ struct zfrogServer
     uint64_t    http_body_disk_offload;
     uint64_t    http_hsts_enable;
     char*       http_body_disk_path;
-    int         http_request_count;
+    uint32_t    http_request_count;
 
     uint64_t    websocket_maxframe;
     uint64_t    websocket_timeout;

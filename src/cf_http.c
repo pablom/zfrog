@@ -72,7 +72,7 @@ void http_init( void )
 	http_version_len = l;
 
     prealloc = MIN((server.worker_max_connections / 10), 1000);
-    cf_mem_pool_init(&http_request_pool, "http_request_pool", sizeof(struct http_request), prealloc);
+    cf_mem_pool_init(&http_request_pool, "http_request_pool", sizeof(struct http_request), server.http_request_limit);
     cf_mem_pool_init(&http_header_pool, "http_header_pool", sizeof(struct http_header), prealloc * HTTP_REQ_HEADER_MAX);
     cf_mem_pool_init(&http_cookie_pool, "http_cookie_pool", sizeof(struct http_cookie), prealloc * HTTP_MAX_COOKIES);
     cf_mem_pool_init(&http_host_pool, "http_host_pool", CF_DOMAINNAME_LEN, prealloc);
@@ -129,6 +129,12 @@ int http_request_new( struct connection *c, const char *host,
     size_t hostlen, pathlen, qsoff;
 
     log_debug("http_request_new(%p, %s, %s, %s, %s)", c, host, method, path, version);
+
+    if( server.http_request_count >= server.http_request_limit )
+    {
+        http_error_response(c, 503);
+        return CF_RESULT_ERROR;
+    }
 
     if( (hostlen = strlen(host)) >= CF_DOMAINNAME_LEN - 1)
     {

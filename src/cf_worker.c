@@ -57,7 +57,7 @@
 #endif
 
 
-#define WORKER_LOCK_TIMEOUT     500
+#define WORKER_LOCK_TIMEOUT     100
 
 #define WORKER(id)						\
     (struct cf_worker *)((uint8_t *)workers +	\
@@ -418,8 +418,8 @@ static void worker_entry( struct cf_worker *kw )
 		now = cf_time_ms();
         netwait = cf_timer_run( now );
 
-        if( netwait > 100 )
-            netwait = 100;
+        if( netwait > 10 )
+            netwait = 10;
 
 #ifndef CF_NO_TLS
         if( (now - last_seed) > CF_RESEED_TIME )
@@ -617,6 +617,11 @@ static inline int worker_acceptlock_obtain(void)
     if( server.worker_active_connections >= server.worker_max_connections ) {
         return 0;
     }
+
+#ifndef CF_NO_HTTP
+    if( server.http_request_count >= server.http_request_limit )
+        return 0;
+#endif
 
 	r = 0;
     if( worker_trylock() )
