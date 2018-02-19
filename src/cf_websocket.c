@@ -34,7 +34,8 @@ void cf_websocket_handshake( struct http_request *req,
 {
     SHA_CTX	sctx;
     struct cf_buf *buf = NULL;
-    char *key, *base64, *version;
+    char *base64 = NULL;
+    const char	*key, *version;
     uint8_t digest[SHA_DIGEST_LENGTH];
 
     if( !http_request_header(req, "sec-websocket-key", &key) )
@@ -163,8 +164,8 @@ void cf_websocket_broadcast(struct connection *src, uint8_t op, const void *data
 static void websocket_frame_build(struct cf_buf *frame, uint8_t op, const void *data, size_t len)
 {
     uint8_t		len_1;
-    uint16_t		len16;
-    uint64_t		len64;
+    uint16_t	len16;
+    uint64_t	len64;
 
     if( len > WEBSOCKET_PAYLOAD_SINGLE)
     {
@@ -198,7 +199,8 @@ static void websocket_frame_build(struct cf_buf *frame, uint8_t op, const void *
 		}
 	}
 
-    cf_buf_append(frame, data, len);
+    if (data != NULL && len > 0)
+        cf_buf_append(frame, data, len);
 }
 
 static int websocket_recv_opcode(struct netbuf *nb)

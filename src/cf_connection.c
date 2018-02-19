@@ -28,10 +28,15 @@ struct connection_list	disconnected;
  ****************************************************************/
 void connection_init( void )
 {
+    uint32_t elm;
+
     TAILQ_INIT( &connections );
     TAILQ_INIT( &disconnected );
 
-    cf_mem_pool_init(&connection_mem_pool, "connection_pool", sizeof(struct connection), server.worker_max_connections);
+    /* Add some overhead so we don't rollover for internal items. */
+    elm = server.worker_max_connections + 10;
+
+    cf_mem_pool_init(&connection_mem_pool, "connection_pool", sizeof(struct connection), elm);
 }
 /****************************************************************
  *  Helper function clean all global connection's parameters
@@ -171,19 +176,21 @@ int connection_add_backend( struct connection *c )
 /****************************************************************
  *  Helper function to check connection timeout
  ****************************************************************/
-void cf_connection_check_timeout( void )
+void cf_connection_check_timeout( uint64_t now )
 {
-    struct connection *c = NULL;
-    uint64_t now = cf_time_ms();
+    struct connection *c, *next;
 
-    TAILQ_FOREACH(c, &connections, list)
+    for( c = TAILQ_FIRST(&connections); c != NULL; c = next )
     {
+        next = TAILQ_NEXT(c, list);
+
         if( c->proto == CONN_PROTO_MSG )
-			continue;
+            continue;
         if( !(c->flags & CONN_IDLE_TIMER_ACT) )
-			continue;
+            continue;
+
         cf_connection_check_idletimer(now, c);
-	}
+    }
 }
 /****************************************************************
  *  Helper function to prune (drop) all connection
@@ -482,11 +489,14 @@ void cf_connection_remove( struct connection *c )
  ****************************************************************/
 void cf_connection_check_idletimer( uint64_t now, struct connection *c )
 {
-    uint64_t d = now - c->idle_timer.start;
+    uint64_t d = 0;
+
+    if( now > c->idle_timer.start )
+        d = now - c->idle_timer.start;
 
     if( d >= c->idle_timer.length )
     {
-        log_debug("%p idle for %d ms, expiring", c, d);
+        log_debug("%p idle for %" PRIu64 " ms, expiring", c, d);
         cf_connection_disconnect(c);
 	}
 }

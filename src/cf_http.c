@@ -658,7 +658,7 @@ void http_response_stream(struct http_request *req, int status, void *base, size
 	}
 }
 
-int http_request_header(struct http_request *req, const char *header, char **out)
+int http_request_header(struct http_request *req, const char *header, const char **out)
 {
     struct http_header *hdr = NULL;
 

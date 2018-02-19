@@ -23,7 +23,7 @@ OSNAME = $(shell uname -s | sed -e 's/[-_].*//g' | tr A-Z a-z)
 TARGET = $(shell uname -s | tr '[A-Z]' '[a-z]' 2>/dev/null || echo unknown)
 
 CFLAGS  += -Wall -Werror -Wmissing-declarations -Wshadow -Wstrict-prototypes
-CFLAGS  += -Wpointer-arith -Wcast-qual -Wsign-compare -Wshadow -pedantic
+CFLAGS  += -Wpointer-arith -Wcast-qual -Wsign-compare -Wshadow -pedantic -fstack-protector-all
 CFLAGS  += -Iinclude -Iinclude/cstl 
 CFLAGS  += -I$(OBJDIR)/include
 CFLAGS  += -m64

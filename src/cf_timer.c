@@ -45,7 +45,7 @@ void cf_timer_remove(struct cf_timer *timer)
 uint64_t cf_timer_run( uint64_t now )
 {
     struct cf_timer	*timer, *t;
-    uint64_t next_timer = 100;
+    uint64_t next_timer = 1000;
 
     while( (timer = TAILQ_FIRST(&cf_timers)) != NULL )
     {

@@ -162,7 +162,7 @@ TAILQ_HEAD(netbuf_head, netbuf);
 #define CONN_CLOSE_EMPTY            0x4000
 #define CONN_WS_CLOSE_SENT          0x8000
 
-#define CF_IDLE_TIMER_MAX           20000
+#define CF_IDLE_TIMER_MAX           5000
 
 #define WEBSOCKET_OP_CONT           0x00
 #define WEBSOCKET_OP_TEXT           0x01
@@ -242,7 +242,7 @@ struct cf_runtime
     int	type;
 #ifndef CF_NO_HTTP
     int	(*http_request)(void *, struct http_request *);
-    int	(*validator)(void *, struct http_request *, void *);
+    int	(*validator)(void *, struct http_request *, const void *);
     void (*wsconnect)(void *, struct connection *);
     void (*wsdisconnect)(void *, struct connection *);
     void (*wsmessage)(void *, struct connection *, uint8_t, const void *, size_t);
@@ -344,7 +344,7 @@ struct cf_module_functions
     void (*free)(struct cf_module *);
     void (*reload)(struct cf_module *);
     int	 (*callback)(struct cf_module *, int);
-    void (*load)(struct cf_module *, const char *);
+    void (*load)(struct cf_module *);
     void *(*getsym)(struct cf_module *, const char *);
 };
 
@@ -373,6 +373,7 @@ struct cf_worker
     int		 pipe[2];
     struct connection *msg[2];
     uint8_t	 has_lock;
+    uint64_t time_locked;
     struct cf_module_handle	*active_hdlr;
 };
 
@@ -627,7 +628,7 @@ void connection_init(void);
 void connection_cleanup(void);
 void cf_connection_prune( int );
 struct connection *cf_connection_new(void*, uint8_t);
-void cf_connection_check_timeout(void);
+void cf_connection_check_timeout(uint64_t);
 int	cf_connection_handle(struct connection *);
 void cf_connection_remove(struct connection *);
 void cf_connection_disconnect(struct connection *);
@@ -731,7 +732,7 @@ void   cf_runtime_connect(struct cf_runtime_call *, struct connection *);
     void cf_websocket_send(struct connection*, uint8_t, const void*, size_t);
     void cf_websocket_broadcast(struct connection*, uint8_t, const void *, size_t, int);
     int cf_runtime_http_request(struct cf_runtime_call*, struct http_request *);
-    int cf_runtime_validator(struct cf_runtime_call*, struct http_request *, void *);
+    int cf_runtime_validator(struct cf_runtime_call*, struct http_request*, const void*);
     void cf_runtime_wsconnect(struct cf_runtime_call*, struct connection *);
     void cf_runtime_wsdisconnect(struct cf_runtime_call*, struct connection *);
     void cf_runtime_wsmessage(struct cf_runtime_call*, struct connection *, uint8_t, const void *, size_t);
@@ -739,7 +740,7 @@ void   cf_runtime_connect(struct cf_runtime_call *, struct connection *);
     void cf_validator_reload(void);
     int	cf_validator_add(const char*, uint8_t, const char*);
     int	cf_validator_run(struct http_request*, const char*, char*);
-    int	cf_validator_check(struct http_request*, struct cf_validator*, void*);
+    int	cf_validator_check(struct http_request*, struct cf_validator*, const void*);
     struct cf_validator *cf_validator_lookup(const char*);
 #endif
 

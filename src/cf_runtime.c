@@ -13,9 +13,9 @@ static int	native_runtime_onload(void *, int);
 static void	native_runtime_connect(void *, struct connection *);
 
 #ifndef CF_NO_HTTP
-    static int native_runtime_http_request(void *, struct http_request *);
-    static int native_runtime_validator(void *, struct http_request *, void *);
-    static void	native_runtime_wsmessage(void *, struct connection *, uint8_t, const void *, size_t);
+    static int native_runtime_http_request(void*, struct http_request*);
+    static int native_runtime_validator(void*, struct http_request*, const void*);
+    static void	native_runtime_wsmessage(void*, struct connection*, uint8_t, const void*, size_t);
 #endif
 
 struct cf_runtime cf_native_runtime =
@@ -125,9 +125,9 @@ static int native_runtime_http_request(void *addr, struct http_request *req)
 	return (cb(req));
 }
 
-static int native_runtime_validator(void *addr, struct http_request *req, void *data)
+static int native_runtime_validator(void *addr, struct http_request *req, const void *data)
 {
-    int	(*cb)(struct http_request *, void *);
+    int	(*cb)(struct http_request*, const void*);
 
 	*(void **)&(cb) = addr;
 	return (cb(req, data));

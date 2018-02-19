@@ -962,6 +962,10 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
     char hash[(SHA256_DIGEST_LENGTH * 2) + 1];
 
 	bopt = cli_buildopt_default();
+    /* Ignore hidden files and some editor files */
+    if( dp->d_name[0] == '.' || strrchr(dp->d_name, '~') || strrchr(dp->d_name, '#') )
+        return;
+
 	name = cli_strdup(dp->d_name);
 
 	/* Grab the extension as we're using it in the symbol name. */

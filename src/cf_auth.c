@@ -92,13 +92,14 @@ static int cf_auth_cookie( struct http_request *req, struct cf_auth *auth )
 {
     int i, v;
     size_t len, slen;
+    const char	*hdr = NULL;
     char *value, *c, *cookie, *cookies[HTTP_MAX_COOKIES];
 
-    if( !http_request_header(req, "cookie", &c) ) {
+    if( !http_request_header(req, "cookie", &hdr) ) {
         return CF_RESULT_ERROR;
     }
 
-	cookie = mem_strdup(c);
+    cookie = mem_strdup(hdr);
 
 	slen = strlen(auth->value);
     v = cf_split_string(cookie, ";", cookies, HTTP_MAX_COOKIES);
@@ -133,7 +134,7 @@ static int cf_auth_cookie( struct http_request *req, struct cf_auth *auth )
 
 static int cf_auth_header( struct http_request *req, struct cf_auth *auth )
 {
-    char *header = NULL;
+    const char *header = NULL;
 
     if( !http_request_header(req, auth->value, &header) )
         return CF_RESULT_ERROR;

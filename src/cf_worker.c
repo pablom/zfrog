@@ -56,8 +56,13 @@
     #define WAIT_ANY		(-1)
 #endif
 
+#ifndef CF_NO_TLS
+    #define WORKER_SOLO_COUNT	2
+#else
+    #define WORKER_SOLO_COUNT	1
+#endif
 
-#define WORKER_LOCK_TIMEOUT     100
+#define WORKER_LOCK_TIMEOUT     500
 
 #define WORKER(id)						\
     (struct cf_worker *)((uint8_t *)workers +	\
@@ -74,8 +79,8 @@ static void worker_spawn(uint16_t, uint16_t);
 static void worker_entry(struct cf_worker*);
 static int	worker_trylock(void);
 static void	worker_unlock(void);
-static inline int worker_acceptlock_obtain(void);
-static inline void worker_acceptlock_release(void);
+static inline int worker_acceptlock_obtain(uint64_t);
+static inline int worker_acceptlock_release(uint64_t);
 
 #ifndef CF_NO_TLS
     static void worker_entropy_recv(struct cf_msg *, const void *);
@@ -294,6 +299,7 @@ static void worker_entry( struct cf_worker *kw )
     char buf[16];
     int quit, had_lock, r;
     uint64_t now, next_lock, netwait;
+    uint64_t next_prune = 0;
     struct cf_runtime_call *rcall = NULL;
 
 #ifndef CF_NO_TLS
@@ -398,9 +404,7 @@ static void worker_entry( struct cf_worker *kw )
             switch( sig_recv )
             {
 			case SIGHUP:
-#ifndef CF_SINGLE_BINARY
                 cf_module_reload(1);
-#endif
 				break;
 			case SIGQUIT:
 			case SIGINT:
@@ -414,12 +418,16 @@ static void worker_entry( struct cf_worker *kw )
 			sig_recv = 0;
 		}
 
+        netwait = 100;
         /* Get current time in milliseconds */
 		now = cf_time_ms();
+#ifdef OLD
         netwait = cf_timer_run( now );
 
         if( netwait > 10 )
             netwait = 10;
+#endif
+
 
 #ifndef CF_NO_TLS
         if( (now - last_seed) > CF_RESEED_TIME )
@@ -429,6 +437,58 @@ static void worker_entry( struct cf_worker *kw )
         }
 #endif
 
+        if( !server.worker->has_lock && next_lock <= now )
+        {
+            if( worker_acceptlock_obtain(now) )
+            {
+                if( had_lock == 0 )
+                {
+                    /* Enable accept new connection for listeners */
+                    cf_platform_enable_accept();
+                    had_lock = 1;
+                }
+            }
+            else {
+                next_lock = now + WORKER_LOCK_TIMEOUT / 2;
+            }
+        }
+
+        if( !server.worker->has_lock )
+        {
+            if (worker_active_connections > 0)
+            {
+                if (next_lock > now)
+                    netwait = next_lock - now;
+            } else {
+                netwait = 10;
+            }
+        }
+
+        timerwait = cf_timer_run(now);
+        if( timerwait < netwait )
+            netwait = timerwait;
+
+        r = cf_platform_event_wait(netwait);
+
+        if( server.worker->has_lock && r > 0 )
+        {
+            if( netwait > 10 )
+                now = cf_time_ms();
+
+            if( worker_acceptlock_release(now) )
+                next_lock = now + WORKER_LOCK_TIMEOUT;
+        }
+
+        if( !server.worker->has_lock )
+        {
+            if( had_lock == 1 )
+            {
+                had_lock = 0;
+                cf_platform_disable_accept();
+            }
+        }
+#ifdef OLD
+        /*************************************************/
         if( now > next_lock )
         {
             if( worker_acceptlock_obtain() )
@@ -460,13 +520,18 @@ static void worker_entry( struct cf_worker *kw )
             worker_acceptlock_release();
 			next_lock = now + WORKER_LOCK_TIMEOUT;
 		}
+#endif
+
 
 #ifndef CF_NO_HTTP
 		http_process();
 #endif
-
-        cf_connection_check_timeout();
-        cf_connection_prune(CF_CONNECTION_PRUNE_DISCONNECT);
+        if( next_prune <= now )
+        {
+            cf_connection_check_timeout(now);
+            cf_connection_prune(CF_CONNECTION_PRUNE_DISCONNECT);
+            next_prune = now + 500;
+        }
 
         if( quit )
 			break;
@@ -587,13 +652,23 @@ void cf_worker_wait( int final )
 /****************************************************************
  *  Helper function
  ****************************************************************/
-static inline void worker_acceptlock_release(void)
+static inline int worker_acceptlock_release( uint64_t now )
 {
-    if( server.worker_count == 1 || worker_no_lock == 1 )
-		return;
+    if( server.worker_count == WORKER_SOLO_COUNT || worker_no_lock == 1 )
+        return 0;
 
     if( server.worker->has_lock != 1 )
-		return;
+        return 0;
+
+    if( server.worker_active_connections < server.worker_max_connections)
+    {
+#ifndef CF_NO_HTTP
+        if( server.http_request_count < server.http_request_limit)
+            return 0;
+#else
+        return 0;
+#endif
+    }
 
 	worker_unlock();
     server.worker->has_lock = 0;
@@ -601,14 +676,14 @@ static inline void worker_acceptlock_release(void)
 /****************************************************************
  *  Helper function
  ****************************************************************/
-static inline int worker_acceptlock_obtain(void)
+static inline int worker_acceptlock_obtain( uint64_t now )
 {
     int	r;
 
     if( server.worker->has_lock == 1 )
         return 1;
 
-    if( server.worker_count == 1 || worker_no_lock == 1 )
+    if( server.worker_count == WORKER_SOLO_COUNT || worker_no_lock == 1 )
     {
         server.worker->has_lock = 1;
         return 1;
@@ -628,6 +703,7 @@ static inline int worker_acceptlock_obtain(void)
     {
 		r = 1;
         server.worker->has_lock = 1;
+        server.worker->time_locked = now;
 	}
 
     return r;

@@ -147,7 +147,6 @@ struct http_arg
 #define http_argument_get_int64(r, n, o)				\
 	http_argument_type(r, n, NULL, o, HTTP_ARG_TYPE_INT64)
 
-
 struct http_file
 {
 	char			*name;
@@ -193,10 +192,11 @@ struct http_request
     uint64_t		end;
     uint64_t		total;
 
-	char				*host;
-	char				*path;
-	char				*agent;
+    const char*			host;
+    const char*			path;
+    const char*         agent;
     struct connection	*owner;
+    u_int8_t			*headers;
     struct cf_buf		*http_body;
     int                 http_body_fd;
     char                *http_body_path;
@@ -260,7 +260,7 @@ int         http_body_rewind(struct http_request *);
 ssize_t		http_body_read(struct http_request *, void *, size_t);
 void		http_response(struct http_request *, int, const void *, size_t);
 void		http_response_stream(struct http_request *, int, void *, size_t, int (*cb)(struct netbuf *), void *);
-int         http_request_header(struct http_request *, const char *, char **);
+int         http_request_header(struct http_request *, const char *, const char **);
 int         http_request_cookie(struct http_request *, const char *, char **);
 void        http_response_header(struct http_request *, const char *, const char *);
 int         http_request_new(struct connection *, const char *, const char *, const char *, const char *, struct http_request **);

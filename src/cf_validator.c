@@ -63,7 +63,7 @@ int cf_validator_run(struct http_request *req, const char *name, char *data)
     return CF_RESULT_ERROR;
 }
 
-int cf_validator_check( struct http_request *req, struct cf_validator *val, void *data)
+int cf_validator_check( struct http_request *req, struct cf_validator *val, const void* data )
 {
     int	r;
 

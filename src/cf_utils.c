@@ -84,6 +84,7 @@ static char *strsep (char **stringp, const char *delim)
 
 #endif
 
+#ifdef CF_DEBUG
 void log_debug_internal(char *file, int line, const char *fmt, ...)
 {
     va_list	args;
@@ -95,6 +96,7 @@ void log_debug_internal(char *file, int line, const char *fmt, ...)
 
     printf("[%d] %s:%d - %s\n", (int)server.pid, file, line, buf);
 }
+#endif
 
 void cf_log_init( void )
 {
@@ -457,12 +459,11 @@ char* cf_time_to_date( time_t now )
  ****************************************************************/
 uint64_t cf_time_ms( void )
 {
-    struct timeval tv;
+    struct timespec ts;
 
-    if( (gettimeofday( &tv, NULL) == -1) )
-        return 0;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
 
-    return tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+    return ((uint64_t)(ts.tv_sec * 1000 + (ts.tv_nsec / 1000000)));
 }
 /****************************************************************
  *  Return the UNIX time in microseconds

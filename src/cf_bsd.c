@@ -22,7 +22,7 @@
 #endif
 
 static int kfd = -1;
-static struct kevent *events;
+static struct kevent *events = NULL;
 static uint32_t event_count = 0;
 
 /****************************************************************
