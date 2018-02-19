@@ -41,7 +41,7 @@ static void lua_inject_http_req_api( lua_State * );
 
 static void	lua_module_free(struct cf_module *);
 static void	lua_module_reload(struct cf_module *);
-static void	lua_module_load(struct cf_module *, const char *);
+static void	lua_module_load(struct cf_module*);
 static void	*lua_module_getsym(struct cf_module *, const char *);
 
 static void	lua_runtime_execute(void *);
@@ -50,7 +50,7 @@ static void	lua_runtime_connect(void *, struct connection *);
 
 #ifndef CF_NO_HTTP
     static int	lua_runtime_http_request(void *, struct http_request *);
-    static int	lua_runtime_validator(void *, struct http_request *, void *);
+    static int	lua_runtime_validator(void*, struct http_request*, const void*);
     static void	lua_runtime_wsmessage(void *, struct connection *, uint8_t, const void *, size_t);
 #endif
 
@@ -168,7 +168,7 @@ static void lua_module_reload( struct cf_module *module )
 /****************************************************************
  *  Helper function load LUA module
  ****************************************************************/
-static void lua_module_load( struct cf_module *module, const char *onload )
+static void lua_module_load( struct cf_module *module )
 {
     lua_State* L = NULL;
     struct cf_lua_module* lua_module = NULL;
@@ -182,6 +182,7 @@ static void lua_module_load( struct cf_module *module, const char *onload )
     /* Set result parameter */
     module->handle = lua_module;
 
+/*
     if( onload )
     {
         if( lua_script_is_function( L, onload ) )
@@ -191,6 +192,7 @@ static void lua_module_load( struct cf_module *module, const char *onload )
                 cf_log(LOG_ERR, "Error running function '%s': %s\n", onload, lua_tostring(L, -1) );
         }
     }
+*/
 }
 /****************************************************************
  *  Helper function to find function in module
@@ -274,7 +276,7 @@ static int lua_runtime_http_request( void *addr, struct http_request *req )
     return CF_RESULT_OK;
 }
 
-static int lua_runtime_validator( void *addr, struct http_request *req, void *data )
+static int lua_runtime_validator( void *addr, struct http_request *req, const void *data )
 {
 
     return CF_RESULT_ERROR;

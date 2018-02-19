@@ -70,7 +70,7 @@ int cf_runtime_http_request(struct cf_runtime_call *rcall, struct http_request *
 	return (rcall->runtime->http_request(rcall->addr, req));
 }
 
-int cf_runtime_validator(struct cf_runtime_call *rcall, struct http_request *req, void *data)
+int cf_runtime_validator(struct cf_runtime_call *rcall, struct http_request *req, const void *data)
 {
 	return (rcall->runtime->validator(rcall->addr, req, data));
 }

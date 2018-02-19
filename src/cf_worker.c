@@ -297,8 +297,13 @@ void cf_worker_privdrop( void )
 static void worker_entry( struct cf_worker *kw )
 {
     char buf[16];
-    int quit, had_lock, r;
-    uint64_t now, next_lock, netwait;
+    int quit = 0;
+    int had_lock = 0;
+    int r;
+    uint64_t now;
+    uint64_t next_lock = 0;
+    uint64_t netwait = 0;
+    uint64_t timerwait = 0;
     uint64_t next_prune = 0;
     struct cf_runtime_call *rcall = NULL;
 
@@ -357,9 +362,6 @@ static void worker_entry( struct cf_worker *kw )
     cf_domain_load_crl();
     cf_domain_keymgr_init();
 
-	quit = 0;
-	had_lock = 0;
-	next_lock = 0;
 
     cf_platform_event_init();
     cf_msg_worker_init();
@@ -448,20 +450,19 @@ static void worker_entry( struct cf_worker *kw )
                     had_lock = 1;
                 }
             }
-            else {
+            else
                 next_lock = now + WORKER_LOCK_TIMEOUT / 2;
-            }
         }
 
         if( !server.worker->has_lock )
         {
-            if (worker_active_connections > 0)
+            if (server.worker_active_connections > 0)
             {
                 if (next_lock > now)
                     netwait = next_lock - now;
-            } else {
-                netwait = 10;
             }
+            else
+                netwait = 10;
         }
 
         timerwait = cf_timer_run(now);
@@ -660,7 +661,7 @@ static inline int worker_acceptlock_release( uint64_t now )
     if( server.worker->has_lock != 1 )
         return 0;
 
-    if( server.worker_active_connections < server.worker_max_connections)
+    if( server.worker_active_connections < server.worker_max_connections )
     {
 #ifndef CF_NO_HTTP
         if( server.http_request_count < server.http_request_limit)
@@ -670,15 +671,20 @@ static inline int worker_acceptlock_release( uint64_t now )
 #endif
     }
 
+    worker_debug(LOG_DEBUG, "worker busy, releasing lock");
+    worker_debug(LOG_DEBUG, "had lock for %lu ms", now - worker->time_locked);
+
 	worker_unlock();
     server.worker->has_lock = 0;
+
+    return 1;
 }
 /****************************************************************
  *  Helper function
  ****************************************************************/
 static inline int worker_acceptlock_obtain( uint64_t now )
 {
-    int	r;
+    int	rc;
 
     if( server.worker->has_lock == 1 )
         return 1;
@@ -689,24 +695,23 @@ static inline int worker_acceptlock_obtain( uint64_t now )
         return 1;
 	}
 
-    if( server.worker_active_connections >= server.worker_max_connections ) {
+    if( server.worker_active_connections >= server.worker_max_connections )
         return 0;
-    }
 
 #ifndef CF_NO_HTTP
     if( server.http_request_count >= server.http_request_limit )
         return 0;
 #endif
 
-	r = 0;
+    rc = 0;
     if( worker_trylock() )
     {
-		r = 1;
+        rc = 1;
         server.worker->has_lock = 1;
         server.worker->time_locked = now;
 	}
 
-    return r;
+    return rc;
 }
 /****************************************************************
  *  Helper function to lock

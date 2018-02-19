@@ -27,6 +27,8 @@
     #include "cf_python.h"
 #endif
 
+
+static struct http_request* http_request_new(struct connection*, const char*, const char*, char*, const char*);
 static int	http_body_recv(struct netbuf *);
 static void	http_error_response(struct connection*, int);
 static void	http_write_response_cookie(struct http_cookie*);
@@ -99,8 +101,6 @@ void http_cleanup(void)
     cf_mem_pool_cleanup( &http_request_pool );
     cf_mem_pool_cleanup( &http_header_pool );
     cf_mem_pool_cleanup( &http_cookie_pool );
-    cf_mem_pool_cleanup( &http_host_pool );
-    cf_mem_pool_cleanup( &http_path_pool );
     cf_mem_pool_cleanup( &http_body_path );
 }
 /****************************************************************
@@ -117,9 +117,9 @@ void http_server_version( const char *version )
 /****************************************************************
  *  Create new one request structure from incoming connection
  ****************************************************************/
-int http_request_new( struct connection *c, const char *host,
-                      const char *method, const char *path, const char *version,
-                      struct http_request **out )
+static struct http_request* http_request_new( struct connection *c, const char *host,
+                                              const char *method, char *path,
+                                              const char *version )
 {
     char* p = NULL;
     char* hp = NULL;
@@ -128,30 +128,30 @@ int http_request_new( struct connection *c, const char *host,
     int	m, flags;
     size_t hostlen, pathlen, qsoff;
 
-    log_debug("http_request_new(%p, %s, %s, %s, %s)", c, host, method, path, version);
-
     if( server.http_request_count >= server.http_request_limit )
     {
         http_error_response(c, 503);
-        return CF_RESULT_ERROR;
+        return NULL;
     }
+
+    log_debug("http_request_new(%p, %s, %s, %s, %s)", c, host, method, path, version);
 
     if( (hostlen = strlen(host)) >= CF_DOMAINNAME_LEN - 1)
     {
         http_error_response(c, 400);
-        return CF_RESULT_ERROR;
+        return NULL;
     }
 
     if( (pathlen = strlen(path)) >= HTTP_URI_LEN - 1 )
     {
         http_error_response(c, 414);
-        return CF_RESULT_ERROR;
+        return NULL;
     }
 
     if( strcasecmp(version, "http/1.1") )
     {
         http_error_response(c, 505);
-        return CF_RESULT_ERROR;
+        return NULL;
     }
 
     if( (p = strchr(path, '?')) != NULL )
@@ -171,7 +171,7 @@ int http_request_new( struct connection *c, const char *host,
             if( (hp = strrchr(host, ']')) == NULL )
             {
                 http_error_response(c, 400);
-                return CF_RESULT_ERROR;
+                return NULL;
             }
             hp++;
             if( *hp == ':' )
@@ -189,7 +189,7 @@ int http_request_new( struct connection *c, const char *host,
     if( (hdlr = cf_module_handler_find(host, path)) == NULL )
     {
 		http_error_response(c, 404);
-        return CF_RESULT_ERROR;
+        return NULL;
 	}
 
     if( hp != NULL )
@@ -236,7 +236,7 @@ int http_request_new( struct connection *c, const char *host,
     else
     {
 		http_error_response(c, 400);
-        return CF_RESULT_ERROR;
+        return NULL;
 	}
 
     req = cf_mem_pool_get(&http_request_pool);
@@ -262,22 +262,16 @@ int http_request_new( struct connection *c, const char *host,
     req->py_coro = NULL;
 #endif
 
-    req->host = cf_mem_pool_get(&http_host_pool);
-	memcpy(req->host, host, hostlen);
-	req->host[hostlen] = '\0';
-
-    req->path = cf_mem_pool_get(&http_path_pool);
-	memcpy(req->path, path, pathlen);
-	req->path[pathlen] = '\0';
+    req->host = host;
+    req->path = path;
 
     if( qsoff > 0 )
     {
-		req->query_string = req->path + qsoff;
+        req->query_string = path + qsoff;
 		*(req->query_string)++ = '\0';
     }
-    else {
+    else
 		req->query_string = NULL;
-	}
 
 	TAILQ_INIT(&(req->resp_headers));
 	TAILQ_INIT(&(req->req_headers));
@@ -302,10 +296,7 @@ int http_request_new( struct connection *c, const char *host,
 	TAILQ_INSERT_HEAD(&http_requests, req, list);
 	TAILQ_INSERT_TAIL(&(c->http_requests), req, olist);
 
-    if( out != NULL )
-		*out = req;
-
-    return CF_RESULT_OK;
+    return req;
 }
 /****************************************************************
  *  Set HTTP request state as sleeping
@@ -485,11 +476,9 @@ void http_request_free( struct http_request *req )
 
     log_debug("http_request_free: %p->%p", req->owner, req);
 
-    cf_mem_pool_put(&http_host_pool, req->host);
-    cf_mem_pool_put(&http_path_pool, req->path);
-
 	req->host = NULL;
 	req->path = NULL;
+    req->headers = NULL;
 
 	TAILQ_REMOVE(&http_requests, req, list);
 
@@ -563,15 +552,12 @@ void http_request_free( struct http_request *req )
         cf_buf_free(req->http_body);
 
     if( req->http_body_fd != -1 )
-		(void)close(req->http_body_fd);
+        close(req->http_body_fd);
 
     if( req->http_body_path != NULL )
     {
         if( unlink(req->http_body_path) == -1 && errno != ENOENT )
-        {
-            cf_log(LOG_NOTICE, "failed to unlink %s: %s",
-			    req->http_body_path, errno_s);
-		}
+            cf_log(LOG_NOTICE, "failed to unlink %s: %s",req->http_body_path, errno_s);
 
         cf_mem_pool_put(&http_body_path, req->http_body_path);
 	}
@@ -586,7 +572,7 @@ void http_request_free( struct http_request *req )
 
 void http_serveable( struct http_request *req, const void *data, size_t len, const char *etag, const char *type )
 {
-    char *match = NULL;
+    const char *match = NULL;
 
     if( req->method != HTTP_METHOD_GET )
     {
@@ -704,6 +690,7 @@ int http_header_recv( struct netbuf *nb )
     ssize_t ret;
     struct http_header	*hdr = NULL;
     struct http_request	*req = NULL;
+    const char *clp = NULL;
     uint64_t bytes_left;
     uint8_t *end_headers = NULL;
     int	 h, i, v, skip, l;
@@ -779,7 +766,7 @@ int http_header_recv( struct netbuf *nb )
         return CF_RESULT_OK;
 	}
 
-    if( !http_request_new(c, host, request[0], request[1], request[2], &req) )
+    if( (req = http_request_new(c, host, request[0], request[1], request[2])) == NULL )
         return CF_RESULT_OK;
 
     for( i = 1; i < h; i++ )
@@ -797,8 +784,8 @@ int http_header_recv( struct netbuf *nb )
 		if (*p == ' ')
 			p++;
         hdr = cf_mem_pool_get(&http_header_pool);
-		hdr->header = mem_strdup(headers[i]);
-		hdr->value = mem_strdup(p);
+        hdr->header = headers[i];
+        hdr->value = p;
 		TAILQ_INSERT_TAIL(&(req->req_headers), hdr, list);
 
         if( req->agent == NULL &&
@@ -815,7 +802,7 @@ int http_header_recv( struct netbuf *nb )
             return CF_RESULT_OK;
 		}
 
-        if( !http_request_header(req, "content-length", &p) )
+        if( !http_request_header(req, "content-length", &clp) )
         {
             log_debug("expected body but no content-length");
 			req->flags |= HTTP_REQUEST_DELETE;
@@ -823,10 +810,12 @@ int http_header_recv( struct netbuf *nb )
             return CF_RESULT_OK;
 		}
 
-		req->content_length = cf_strtonum(p, 10, 0, LONG_MAX, &v);
+        /* Get request content-length */
+        req->content_length = cf_strtonum(clp, 10, 0, LONG_MAX, &v);
+
         if( v == CF_RESULT_ERROR )
         {
-            log_debug("content-length invalid: %s", p);
+            log_debug("content-length invalid: %s", clp);
 			req->flags |= HTTP_REQUEST_DELETE;
 			http_error_response(req->owner, 411);
             return CF_RESULT_OK;
@@ -1128,14 +1117,15 @@ void http_response_cookie(struct http_request *req, const char *name,
 void http_populate_cookies(struct http_request *req)
 {
     struct http_cookie *ck = NULL;
+    const char *hdr = NULL;
     int i, v, n;
     char *c, *header, *pair[3];
     char *cookies[HTTP_MAX_COOKIES];
 
-    if( !http_request_header(req, "cookie", &c) )
+    if( !http_request_header(req, "cookie", &hdr) )
         return;
 
-    header = mem_strdup(c);
+    header = mem_strdup(hdr);
     v = cf_split_string(header, ";", cookies, HTTP_MAX_COOKIES);
     for( i = 0; i < v; i++ )
     {
@@ -1233,58 +1223,75 @@ void http_populate_qs( struct http_request *req )
 
 void http_populate_multipart_form( struct http_request *req )
 {
-    int	h, blen;
-    struct cf_buf in, out;
-    char *type, *val, *args[3];
-    char boundary[HTTP_BOUNDARY_MAX];
+    const char *hdr = NULL;
+    char* type = NULL;
+    char* args[3];
+    int	h = 0;
 
     if( req->method != HTTP_METHOD_POST )
 		return;
 
-    if( !http_request_header(req, "content-type", &type) )
+    if( !http_request_header(req, "content-type", &hdr) )
 		return;
 
-	h = cf_split_string(type, ";", args, 3);
-    if( h != 2 )
-		return;
+    /* Allocate temporary buffer */
+    type = mem_strdup( hdr );
 
-    if( strcasecmp(args[0], "multipart/form-data") )
-		return;
-
-    if( (val = strchr(args[1], '=')) == NULL )
-		return;
-
-	val++;
-	blen = snprintf(boundary, sizeof(boundary), "--%s", val);
-    if( blen == -1 || (size_t)blen >= sizeof(boundary) )
-		return;
-
-    /* Allocate (init) input buffer */
-    cf_buf_init(&in, 128);
-
-    if( multipart_find_data(&in, NULL, NULL, req, boundary, blen) )
-    {            
-        /* Allocate (init) output buffer */
-        cf_buf_init(&out, 128);
-
-        for(;;)
+    if( (h = cf_split_string(type, ";", args, 3)) == 2 )
+    {
+        if( !strcasecmp(args[0], "multipart/form-data") )
         {
-            if( !multipart_find_data(&in, NULL, NULL, req, "\r\n", 2) )
-                break;
-            if( in.offset < 4 && req->http_body_length == 0 )
-                break;
-            if( !multipart_find_data(&in, &out, NULL, req, "\r\n\r\n", 4) )
-                break;
-            if( !multipart_parse_headers(req, &in, &out, boundary, blen) )
-                break;
+            char* val = NULL;
 
-            cf_buf_reset(&out);
+            if( (val = strchr(args[1], '=')) != NULL )
+            {
+                char boundary[HTTP_BOUNDARY_MAX];
+                int blen = 0;
+
+                val++;
+                blen = snprintf(boundary, sizeof(boundary), "--%s", val);
+
+                if( blen != -1 && (size_t)blen < sizeof(boundary) )
+                {
+                    struct cf_buf in;
+
+                    /* Allocate (init) input buffer */
+                    cf_buf_init(&in, 128);
+
+                    if( multipart_find_data(&in, NULL, NULL, req, boundary, blen) )
+                    {
+                        struct cf_buf out;
+
+                        /* Allocate (init) output buffer */
+                        cf_buf_init(&out, 128);
+
+                        for(;;)
+                        {
+                            if( !multipart_find_data(&in, NULL, NULL, req, "\r\n", 2) )
+                                break;
+                            if( in.offset < 4 && req->http_body_length == 0 )
+                                break;
+                            if( !multipart_find_data(&in, &out, NULL, req, "\r\n\r\n", 4) )
+                                break;
+                            if( !multipart_parse_headers(req, &in, &out, boundary, blen) )
+                                break;
+
+                            cf_buf_reset(&out);
+                        }
+
+                        /* Cleanup output buffer */
+                        cf_buf_cleanup(&out);
+                    }
+
+                    /* Cleanup input buffer */
+                    cf_buf_cleanup(&in);
+                }
+            }
         }
     }
 
-    /* Cleanup buffers */
-    cf_buf_cleanup(&in);
-    cf_buf_cleanup(&out);
+    /* Cleanup temporary buffer string */
+    mem_free(type);
 }
 
 int http_body_rewind( struct http_request *req )
@@ -1406,15 +1413,10 @@ int http_state_exists( struct http_request *req )
 void* http_state_create( struct http_request *req, size_t len )
 {
     if( req->hdlr_extra != NULL )
-    {
-        if( req->state_len != len )
             cf_fatal("http_state_create: state already set");
-    }
-    else
-    {
-        req->state_len = len;
-        req->hdlr_extra = mem_calloc(1, len);
-    }
+
+    req->state_len = len;
+    req->hdlr_extra = mem_calloc(1, len);
 
     return req->hdlr_extra;
 }
@@ -1741,7 +1743,7 @@ static void http_response_normal( struct http_request *req, struct connection *c
 {
     struct http_header *hdr = NULL;
     struct http_cookie *ck = NULL;
-    char *conn = NULL;
+    const char *conn = NULL;
     int connection_close;
 
     cf_buf_reset(header_buf);
@@ -2034,18 +2036,18 @@ const char* http_method_text( int method )
 /****************************************************************
  *  Helper function return remote client address
  ****************************************************************/
-char* http_remote_addr( struct http_request *request )
+const char* http_remote_addr( struct http_request *request )
 {
     static char astr[INET6_ADDRSTRLEN];
-    char *real_ip = NULL;
+    const char *hdr = NULL;
 
-    http_request_header(request, "x-forwarded-for", &real_ip);
-    if( real_ip )
-        return real_ip;
+    http_request_header(request, "x-forwarded-for", &hdr);
+    if( hdr )
+        return hdr;
 
-    http_request_header(request, "x-real-ip", &real_ip);
-    if( real_ip )
-        return real_ip;
+    http_request_header(request, "x-real-ip", &hdr);
+    if( hdr )
+        return hdr;
 
     switch( request->owner->addrtype )
     {
@@ -2070,13 +2072,17 @@ const char* http_get_cookie( struct http_request *request, const char *name )
     char *pch = NULL;
     char iskey = 1;
     char isfound = 0;
-    char *cookies = NULL;
+    const char *cookies = NULL;
+    char* t_str = NULL;
 
     http_request_header(request, "cookie", &cookies);
     if( cookies == NULL )
         return NULL;
 
-    pch = strtok(cookies, " ;=");
+    /* Local copy */
+    t_str = mem_strdup( cookies );
+
+    pch = strtok( t_str, " ;=");
     while( pch != NULL )
     {
         if( iskey )
@@ -2088,12 +2094,18 @@ const char* http_get_cookie( struct http_request *request, const char *name )
         else
         {
             if( isfound )
+            {
+                mem_free( t_str );
                 return pch;
+            }
             iskey = 1;
         }
 
         pch = strtok(NULL, " ;=");
     }
+
+    /* Delete temporary buffer */
+    mem_free( t_str );
 
     return NULL;
 }

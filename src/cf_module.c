@@ -15,10 +15,10 @@
 
 static TAILQ_HEAD(, cf_module)  modules;
 
-static void	native_free(struct cf_module *);
-static void	native_reload(struct cf_module *);
-static void	native_load(struct cf_module *, const char *);
-static void	*native_getsym(struct cf_module *, const char *);
+static void	native_free(struct cf_module*);
+static void	native_reload(struct cf_module*);
+static void	native_load(struct cf_module*);
+static void	*native_getsym(struct cf_module*, const char*);
 
 struct cf_module_functions cf_native_module =
 {
@@ -47,9 +47,7 @@ void cf_module_cleanup(void)
 
 void cf_module_load( const char *path, const char *onload, int type )
 {
-#ifndef CF_SINGLE_BINARY
     struct stat	st;
-#endif
     struct cf_module *module = NULL;
 
     log_debug("cf_module_load(%s, %s)", path, onload);
@@ -60,16 +58,19 @@ void cf_module_load( const char *path, const char *onload, int type )
     module->onload = NULL;
     module->handle = NULL;
 
-#ifndef CF_SINGLE_BINARY
-    if( stat(path, &st) == -1 )
-        cf_fatal("stat(%s): %s", path, errno_s);
+    if( path != NULL )
+    {
+        if( stat(path, &st) == -1 )
+            cf_fatal("stat(%s): %s", path, errno_s);
 
-    module->path = mem_strdup(path);
-    module->mtime = st.st_mtime;
-#else
-    module->path = NULL;
-    module->mtime = 0;
-#endif
+        module->path = mem_strdup(path);
+        module->mtime = st.st_mtime;
+    }
+    else
+    {
+        module->path = NULL;
+        module->mtime = 0;
+    }
 
     switch( module->type )
     {
@@ -93,7 +94,7 @@ void cf_module_load( const char *path, const char *onload, int type )
         cf_fatal("cf_module_load: unknown type %d", type);
     }
 
-    module->fun->load(module, onload);
+    module->fun->load( module );
     TAILQ_INSERT_TAIL(&modules, module, list);
 
     if( onload != NULL )
@@ -112,7 +113,6 @@ void cf_module_load( const char *path, const char *onload, int type )
 
 void cf_module_onload( void )
 {
-#ifndef CF_SINGLE_BINARY
     struct cf_module *module = NULL;
 
     TAILQ_FOREACH(module, &modules, list)
@@ -122,12 +122,11 @@ void cf_module_onload( void )
 
         cf_runtime_onload(module->ocb, CF_MODULE_LOAD);
     }
-#endif
 }
 
 void cf_module_reload( int cbs )
 {
-#ifndef CF_SINGLE_BINARY
+
     struct stat st;
     int	ret;
     struct cf_domain *dom = NULL;
@@ -194,8 +193,6 @@ void cf_module_reload( int cbs )
 
 #ifndef CF_NO_HTTP
     cf_validator_reload();
-#endif
-
 #endif
 }
 
@@ -351,10 +348,10 @@ static void native_reload( struct cf_module *module )
 {
     if( dlclose(module->handle) )
         cf_fatal("cannot close existing module: %s", dlerror());
-    module->fun->load(module, module->onload);
+    module->fun->load( module );
 }
 
-static void native_load( struct cf_module *module, const char *onload )
+static void native_load( struct cf_module *module )
 {
     module->handle = dlopen(module->path, RTLD_NOW | RTLD_GLOBAL);
     if( module->handle == NULL )

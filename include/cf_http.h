@@ -263,7 +263,6 @@ void		http_response_stream(struct http_request *, int, void *, size_t, int (*cb)
 int         http_request_header(struct http_request *, const char *, const char **);
 int         http_request_cookie(struct http_request *, const char *, char **);
 void        http_response_header(struct http_request *, const char *, const char *);
-int         http_request_new(struct connection *, const char *, const char *, const char *, const char *, struct http_request **);
 int         http_state_run(struct http_state *, uint8_t, struct http_request *);
 void		http_serveable(struct http_request *, const void *, size_t, const char *, const char *);
 
@@ -284,8 +283,8 @@ void http_populate_multipart_form(struct http_request *);
 void http_populate_cookies(struct http_request *);
 int  http_argument_get(struct http_request *,const char *, void **, void *, int);
 
-char* http_remote_addr( struct http_request * );
-const char* http_get_cookie( struct http_request *, const char * );
+const char* http_remote_addr( struct http_request* );
+const char* http_get_cookie( struct http_request*, const char* );
 
 void http_file_rewind(struct http_file *);
 ssize_t http_file_read(struct http_file *, void *, size_t);
