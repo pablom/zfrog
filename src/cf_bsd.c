@@ -73,7 +73,7 @@ void cf_platform_event_init()
     if( (kfd = kqueue()) == -1 )
 		cf_fatal("kqueue(): %s", errno_s);
 
-    event_count = (worker_max_connections * 2) + server.nlisteners;
+    event_count = server.worker_max_connections + server.nlisteners;
     events = mem_calloc(event_count, sizeof(struct kevent));
 
     /* Hack to check if we're running under the parent or not */
@@ -102,7 +102,9 @@ void cf_platform_event_cleanup()
 		events = NULL;
 	}
 }
-
+/****************************************************************
+ *  Event platform wait function
+ ****************************************************************/
 int cf_platform_event_wait(uint64_t timer)
 {
     uint32_t r;
@@ -212,13 +214,18 @@ int cf_platform_event_wait(uint64_t timer)
 
 	return (r);
 }
-
+/****************************************************************
+ *  Helper function add file descriptor to catch
+ *  all available events to scheduler
+ ****************************************************************/
 void cf_platform_event_all(int fd, void *c)
 {
     cf_platform_event_schedule(fd, EVFILT_READ, EV_ADD | EV_CLEAR, c);
     cf_platform_event_schedule(fd, EVFILT_WRITE, EV_ADD | EV_CLEAR, c);
 }
-
+/****************************************************************
+ *  Helper function add file descriptor to event scheduler
+ ****************************************************************/
 void cf_platform_event_schedule(int fd, int type, int flags, void *data)
 {
     struct kevent event[1];
@@ -227,7 +234,10 @@ void cf_platform_event_schedule(int fd, int type, int flags, void *data)
     if( kevent(kfd, event, 1, NULL, 0, NULL) == -1 )
 		cf_fatal("kevent: %s", errno_s);
 }
-
+/****************************************************************
+ *  Helper function add file descriptor to catch
+ *  only incoming data available events to scheduler
+ ****************************************************************/
 void cf_platform_enable_accept(void)
 {
     struct listener	*l = NULL;
@@ -235,7 +245,9 @@ void cf_platform_enable_accept(void)
 	LIST_FOREACH(l, &listeners, list)
         cf_platform_event_schedule(l->fd, EVFILT_READ, EV_ENABLE, l);
 }
-
+/****************************************************************
+ *  Remove all listeners from event scheduler
+ ****************************************************************/
 void cf_platform_disable_accept()
 {
     struct listener	*l = NULL;
@@ -243,17 +255,26 @@ void cf_platform_disable_accept()
 	LIST_FOREACH(l, &listeners, list)
         cf_platform_event_schedule(l->fd, EVFILT_READ, EV_DISABLE, l);
 }
-
+/****************************************************************
+ *  Helper function add file descriptor to catch
+ *  only incoming data available events to scheduler
+ ****************************************************************/
 void cf_platform_schedule_read(int fd, void *data)
 {
     cf_platform_event_schedule(fd, EVFILT_READ, EV_ADD, data);
 }
-
+/****************************************************************
+ *  Helper function add file descriptor to catch
+ *  only outgoing data available events to scheduler
+ ****************************************************************/
 void cf_platform_schedule_write(int fd, void *data)
 {
     cf_platform_event_schedule(fd, EVFILT_WRITE, EV_ADD, data);
 }
-
+/****************************************************************
+ *  Helper function add file descriptor to disable
+ *  catch incoming data events
+ ****************************************************************/
 void cf_platform_disable_events(int fd)
 {
     cf_platform_event_schedule(fd, EVFILT_READ, EV_DELETE, NULL);

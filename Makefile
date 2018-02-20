@@ -356,6 +356,7 @@ $(LIBDIR)/libsodium.a: $(OBJDIR)/$(LSODIUM)
 
 # Build only openssl
 openssl: $(LIBDIR)/libssl.a
+
 # Build only libsodium
 libsodium: $(LIBDIR)/libsodium.a
 
