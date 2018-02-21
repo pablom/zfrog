@@ -49,8 +49,6 @@ static TAILQ_HEAD(, http_request)	http_requests_sleeping;
 static struct cf_mem_pool http_request_pool;
 static struct cf_mem_pool http_header_pool;
 static struct cf_mem_pool http_cookie_pool;
-static struct cf_mem_pool http_host_pool;
-static struct cf_mem_pool http_path_pool;
 static struct cf_mem_pool http_body_path;
 
 /****************************************************************
@@ -77,8 +75,6 @@ void http_init( void )
     cf_mem_pool_init(&http_request_pool, "http_request_pool", sizeof(struct http_request), server.http_request_limit);
     cf_mem_pool_init(&http_header_pool, "http_header_pool", sizeof(struct http_header), prealloc * HTTP_REQ_HEADER_MAX);
     cf_mem_pool_init(&http_cookie_pool, "http_cookie_pool", sizeof(struct http_cookie), prealloc * HTTP_MAX_COOKIES);
-    cf_mem_pool_init(&http_host_pool, "http_host_pool", CF_DOMAINNAME_LEN, prealloc);
-    cf_mem_pool_init(&http_path_pool, "http_path_pool", HTTP_URI_LEN, prealloc);
     cf_mem_pool_init(&http_body_path, "http_body_path", HTTP_BODY_PATH_MAX, prealloc);
 }
 /****************************************************************
