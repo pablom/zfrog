@@ -56,7 +56,7 @@ static struct port_event_t *events0 = NULL;
 /****************************************************************
  *  Init platform function
  ****************************************************************/
-void cf_platform_init()
+void cf_platform_init(void)
 {
     long n;
 
@@ -80,7 +80,7 @@ void cf_platform_worker_setcpu( struct cf_worker *kw )
 /****************************************************************
  *  Event platform init function
  ****************************************************************/
-void cf_platform_event_init()
+void cf_platform_event_init(void)
 {
     /* Initialize the kernel queue, create a port */
     if( (evp = port_create()) < 0 )
@@ -127,7 +127,7 @@ void cf_platform_event_init()
 /****************************************************************
  *  Cleanup event platform init function
  ****************************************************************/
-void cf_platform_event_cleanup()
+void cf_platform_event_cleanup(void)
 {
     if( evp != -1 )
     {

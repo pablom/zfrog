@@ -77,7 +77,7 @@ void cf_platform_event_init()
     events = mem_calloc(event_count, sizeof(struct kevent));
 
     /* Hack to check if we're running under the parent or not */
-    if( worker != NULL )
+    if( server.worker != NULL )
     {
         LIST_FOREACH(l, &server.listeners, list)
         {
