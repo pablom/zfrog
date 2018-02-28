@@ -1,7 +1,12 @@
 language: c
 sudo: false
+os:
+  - linux
+  - osx
 compiler:
   - clang
   - gcc
 script:
-  - make
+  - make deps  
+  - make CF_TASKS=1 CF_JSONRPC=1 all
+

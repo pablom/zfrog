@@ -79,7 +79,7 @@ extern "C" {
 #define ssl_errno_s		ERR_error_string(ERR_get_error(), NULL)
 
 #define CF_DOMAINNAME_LEN		256
-#define CF_PIDFILE_DEFAULT		"cf.pid"
+#define CF_PIDFILE_DEFAULT		"zfrog.pid"
 #define CF_DEFAULT_CIPHER_LIST	"ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!3DES:!MD5:!PSK:!kRSA:!kDSA"
 
 #if defined(CF_DEBUG)
@@ -385,8 +385,8 @@ struct cf_domain
 #ifndef CF_NO_TLS
     char  *cafile;
     char  *crlfile;
-    char  *certfile;
-    char  *certkey;
+    char  *certfile;    /* Certificate file path */
+    char  *certkey;     /* Private key path */
     SSL_CTX *ssl_ctx;
 
 #endif
@@ -438,7 +438,6 @@ struct cf_mem_pool_entry
     LIST_ENTRY(cf_mem_pool_entry) list;
 };
 
-
 struct cf_mem_pool
 {
 	size_t			elen;
@@ -451,7 +450,6 @@ struct cf_mem_pool
     LIST_HEAD(, cf_mem_pool_region)	regions;
     LIST_HEAD(, cf_mem_pool_entry)	freelist;
 };
-
 
 struct cf_timer
 {
@@ -652,15 +650,16 @@ void cf_log_init(void);
 
 void cf_parse_config(void);
 
-void *mem_malloc(size_t);
-void *mem_calloc(size_t, size_t);
-void *mem_realloc(void *, size_t);
-void mem_free(void *);
-void mem_init(void);
-void mem_cleanup(void);
-void mem_untag(void *);
+/* Memory function definitions */
+void* mem_malloc(size_t);
+void* mem_calloc(size_t, size_t);
+void* mem_realloc(void *, size_t);
+void  mem_free(void*);
+void  mem_init(void);
+void  mem_cleanup(void);
+void  mem_untag(void*);
 void* mem_lookup(uint32_t);
-void mem_tag(void *, uint32_t);
+void  mem_tag(void*, uint32_t);
 void* mem_malloc_tagged(size_t, uint32_t);
 
 
@@ -699,7 +698,7 @@ int	 cf_msg_register(uint8_t, void (*cb)(struct cf_msg *, const void*));
 
 void cf_domain_init(void);
 void cf_domain_cleanup(void);
-int  domain_new(char*);
+int  cf_domain_new(char*);
 void cf_domain_free(struct cf_domain*);
 
 void cf_module_init(void);
@@ -805,6 +804,12 @@ int cf_is_hex_digit(char);
 void cf_bytes_to_human(char*,unsigned long long);
 
 int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ );
+
+/* Some macros to help */
+#define BITMASK_SET(x,y) ((x) |= (y))
+#define BITMASK_CLEAR(x,y) ((x) &= (~(y)))
+#define BITMASK_FLIP(x,y) ((x) ^= (y))
+#define BITMASK_CHECK(x,y) ((x) & (y))
 
 
 #if defined(__cplusplus)

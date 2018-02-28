@@ -553,7 +553,7 @@ static int configure_domain( char *options )
         return CF_RESULT_ERROR;
 	}
 
-    if( !domain_new(argv[0]) )
+    if( !cf_domain_new(argv[0]) )
     {
 		printf("could not create new domain %s\n", argv[0]);
         return CF_RESULT_ERROR;

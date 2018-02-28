@@ -8,6 +8,8 @@
     #include <openssl/evp.h>
     #include <openssl/ec.h>
     #include <openssl/ecdsa.h>
+    #include <openssl/ssl.h>
+    #include <openssl/err.h>
     #include <poll.h>
 #endif
 
@@ -30,14 +32,19 @@ static void	domain_load_crl(struct cf_domain *);
 
 #ifndef CF_NO_TLS
     /* Forward function declaration */
-    static int domain_x509_verify(int, X509_STORE_CTX *);
+    static int domain_x509_verify(int, X509_STORE_CTX*);
     static void	keymgr_init(void);
     static void	keymgr_await_data(void);
-    static void	keymgr_msg_response(struct cf_msg *, const void *);
-    static int keymgr_rsa_init( RSA *);
-    static int keymgr_rsa_finish( RSA *);
-    static int keymgr_rsa_privenc(int, const unsigned char *, unsigned char *, RSA *, int);
-    static ECDSA_SIG *keymgr_ecdsa_sign(const unsigned char *, int, const BIGNUM *, const BIGNUM *, EC_KEY *);
+    static void	keymgr_msg_response(struct cf_msg*, const void*);
+    static int keymgr_rsa_init(RSA*);
+    static int keymgr_rsa_finish(RSA*);
+    static int keymgr_rsa_privenc(int, const unsigned char*, unsigned char*, RSA*, int);
+    static ECDSA_SIG *keymgr_ecdsa_sign(const unsigned char*, int, const BIGNUM*, const BIGNUM*, EC_KEY*);
+
+#ifdef CF_TLS_SRP
+    static void domain_srp_init(struct cf_domain*); /* Secure Remote Password Protocol (SRPP) */
+    static int ssl_srp_server_param_cb(SSL*, int*, void*);
+#endif
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     static RSA_METHOD       *keymgr_rsa_meth = NULL;
@@ -147,14 +154,14 @@ void cf_domain_cleanup(void)
 /****************************************************************
  *  Allocate (create) new domain structure
  ****************************************************************/
-int domain_new( char *domain )
+int cf_domain_new( char *domain )
 {
     struct cf_domain *dom = NULL;
 
     if( cf_domain_lookup(domain) != NULL )
         return CF_RESULT_ERROR;
 
-    log_debug("domain_new(%s)", domain);
+    log_debug("cf_domain_new(%s)", domain);
 
     dom = mem_malloc(sizeof(*dom));
 	dom->accesslog = -1;
@@ -214,6 +221,7 @@ void cf_domain_free( struct cf_domain *dom )
         cf_module_handler_free( hdlr );
 	}
 #endif
+    /* Delete structure itself */
     mem_free(dom);
 }
 /****************************************************************
@@ -753,7 +761,9 @@ static void keymgr_msg_response( struct cf_msg *msg, const void *data )
 
 	memcpy(keymgr_buf, data, keymgr_buflen);
 }
-
+/****************************************************************
+ *  Callback function to verify X509 certificate
+ ****************************************************************/
 static int domain_x509_verify(int ok, X509_STORE_CTX *ctx)
 {
     X509 *cert = NULL;
@@ -783,4 +793,47 @@ static int domain_x509_verify(int ok, X509_STORE_CTX *ctx)
 
     return ok;
 }
+#ifdef CF_TLS_SRP
+/****************************************************************
+ *  Init Secure Remote Password Protocol (SRPP)
+ ****************************************************************/
+static void domain_srp_init( struct cf_domain* dom )
+{
+    //SSL_CTX_SRP_CTX_init(dom->ssl_ctx);
+
+    /* Set cipher list we only want SRP algorithms without any ceritificates */
+    if( SSL_CTX_set_cipher_list(dom->ssl_ctx, "aNULL:!eNULL:!LOW:!EXPORT:@STRENGTH:!ADH:!AECDH") != 1 ) {
+        cf_fatal("Set cipher list failed (SRP)");
+    }
+
+    /* Set callbacks and give the parameters (username,password) to the context */
+    //SSL_CTX_set_verify(dom->ssl_ctx, SSL_VERIFY_NONE, verify_callback);
+    SSL_CTX_set_srp_cb_arg(dom->ssl_ctx, dom);
+    SSL_CTX_set_srp_username_callback(dom->ssl_ctx, ssl_srp_server_param_cb);
+
+}
+
+static int ssl_srp_server_param_cb( SSL *ctx, int *ad, void *arg )
+{
+    struct cf_domain* dom = (struct cf_domain *) arg;
+/*
+    SRP_SERVER_ARG * p = (SRP_SERVER_ARG *) arg;
+    if( strcmp(p->expected_user, SSL_get_srp_username(s)) != 0 )
+    {
+        fprintf(stderr, "User %s doesn't exist\n", SSL_get_srp_username(s));
+        return SSL3_AL_FATAL;
+    }
+
+    if( SSL_set_srp_server_param_pw(s, p->expected_user, p->pass, "1024") < 0)
+    {
+        *ad = SSL_AD_INTERNAL_ERROR;
+        return SSL3_AL_FATAL;
+    }
+*/
+//	SSL_set_srp_server_param_pw(s, SSL_get_srp_username(s), "password", "1024");
+
+    return SSL_ERROR_NONE;
+}
+#endif /* CF_TLS_SRP */
+
 #endif /* CF_NO_TLS */

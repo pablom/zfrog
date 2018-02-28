@@ -33,6 +33,14 @@ LDFLAGS += -L$(LIBDIR)
 
 LDFLAGS_CLI = $(LDFLAGS)
 
+# Download urls for dependency libraries
+OPENSSL_URL=https://github.com/openssl/openssl/archive/OpenSSL_1_1_0g.tar.gz
+YAJL_URL=https://github.com/lloyd/yajl/archive/2.1.0.tar.gz
+LUAJIT_URL=https://luajit.org/download/LuaJIT-2.0.5.tar.gz
+LUAJIT_GITHUB_URL=https://github.com/LuaJIT/LuaJIT/archive/v2.0.5.tar.gz
+LIBSODIUM_URL=https://github.com/jedisct1/libsodium/releases/download/1.0.16/libsodium-1.0.16.tar.gz
+#WGET_PROXY=-e use_proxy=yes -e https_proxy=proxy:800
+
 DEPS =
 
 ###########################################################################
@@ -238,7 +246,6 @@ else ifeq ($(TARGET), aix)
         S_SRC += src/cf_aix.c
 endif
 
-
 ###########################################################################
 S_OBJS= $(S_SRC:src/%.c=$(OBJDIR)/%.o)
 S_OBJS_CLI= $(S_SRC_CLI:src/%.c=$(OBJDIR)/%.o)
@@ -285,6 +292,15 @@ $(OBJDIR)/%.o: src/%.c
 
 $(OBJDIR_CSTL)/%.o: src/cstl/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# Download all dependencies library
+deps:
+	rm -rf deps
+	mkdir -p deps
+	wget -O $(PWD)/deps/openssl-1.1.0g.tar.gz $(OPENSSL_URL) $(WGET_PROXY)
+	wget -O $(PWD)/deps/LuaJIT-2.0.5.tar.gz $(LUAJIT_GITHUB_URL) $(WGET_PROXY)
+	wget -P $(PWD)/deps $(LIBSODIUM_URL) $(WGET_PROXY)
+	wget -O $(PWD)/deps/yajl-2.1.0.tar.gz $(YAJL_URL) $(WGET_PROXY)
 
 clean:
 	find $(OBJDIR) -mindepth 1 -maxdepth 1 -type f -name \*.o -exec rm {} \;
