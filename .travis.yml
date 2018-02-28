@@ -7,6 +7,6 @@ compiler:
   - clang
   - gcc
 script:
-  - make deps  
+  - make deps
   - make CF_TASKS=1 CF_JSONRPC=1 all
 
