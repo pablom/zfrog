@@ -79,7 +79,7 @@ void cf_platform_event_init()
     /* Hack to check if we're running under the parent or not */
     if( worker != NULL )
     {
-        LIST_FOREACH(l, &listeners, list)
+        LIST_FOREACH(l, &server.listeners, list)
         {
             cf_platform_event_schedule(l->fd, EVFILT_READ, EV_ADD | EV_DISABLE, l);
 		}
@@ -242,7 +242,7 @@ void cf_platform_enable_accept(void)
 {
     struct listener	*l = NULL;
 
-	LIST_FOREACH(l, &listeners, list)
+    LIST_FOREACH(l, &server.listeners, list)
         cf_platform_event_schedule(l->fd, EVFILT_READ, EV_ENABLE, l);
 }
 /****************************************************************
@@ -252,7 +252,7 @@ void cf_platform_disable_accept()
 {
     struct listener	*l = NULL;
 
-	LIST_FOREACH(l, &listeners, list)
+    LIST_FOREACH(l, &server.listeners, list)
         cf_platform_event_schedule(l->fd, EVFILT_READ, EV_DISABLE, l);
 }
 /****************************************************************

@@ -826,7 +826,7 @@ int http_header_recv( struct netbuf *nb )
 
         if( req->content_length > server.http_body_max )
         {
-            cf_log(LOG_NOTICE, "body too large (%zu > %lu)", req->content_length, (long unsigned int)server.http_body_max);
+            cf_log(LOG_NOTICE, "body too large (%zu > %zu)", req->content_length, server.http_body_max);
 			req->flags |= HTTP_REQUEST_DELETE;
 			http_error_response(req->owner, 413);
             return CF_RESULT_OK;
