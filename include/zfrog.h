@@ -682,7 +682,7 @@ void cf_strip_chars(char*, const char, char**);
 int	cf_snprintf(char *, size_t, int*, const char*, ...);
 long long	cf_strtonum(const char*, int, long long, long long, int*);
 int cf_base64_encode(const void*, size_t, char**);
-int cf_base64_decode(char*, size_t, uint8_t**, size_t*);
+int cf_base64_decode(const char*, size_t, uint8_t**, size_t*);
 void *cf_mem_find(void*, size_t, void*, size_t);
 char *cf_text_trim(char*, size_t);
 char *cf_fread_line(FILE*, char*, size_t);

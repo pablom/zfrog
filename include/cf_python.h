@@ -14,9 +14,9 @@ extern "C" {
 
 void cf_python_init(void);
 void cf_python_cleanup(void);
-void cf_python_path(const char *);
+void cf_python_path(const char*);
 
-PyObject* cf_python_callable(PyObject *, const char *);
+PyObject* cf_python_callable(PyObject*, const char*);
 
 extern struct cf_module_functions	cf_python_module;
 extern struct cf_runtime            cf_python_runtime;

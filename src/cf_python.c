@@ -31,9 +31,9 @@ static void	python_push_type(const char*, PyObject*, PyTypeObject*);
     static int	python_coroutine_run(struct http_request*);
     static PyObject *pyhttp_file_alloc(struct http_file*);
 
-    static int	python_runtime_http_request(void *, struct http_request *);
-    static int	python_runtime_validator(void *, struct http_request *, const void*);
-    static void	python_runtime_wsmessage(void *, struct connection *, uint8_t, const void *, size_t);
+    static int	python_runtime_http_request(void*, struct http_request*);
+    static int	python_runtime_validator(void*, struct http_reques*, const void*);
+    static void	python_runtime_wsmessage(void*, struct connection*, uint8_t, const void*, size_t);
 #endif
 
 #ifdef CF_PGSQL
@@ -143,6 +143,11 @@ void cf_python_cleanup(void)
     }
 }
 
+void cf_python_path(const char *path)
+{
+    python_append_path(path);
+}
+
 static void* python_malloc(void *ctx, size_t len)
 {
     return mem_malloc(len);
@@ -172,18 +177,17 @@ static void python_log_error(const char *function)
 
 	PyErr_Fetch(&type, &value, &traceback);
 
-    if (type == NULL || value == NULL || traceback == NULL)
+    if(type == NULL || value == NULL || traceback == NULL)
     {
         cf_log(LOG_ERR, "unknown python exception in '%s'", function);
 		return;
 	}
 
-    cf_log(LOG_ERR,
-	    "python exception in '%s' - type:%s - value:%s - trace:%s",
-	    function,
-	    PyUnicode_AsUTF8AndSize(type, NULL),
-	    PyUnicode_AsUTF8AndSize(value, NULL),
-	    PyUnicode_AsUTF8AndSize(traceback, NULL));
+    cf_log( LOG_ERR,"python exception in '%s' - type:%s - value:%s - trace:%s",
+            function,
+            PyUnicode_AsUTF8AndSize(type, NULL),
+            PyUnicode_AsUTF8AndSize(value, NULL),
+            PyUnicode_AsUTF8AndSize(traceback, NULL));
 
 	Py_DECREF(type);
 	Py_DECREF(value);

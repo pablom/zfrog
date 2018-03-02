@@ -97,6 +97,7 @@ static int configure_socket_backlog(char *);
 #endif
 
 #ifdef CF_PYTHON
+    static int configure_python_path(char *);
     static int configure_python_import(char *);
 #endif
 #ifdef CF_LUA
@@ -116,6 +117,7 @@ static struct {
     { "load",                       configure_load },
 #endif
 #ifdef CF_PYTHON
+    { "python_path",		        configure_python_path },
     { "python_import",              configure_python_import },
 #endif
 #ifdef CF_LUA
@@ -1176,6 +1178,11 @@ static int configure_task_threads( char *option )
 #endif
 
 #ifdef CF_PYTHON
+static int configure_python_path( char *path )
+{
+    cf_python_path(path);
+    return CF_RESULT_OK;
+}
 static int configure_python_import( char *module  )
 {
     char *argv[3];

@@ -567,7 +567,7 @@ int cf_base64_encode( const void *data, size_t len, char **out )
 /****************************************************************
  *  Helper function BASE64 decode string to binary buffer
  ****************************************************************/
-int cf_base64_decode( char *in, size_t ilen, uint8_t **out, size_t *olen )
+int cf_base64_decode( const char *in, size_t ilen, uint8_t **out, size_t *olen )
 {
     int	i, c;
     struct cf_buf *res;
