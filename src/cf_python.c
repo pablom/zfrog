@@ -32,7 +32,7 @@ static void	python_push_type(const char*, PyObject*, PyTypeObject*);
     static PyObject *pyhttp_file_alloc(struct http_file*);
 
     static int	python_runtime_http_request(void*, struct http_request*);
-    static int	python_runtime_validator(void*, struct http_reques*, const void*);
+    static int	python_runtime_validator(void*, struct http_request*, const void*);
     static void	python_runtime_wsmessage(void*, struct connection*, uint8_t, const void*, size_t);
 #endif
 
