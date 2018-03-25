@@ -251,6 +251,7 @@ static void init_server_config( void )
     server.http_keepalive_time = HTTP_KEEPALIVE_TIME;
     server.http_header_max = HTTP_HEADER_MAX_LEN;
     server.http_request_limit = HTTP_REQUEST_LIMIT;
+    server.http_request_ms = HTTP_REQUEST_MS;
     server.http_body_disk_offload = HTTP_BODY_DISK_OFFLOAD;
     server.http_hsts_enable = HTTP_HSTS_ENABLE;
     server.http_body_disk_path = HTTP_BODY_DISK_PATH;

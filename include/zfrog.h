@@ -536,6 +536,7 @@ struct zfrogServer
     size_t      http_body_max;
     uint16_t    http_keepalive_time;
     uint16_t    http_header_max;
+    uint32_t	http_request_ms;
     uint32_t    http_request_limit;
     uint64_t    http_body_disk_offload;
     uint64_t    http_hsts_enable;

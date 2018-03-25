@@ -73,6 +73,7 @@ static int configure_socket_backlog(char *);
     static int configure_http_body_max(char *);
     static int configure_http_hsts_enable(char *);
     static int configure_http_keepalive_time(char *);
+    static int configure_http_request_ms(char*);
     static int configure_http_request_limit(char *);
     static int configure_http_body_disk_offload(char *);
     static int configure_http_body_disk_path(char *);
@@ -150,6 +151,7 @@ static struct {
     { "http_body_max",              configure_http_body_max },
     { "http_hsts_enable",           configure_http_hsts_enable },
     { "http_keepalive_time",        configure_http_keepalive_time },
+    { "http_request_ms",		    configure_http_request_ms },
     { "http_request_limit",         configure_http_request_limit },
     { "http_body_disk_offload",     configure_http_body_disk_offload },
     { "http_body_disk_path",        configure_http_body_disk_path },
@@ -713,6 +715,19 @@ static int configure_http_keepalive_time( char *option )
 
     return CF_RESULT_OK;
 }
+static int configure_http_request_ms(char *option)
+ {
+    int	err;
+
+    server.http_request_ms = cf_strtonum(option, 10, 0, UINT_MAX, &err);
+    if( err != CF_RESULT_OK )
+    {
+        printf("bad http_request_ms value: %s\n", option);
+        return CF_RESULT_ERROR;
+    }
+
+    return CF_RESULT_OK;
+ }
 /************************************************************************
  *  Read HTTP request limit from configuration file
  ************************************************************************/

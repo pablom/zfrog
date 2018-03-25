@@ -174,9 +174,8 @@ static void websocket_frame_build(struct cf_buf *frame, uint8_t op, const void *
 		else
 			len_1 = WEBSOCKET_PAYLOAD_EXTEND_2;
     }
-    else {
+    else
 		len_1 = len;
-	}
 
 	op |= (1 << 7);
     cf_buf_append(frame, &op, sizeof(op));
@@ -203,7 +202,7 @@ static void websocket_frame_build(struct cf_buf *frame, uint8_t op, const void *
         cf_buf_append(frame, data, len);
 }
 
-static int websocket_recv_opcode(struct netbuf *nb)
+static int websocket_recv_opcode( struct netbuf* nb )
 {
     uint8_t op, len;
     struct connection *c = nb->owner;
@@ -246,7 +245,8 @@ static int websocket_recv_opcode(struct netbuf *nb)
         return CF_RESULT_ERROR;
 	}
 
-	switch (len) {
+    switch( len )
+    {
 	case WEBSOCKET_PAYLOAD_EXTEND_1:
         len += sizeof(uint16_t);
 		break;
@@ -261,7 +261,7 @@ static int websocket_recv_opcode(struct netbuf *nb)
     return CF_RESULT_OK;
 }
 
-static int websocket_recv_frame(struct netbuf *nb)
+static int websocket_recv_frame( struct netbuf* nb )
 {
     struct connection *c = NULL;
     int	ret;

@@ -325,12 +325,12 @@ void http_request_wakeup( struct http_request *req )
 
 void http_process( void )
 {
-    uint32_t count = 0;
+    uint64_t total = 0;
     struct http_request *req, *next;
 
     for( req = TAILQ_FIRST(&http_requests); req != NULL; req = next )
     {
-        if( count >= server.http_request_limit )
+        if( total >= server.http_request_ms )
 			break;
 
 		next = TAILQ_NEXT(req, list);
@@ -347,8 +347,8 @@ void http_process( void )
         if( !(req->flags & HTTP_REQUEST_COMPLETE) )
 			continue;
 
-		count++;
 		http_process_request(req);
+        total += req->ms;
 	}
 }
 
@@ -386,7 +386,8 @@ void http_process_request( struct http_request *req )
         cf_fatal("cf_auth() returned unknown %d", r);
 	}
 	req->end = cf_time_ms();
-	req->total += req->end - req->start;
+    req->ms = req->end - req->start;
+    req->total += req->ms;
 
     switch( r )
     {
