@@ -713,7 +713,7 @@ int http_header_recv( struct netbuf *nb )
 
 	*end_headers = '\0';
 	end_headers += skip;
-	len = end_headers - nb->buf;
+    len = (size_t)(end_headers - nb->buf);
 	hbuf = (char *)nb->buf;
 
 	h = cf_split_string(hbuf, "\r\n", headers, HTTP_REQ_HEADER_MAX);
@@ -988,7 +988,7 @@ int http_argument_urldecode( char *arg )
 		h[3] = *(p + 2);
 		h[4] = '\0';
 
-		v = cf_strtonum(h, 16, 0, 255, &err);
+        v = (uint8_t)cf_strtonum(h, 16, 0, 255, &err);
         if( err != CF_RESULT_OK )
             return err;
 
@@ -1255,7 +1255,7 @@ void http_populate_multipart_form( struct http_request *req )
                     /* Allocate (init) input buffer */
                     cf_buf_init(&in, 128);
 
-                    if( multipart_find_data(&in, NULL, NULL, req, boundary, blen) )
+                    if( multipart_find_data(&in, NULL, NULL, req, boundary, (size_t)blen) )
                     {
                         struct cf_buf out;
 
@@ -1345,7 +1345,7 @@ ssize_t http_body_read( struct http_request *req, void *out, size_t len )
     {
         memcpy( out, (req->http_body->data + req->http_body->offset), toread );
 		req->http_body->offset += toread;
-		ret = toread;
+        ret = (ssize_t)toread;
     }
     else
     {
@@ -1453,7 +1453,7 @@ static int multipart_find_data(struct cf_buf *in, struct cf_buf *out, size_t *ol
             if( ret == 0 )
                 return CF_RESULT_ERROR;
 
-            cf_buf_append(in, data, ret);
+            cf_buf_append(in, data, (size_t)ret);
 			continue;
 		}
 

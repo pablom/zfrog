@@ -94,13 +94,17 @@ workers		4
 #
 #	http_request_limit	Limit the number of requests zFrog processes
 #				in a single event loop.
+#       http_request_ms		The number of milliseconds workers can max
+#				spend inside the HTTP processing loop.
+
 #http_header_max	    4096
 #http_body_max		    1024000
-#http_keepalive_time	0
+#http_keepalive_time	    0
 #http_hsts_enable	    31536000
 #http_request_limit	    1000
-#http_body_disk_offload	0
-#http_body_disk_path	tmp_files
+#http_request_ms	    10
+#http_body_disk_offload	    0
+#http_body_disk_path	    tmp_files
 
 # Websocket specific settings.
 #	websocket_maxframe	Specifies the maximum frame size we can receive

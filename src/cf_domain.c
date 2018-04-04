@@ -393,20 +393,6 @@ void cf_domain_tls_init( struct cf_domain *dom )
 
 	SSL_CTX_set_session_id_context(dom->ssl_ctx,(unsigned char *)SSL_SESSION_ID, strlen(SSL_SESSION_ID));
 
-	/*
-	 * Force OpenSSL to not use its freelists. Even without using
-	 * SSL_MODE_RELEASE_BUFFERS there are times it will use the
-	 * freelists. So forcefully putting its max length to 0 is the
-	 * only we choice we seem to have.
-	 *
-	 * Note that OpenBSD has since heartbleed removed freelists
-	 * from its OpenSSL in base so we don't need to care about it.
-	 */
-#if !defined(LIBRESSL_VERSION_TEXT)
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    dom->ssl_ctx->freelist_max_len = 0;
-#endif
-#endif
 	SSL_CTX_set_mode(dom->ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
 
     if( server.tls_version == CF_TLS_VERSION_BOTH )

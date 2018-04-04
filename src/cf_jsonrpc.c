@@ -52,7 +52,9 @@ static void init_request( struct jsonrpc_request *req )
 	req->log_levels = (1 << LOG_EMERG) | (1 << LOG_ERR) | (1 << LOG_WARNING)| (1 << LOG_NOTICE);        
     req->flags = 0;
 }
-
+/****************************************************************
+ *  Delete (clear) JSON rpc request
+ ****************************************************************/
 void jsonrpc_destroy_request( struct jsonrpc_request *req )
 {
     if( req->gen != NULL )
@@ -70,7 +72,9 @@ void jsonrpc_destroy_request( struct jsonrpc_request *req )
     cf_buf_cleanup(&req->buf);
 	free_log(&req->log);
 }
-
+/****************************************************************
+ *  Log out JSON rpc request
+ ****************************************************************/
 void jsonrpc_log( struct jsonrpc_request *req, int lvl, const char *fmt, ... )
 {
 	va_list	ap;
@@ -226,7 +230,7 @@ int jsonrpc_read_request( struct http_request *http_req, struct jsonrpc_request 
 	return parse_json_body(req);
 }
 /****************************************************************
- *  Write response JRPC id
+ *  Write response jrpc id
  ****************************************************************/
 static int write_id( yajl_gen gen, yajl_val id )
 {
@@ -320,7 +324,7 @@ static int write_log( struct jsonrpc_request *req )
     return status;
 }
 
-static int write_error(struct jsonrpc_request *req, int code, const char *message)
+static int write_error( struct jsonrpc_request *req, int code, const char *message )
 {
 	int	status;
 
@@ -379,7 +383,9 @@ static const char* known_msg( int code )
         return NULL;
 	}
 }
-
+/****************************************************************
+ *  JSON rpc error response
+ ****************************************************************/
 int jsonrpc_error( struct jsonrpc_request *req, int code, const char *msg )
 {
     char *msg_fallback = NULL;
@@ -434,7 +440,9 @@ int jsonrpc_error( struct jsonrpc_request *req, int code, const char *msg )
 	jsonrpc_destroy_request(req);
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  JSON rpc response
+ ****************************************************************/
 int jsonrpc_result( struct jsonrpc_request *req, int (*write_result)(struct jsonrpc_request *, void *), void *ctx )
 {
 	const unsigned char	*body = NULL;

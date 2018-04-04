@@ -116,21 +116,21 @@ struct cfile
 TAILQ_HEAD(cfile_list, cfile);
 
 static struct cli_buf *cli_buf_alloc(size_t);
-static void	cli_buf_free(struct cli_buf *);
-static char	*cli_buf_stringify(struct cli_buf *, size_t *);
-static void	cli_buf_append(struct cli_buf *, const void *, size_t);
-static void	cli_buf_appendf(struct cli_buf *, const char *, ...);
-static void	cli_buf_appendv(struct cli_buf *, const char *, va_list);
-static int cli_proc_path( void *buf, size_t len );
+static void	cli_buf_free(struct cli_buf*);
+static char	*cli_buf_stringify(struct cli_buf*, size_t*);
+static void	cli_buf_append(struct cli_buf*, const void*, size_t);
+static void	cli_buf_appendf(struct cli_buf*, const char*, ...);
+static void	cli_buf_appendv(struct cli_buf*, const char*, va_list);
+static int cli_proc_path(void*, size_t);
 
 static void *cli_malloc(size_t);
-static char	*cli_strdup(const char *);
-static void	*cli_realloc(void *, size_t);
+static char	*cli_strdup(const char*);
+static void	*cli_realloc(void*, size_t);
 
-static char	*cli_text_trim(char *, size_t);
-static char	*cli_read_line(FILE *, char *, size_t);
-static long long cli_strtonum(const char *, long long, long long);
-static int cli_split_string(char *, const char *, char **, size_t);
+static char	*cli_text_trim(char*, size_t);
+static char	*cli_read_line(FILE*, char*, size_t);
+static long long cli_strtonum(const char*, long long, long long);
+static int cli_split_string(char*, const char*, char**, size_t);
 
 static void	cli_usage(void) __attribute__((noreturn));
 static void	cli_fatal(const char *, ...) __attribute__((noreturn));
@@ -138,58 +138,58 @@ static void	cli_fatal(const char *, ...) __attribute__((noreturn));
 static void	cli_file_close(int);
 static void	cli_run_zfrog(void);
 static void	cli_generate_certs(void);
-static void	cli_compile_zfrog(void *);
-static void	cli_link_application(void *);
-static void	cli_compile_source_file(void *);
-static void	cli_mkdir(const char *, int);
-static int	cli_dir_exists(const char *);
-static int	cli_file_exists(const char *);
-static void	cli_cleanup_files(const char *);
-static void	cli_build_cflags(struct buildopt *);
-static void	cli_build_cxxflags(struct buildopt *);
-static void	cli_build_ldflags(struct buildopt *);
-static void	cli_file_read(int, char **, size_t *);
-static void	cli_file_writef(int, const char *, ...);
-static void	cli_file_open(const char *, int, int *);
-static void	cli_file_remove(char *, struct dirent *);
-static void	cli_build_asset(char *, struct dirent *);
-static void	cli_file_write(int, const void *, size_t);
-static int	cli_vasprintf(char **, const char *, ...);
-static void	cli_spawn_proc(void (*cb)(void *), void *);
-static void	cli_write_asset(const char *, const char *,struct buildopt *);
-static void	cli_register_file(char *, struct dirent *);
-static void	cli_register_source_file(char *, struct dirent *);
-static void	cli_file_create(const char *, const char *, size_t);
-static int	cli_file_requires_build(struct stat *, const char *);
-static void	cli_find_files(const char *, void (*cb)(char *, struct dirent *));
-static void	cli_add_source_file(char *, char *, char *, struct stat *, int);
+static void	cli_compile_zfrog(void*);
+static void	cli_link_application(void*);
+static void	cli_compile_source_file(void*);
+static void	cli_mkdir(const char*, int);
+static int	cli_dir_exists(const char*);
+static int	cli_file_exists(const char*);
+static void	cli_cleanup_files(const char*);
+static void	cli_build_cflags(struct buildopt*);
+static void	cli_build_cxxflags(struct buildopt*);
+static void	cli_build_ldflags(struct buildopt*);
+static void	cli_file_read(int, char**, size_t*);
+static void	cli_file_writef(int, const char*, ...);
+static void	cli_file_open(const char*, int, int*);
+static void	cli_file_remove(char*, struct dirent*);
+static void	cli_build_asset(char*, struct dirent*);
+static void	cli_file_write(int, const void*, size_t);
+static int	cli_vasprintf(char**, const char*, ...);
+static void	cli_spawn_proc(void (*cb)(void *), void*);
+static void	cli_write_asset(const char*, const char*,struct buildopt*);
+static void	cli_register_file(char*, struct dirent*);
+static void	cli_register_source_file(char*, struct dirent*);
+static void	cli_file_create(const char*, const char*, size_t);
+static int	cli_file_requires_build(struct stat *, const char*);
+static void	cli_find_files(const char*, void (*cb)(char *, struct dirent*));
+static void	cli_add_source_file(char*, char*, char*, struct stat*, int);
 
-static struct buildopt	*cli_buildopt_default(void);
-static struct buildopt	*cli_buildopt_new(const char *);
-static struct buildopt	*cli_buildopt_find(const char *);
+static struct buildopt* cli_buildopt_default(void);
+static struct buildopt* cli_buildopt_new(const char*);
+static struct buildopt* cli_buildopt_find(const char*);
 static void	cli_buildopt_cleanup(void);
-static void	cli_buildopt_parse(const char *);
-static void	cli_buildopt_cflags(struct buildopt *, const char *);
-static void	cli_buildopt_cxxflags(struct buildopt *, const char *);
-static void	cli_buildopt_ldflags(struct buildopt *, const char *);
-static void	cli_buildopt_single_binary(struct buildopt *, const char *);
-static void	cli_buildopt_source(struct buildopt *, const char *);
-static void	cli_buildopt_flavor(struct buildopt *, const char *);
-static void	cli_buildopt_mime(struct buildopt *, const char *);
+static void	cli_buildopt_parse(const char*);
+static void	cli_buildopt_cflags(struct buildopt*, const char*);
+static void	cli_buildopt_cxxflags(struct buildopt*, const char*);
+static void	cli_buildopt_ldflags(struct buildopt *, const char*);
+static void	cli_buildopt_single_binary(struct buildopt*, const char*);
+static void	cli_buildopt_source(struct buildopt*, const char*);
+static void	cli_buildopt_flavor(struct buildopt*, const char*);
+static void	cli_buildopt_mime(struct buildopt*, const char*);
 
 static void	cli_flavor_load(void);
-static void	cli_flavor_change(const char *);
-static void	cli_features(struct buildopt *, char **, size_t *);
+static void	cli_flavor_change(const char*);
+static void	cli_features(struct buildopt*, char**, size_t*);
 
-static void	cli_run(int, char **);
-static void	cli_help(int, char **);
-static void	cli_info(int, char **);
-static void	cli_build(int, char **);
-static void	cli_clean(int, char **);
-static void cli_distclean(int, char **);
-static void	cli_create(int, char **);
-static void	cli_reload(int, char **);
-static void	cli_flavor(int, char **);
+static void	cli_run(int, char**);
+static void	cli_help(int, char**);
+static void	cli_info(int, char**);
+static void	cli_build(int, char**);
+static void	cli_clean(int, char**);
+static void cli_distclean(int, char**);
+static void	cli_create(int, char**);
+static void	cli_reload(int, char**);
+static void	cli_flavor(int, char**);
 
 static void	file_create_src(void);
 static void	file_create_config(void);
@@ -650,7 +650,6 @@ static void cli_build( int argc, char **argv )
     else
         cli_vasprintf(&sofile, "%s.so", appl);
 
-
     if( !cli_file_exists(sofile) && source_files_count > 0 )
 		requires_relink++;
 
@@ -989,6 +988,7 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
     if( st.st_size == 0 )
     {
 		printf("skipping empty asset %s\n", name);
+        free( name );
 		return;
 	}
 
@@ -1056,7 +1056,7 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
 	mime = NULL;
     TAILQ_FOREACH(mime, &mime_types, list)
     {
-		if (!strcasecmp(mime->ext, ext))
+        if( !strcasecmp(mime->ext, ext) )
 			break;
 	}
 
@@ -1096,7 +1096,7 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
 	free(name);
 }
 /*----------------------------------------------------------------------------*/
-static void cli_add_source_file(char *name, char *fpath, char *opath, struct stat *st, int build)
+static void cli_add_source_file(char* name, char* fpath, char* opath, struct stat* st, int build)
 {
     struct cfile *cf = NULL;
 
@@ -1112,7 +1112,7 @@ static void cli_add_source_file(char *name, char *fpath, char *opath, struct sta
 	TAILQ_INSERT_TAIL(&source_files, cf, list);
 }
 /*----------------------------------------------------------------------------*/
-static void cli_register_source_file(char *fpath, struct dirent *dp)
+static void cli_register_source_file(char* fpath, struct dirent* dp)
 {
     struct stat st;
     char *ext, *opath;
@@ -1145,7 +1145,7 @@ static void cli_register_source_file(char *fpath, struct dirent *dp)
 	cli_add_source_file(dp->d_name, fpath, opath, &st, build);
 }
 /*----------------------------------------------------------------------------*/
-static void cli_register_file( char *fpath, struct dirent *dp )
+static void cli_register_file( char* fpath, struct dirent* dp )
 {
     struct stat st, ost;
     char *opath, *ext, *fname;
@@ -1377,7 +1377,7 @@ static void cli_link_application(void *arg)
 
 	bopt = arg;
 
-	if (bopt->single_binary)
+    if( bopt->single_binary )
         cli_vasprintf(&output, "%s", appl);
 	else
         cli_vasprintf(&output, "%s.so", appl);
@@ -1469,9 +1469,9 @@ static void cli_run_zfrog(void)
     {
 		args[2] = cpath;
 		args[3] = NULL;
-	} else {
+    }
+    else
 		args[2] = NULL;
-	}
 
 	execvp(args[0], args);
     cli_fatal("failed to start '%s': %s", args[0], errno_s);
@@ -1504,12 +1504,16 @@ static void cli_buildopt_parse(const char *path)
         {
             if( (t = strchr(p, '=')) != NULL )
 				goto parse_option;
+
             if( (t = strchr(p, ' ')) == NULL )
                 cli_fatal("unexpected '%s'", p);
-			*(t)++ = '\0';
+
+            *(t)++ = '\0';
+
             if( strcmp(t, "{") )
                 cli_fatal("expected '{', got '%s'", t);
-			bopt = cli_buildopt_new(p);
+
+            bopt = cli_buildopt_new(p);
 			continue;
 		}
 
@@ -1526,25 +1530,21 @@ parse_option:
 		t = cli_text_trim(t, strlen(t));
 
         if( !strcasecmp(p, "cflags") )
-        {
 			cli_buildopt_cflags(bopt, t);
-        }
         else if( !strcasecmp(p, "cxxflags") )
-        {
 			cli_buildopt_cxxflags(bopt, t);
-		} else if (!strcasecmp(p, "ldflags")) {
+        else if (!strcasecmp(p, "ldflags"))
 			cli_buildopt_ldflags(bopt, t);
-		} else if (!strcasecmp(p, "single_binary")) {
+        else if (!strcasecmp(p, "single_binary"))
 			cli_buildopt_single_binary(bopt, t);
-        } else if (!strcasecmp(p, "cf_source")) {
+        else if (!strcasecmp(p, "cf_source"))
             cli_buildopt_source(bopt, t);
-        } else if (!strcasecmp(p, "cf_flavor")) {
+        else if (!strcasecmp(p, "cf_flavor"))
             cli_buildopt_flavor(bopt, t);
-		} else if (!strcasecmp(p, "mime_add")) {
+        else if (!strcasecmp(p, "mime_add"))
 			cli_buildopt_mime(bopt, t);
-		} else {
+        else
 			printf("ignoring unknown option '%s'\n", p);
-		}
 	}
 
 	fclose(fp);
@@ -1611,6 +1611,7 @@ static void cli_buildopt_cleanup(void)
             free(bopt->cf_source);
         if( bopt->cf_flavor != NULL )
             free(bopt->cf_flavor);
+
 		free(bopt);
 	}
 
@@ -1897,7 +1898,7 @@ static void cli_build_ldflags( struct buildopt *bopt )
     if( obopt != NULL && obopt->ldflags != NULL )
     {
         cli_buf_append(bopt->ldflags, obopt->ldflags->data, obopt->ldflags->offset);
-	}
+    }
 
 	string = cli_buf_stringify(bopt->ldflags, NULL);
 	printf("LDFLAGS=%s\n", string);
