@@ -124,7 +124,7 @@ void cf_mem_pool_put( struct cf_mem_pool *pool, void *ptr )
 static void pool_region_create(struct cf_mem_pool *pool, size_t elms)
 {
     size_t i;
-    uint8_t *p = NULL;
+    void *p = NULL;
     struct cf_mem_pool_region *reg = NULL;
     struct cf_mem_pool_entry *entry = NULL;
 
@@ -142,7 +142,7 @@ static void pool_region_create(struct cf_mem_pool *pool, size_t elms)
 	reg->length = elms * pool->slen;
     reg->start = mmap(NULL, reg->length, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
-    if( reg->start == NULL ) {
+    if( reg->start == MAP_FAILED ) {
         cf_fatal("mmap: %s", errno_s);
     }
 
@@ -155,7 +155,7 @@ static void pool_region_create(struct cf_mem_pool *pool, size_t elms)
 		entry->state = POOL_ELEMENT_FREE;
 		LIST_INSERT_HEAD(&(pool->freelist), entry, list);
 
-		p = p + pool->slen;
+        p = ((uint8_t *)p + pool->slen);
 	}
 
 	pool->elms += elms;
