@@ -8,9 +8,10 @@
     #include "cf_http.h"
 #endif
 
-static void	native_runtime_execute(void *);
-static int	native_runtime_onload(void *, int);
-static void	native_runtime_connect(void *, struct connection *);
+static void	native_runtime_execute(void*);
+static int	native_runtime_onload(void*, int);
+static void	native_runtime_connect(void*, struct connection*);
+static void	native_runtime_configure(void*, int, char**);
 
 #ifndef CF_NO_HTTP
     static int native_runtime_http_request(void*, struct http_request*);
@@ -30,7 +31,8 @@ struct cf_runtime cf_native_runtime =
 #endif
 	.onload = native_runtime_onload,
     .connect = native_runtime_connect,
-    .execute = native_runtime_execute
+    .execute = native_runtime_execute,
+    .configure = native_runtime_configure
 };
 
 struct cf_runtime_call * cf_runtime_getcall(const char *symbol)
@@ -91,6 +93,14 @@ void cf_runtime_wsdisconnect(struct cf_runtime_call *rcall, struct connection *c
     rcall->runtime->wsdisconnect(rcall->addr, c);
 }
 #endif
+
+static void native_runtime_configure( void* addr, int argc, char** argv )
+{
+    void (*cb)(int, char **);
+
+    *(void **)&(cb) = addr;
+    cb(argc, argv);
+}
 
 static void native_runtime_execute(void *addr)
 {

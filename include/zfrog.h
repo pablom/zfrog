@@ -241,15 +241,16 @@ struct cf_runtime
 {
     int	type;
 #ifndef CF_NO_HTTP
-    int	(*http_request)(void *, struct http_request *);
-    int	(*validator)(void *, struct http_request *, const void *);
-    void (*wsconnect)(void *, struct connection *);
-    void (*wsdisconnect)(void *, struct connection *);
-    void (*wsmessage)(void *, struct connection *, uint8_t, const void *, size_t);
+    int	(*http_request)(void*, struct http_request*);
+    int	(*validator)(void*, struct http_request*, const void*);
+    void (*wsconnect)(void*, struct connection*);
+    void (*wsdisconnect)(void*, struct connection*);
+    void (*wsmessage)(void*, struct connection*, uint8_t, const void*, size_t);
 #endif
-    int	 (*onload)(void *, int);
-    void (*connect)(void *, struct connection *);    
-    void (*execute)(void *);
+    int	 (*onload)(void*, int);
+    void (*connect)(void*, struct connection*);
+    void (*execute)(void*);
+    void (*configure)(void*, int, char**);
 };
 
 struct cf_runtime_call
@@ -718,10 +719,11 @@ void cf_domain_callback(void (*cb)(struct cf_domain *));
 int	 cf_module_handler_new(const char *, const char *, const char *, const char *, int);
 void cf_module_handler_free( struct cf_module_handle * );
 
-void   cf_runtime_execute(struct cf_runtime_call *);
+void cf_runtime_execute(struct cf_runtime_call *);
 struct cf_runtime_call	*cf_runtime_getcall(const char *);
-int	   cf_runtime_onload(struct cf_runtime_call *, int);
-void   cf_runtime_connect(struct cf_runtime_call *, struct connection *);
+int	cf_runtime_onload(struct cf_runtime_call *, int);
+void cf_runtime_connect(struct cf_runtime_call *, struct connection *);
+void cf_runtime_configure(struct cf_runtime_call*, int, char**);
 
 #ifndef CF_NO_HTTP
     int	cf_auth_run(struct http_request*, struct cf_auth*);
@@ -805,6 +807,10 @@ int cf_is_hex_digit(char);
 void cf_bytes_to_human(char*,unsigned long long);
 
 int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ );
+
+void cf_worker_configure(void);
+void cf_parent_configure(int, char**);
+
 
 /* Some macros to help */
 #define BITMASK_SET(x,y) ((x) |= (y))

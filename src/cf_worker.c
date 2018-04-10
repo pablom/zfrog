@@ -362,7 +362,6 @@ static void worker_entry( struct cf_worker *kw )
     cf_domain_load_crl();
     cf_domain_keymgr_init();
 
-
     cf_platform_event_init();
     cf_msg_worker_init();
 
@@ -391,6 +390,7 @@ static void worker_entry( struct cf_worker *kw )
 
     cf_log(LOG_NOTICE, "worker %d (%d) started (cpu#%d)", kw->id, kw->pid, kw->cpu );
 
+    /* Try to call */
     if( (rcall = cf_runtime_getcall("cf_worker_configure")) != NULL )
     {
         cf_runtime_execute(rcall);

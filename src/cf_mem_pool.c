@@ -72,7 +72,7 @@ void* cf_mem_pool_get( struct cf_mem_pool *pool )
 
     if( LIST_EMPTY(&(pool->freelist)) )
     {
-        cf_log(LOG_NOTICE, "pool %s is exhausted (%zu/%zu)", pool->name, pool->inuse, pool->elms);
+        //cf_log(LOG_NOTICE, "pool %s is exhausted (%zu/%zu)", pool->name, pool->inuse, pool->elms);
 		pool_region_create(pool, pool->elms);
 	}
 
