@@ -83,7 +83,7 @@ static void testfn( void )
 
     memset(timestamp, 0, sizeof(timestamp));
 
-    strftime_l(timestamp, sizeof(timestamp) - 1, "%a, %d %b %Y %T %z", &time_info, LC_GLOBAL_LOCALE);
+    strftime_l(timestamp, sizeof(timestamp) - 1, "%a, %d %b %Y %T %z", &time_info, /*LC_GLOBAL_LOCALE*/ 0);
 }
 
 /****************************************************************

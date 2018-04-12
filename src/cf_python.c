@@ -394,10 +394,7 @@ static PyObject* python_log( PyObject *self, PyObject *args )
     const char *message = NULL;
 
     if( !PyArg_ParseTuple(args, "is", &prio, &message) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     cf_log(prio, "%s", message);
 
@@ -409,10 +406,7 @@ static PyObject* python_listen(PyObject *self, PyObject *args)
     const char *ip, *port, *ccb;
 
     if( !PyArg_ParseTuple(args, "sss", &ip, &port, &ccb) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( !strcmp(ccb, "") )
         ccb = NULL;
@@ -602,8 +596,8 @@ static int python_runtime_http_request(void *addr, struct http_request *req)
 
     if( pyret == NULL )
     {
-        python_log_error("python_runtime_http_request");
-        cf_fatal("failed to execute python call");
+        http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
+        return CF_RESULT_OK;
     }
 
     if( PyCoro_CheckExact(pyret) )
@@ -756,10 +750,7 @@ static PyObject* pyhttp_response(struct pyhttp_request *pyreq, PyObject *args)
     int status, len = -1;
 
     if( !PyArg_ParseTuple(args, "iy#", &status, &body, &len) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( len < 0 )
     {
@@ -777,10 +768,7 @@ static PyObject* pyhttp_response_header(struct pyhttp_request *pyreq, PyObject *
     const char  *header, *value;
 
     if( !PyArg_ParseTuple(args, "ss", &header, &value) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     http_response_header(pyreq->req, header, value);
 
@@ -794,10 +782,7 @@ static PyObject* pyhttp_request_header(struct pyhttp_request *pyreq, PyObject *a
     PyObject *result = NULL;
 
     if( !PyArg_ParseTuple(args, "s", &header) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( !http_request_header(pyreq->req, header, &value) ) {
         Py_RETURN_NONE;
@@ -868,10 +853,7 @@ static PyObject* pyhttp_argument(struct pyhttp_request *pyreq, PyObject *args)
     char *string = NULL;
 
     if( !PyArg_ParseTuple(args, "s", &name) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( !http_argument_get_string(pyreq->req, name, &string) ) {
         Py_RETURN_NONE;
@@ -888,10 +870,7 @@ static PyObject* pyhttp_websocket_handshake(struct pyhttp_request *pyreq, PyObje
     const char  *onconnect, *onmsg, *ondisconnect;
 
     if( !PyArg_ParseTuple(args, "sss", &onconnect, &onmsg, &ondisconnect) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     cf_websocket_handshake(pyreq->req, onconnect, onmsg, ondisconnect);
 
@@ -909,12 +888,8 @@ static PyObject* pyconnection_websocket_send(struct pyconnection *pyc, PyObject 
         return NULL;
     }
 
-
     if( !PyArg_ParseTuple(args, "iy#", &op, &data, &len) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( len < 0 )
     {
@@ -946,10 +921,7 @@ static PyObject* python_websocket_broadcast( PyObject *self, PyObject *args )
     int op, broadcast, len =-1;
 
     if( !PyArg_ParseTuple(args, "Oiy#i", &pysrc, &op, &data, &len, &broadcast) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( len < 0 )
     {
@@ -1126,10 +1098,7 @@ static PyObject* pyhttp_file_lookup(struct pyhttp_request *pyreq, PyObject *args
     PyObject *pyfile = NULL;
 
     if( !PyArg_ParseTuple(args, "s", &name) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( (file = http_file_lookup(pyreq->req, name)) == NULL ) {
         Py_RETURN_NONE;
@@ -1203,10 +1172,7 @@ static PyObject* pyhttp_cookie( struct pyhttp_request *pyreq, PyObject *args )
     char        *string = NULL;
 
     if( !PyArg_ParseTuple(args, "s", &name) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( !http_request_cookie(pyreq->req, name, &string) ) {
         Py_RETURN_NONE;
@@ -1227,10 +1193,7 @@ static PyObject* python_pgsql_register( PyObject *self, PyObject *args )
     const char *db, *conninfo;
 
     if( !PyArg_ParseTuple(args, "ss", &db, &conninfo) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     cf_pgsql_register( db, conninfo );
 
@@ -1415,10 +1378,7 @@ static PyObject* pyhttp_pgsql( struct pyhttp_request *pyreq, PyObject *args )
     const char *db, *query;
 
     if( !PyArg_ParseTuple(args, "ss", &db, &query) )
-    {
-        PyErr_SetString(PyExc_TypeError, "invalid parameters");
         return NULL;
-    }
 
     if( (obj = python_pgsql_alloc(pyreq->req, db, query)) == NULL )
         return PyErr_NoMemory();
