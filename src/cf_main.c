@@ -63,7 +63,7 @@ static void	write_pid(void);
 static void testfn( void )
 {
 #include <locale.h>
-#include <xlocale.h>
+//#include <xlocale.h>
     time_t		time_value;
     struct tm	time_info;
     char		timestamp[133];
