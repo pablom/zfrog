@@ -106,7 +106,7 @@ static int configure_socket_backlog(char *);
 #endif
 
 static void	domain_tls_init( void );
-static void	parse_config_file( const char * );
+static void	parse_config_file(FILE*);
 
 static struct {
     const char	*name;
@@ -193,10 +193,15 @@ static struct cf_domain	*current_domain = NULL;
  ************************************************************************/
 void cf_parse_config(void)
 {
-#ifndef CF_SINGLE_BINARY
-    parse_config_file( server.config_file );
+    FILE* fp = NULL;
+
+#ifndef CF_SINGLE_BINARY        
+    log_debug("parsing configuration file '%s'", server.config_file);
+
+    if( (fp = fopen(server.config_file, "r")) == NULL )
+        cf_fatal("configuration given cannot be opened: %s", server.config_file);
 #else
-    parse_config_file(NULL);
+    fp = config_file_write();
 #endif
 
     if( !cf_module_loaded() )
@@ -222,20 +227,10 @@ void cf_parse_config(void)
 /************************************************************************
  *  Helper function to parse configuration file
  ************************************************************************/
-static void parse_config_file( const char *fpath )
+static void parse_config_file( FILE *fp )
 {
-    FILE *fp = NULL;
     int	i, lineno;
     char buf[BUFSIZ], *p, *t;
-
-#ifndef CF_SINGLE_BINARY
-    if( (fp = fopen(fpath, "r")) == NULL )
-        cf_fatal("configuration given cannot be opened: %s", fpath);
-#else
-	fp = config_file_write();
-#endif
-
-    log_debug("parsing configuration file '%s'", fpath);
 
 	lineno = 1;
     while( (p = cf_fread_line(fp, buf, sizeof(buf))) != NULL )
@@ -313,10 +308,19 @@ static void parse_config_file( const char *fpath )
 
 	fclose(fp);
 }
-
+/************************************************************************
+ *  Helper function to parse configuration file from include directive
+ ************************************************************************/
 static int configure_include( char *path )
 {
-    parse_config_file(path);
+    FILE* fp = NULL;
+
+    if( (fp = fopen(path, "r")) == NULL )
+        cf_fatal("failed to open include '%s'", path);
+
+    parse_config_file(fp);
+    /* Close open file */
+    fclose( fp );
     return CF_RESULT_OK;
 }
 
@@ -344,7 +348,7 @@ static int configure_load( char *options )
     return CF_RESULT_OK;
 }
 #else
-static FILE * config_file_write( void )
+static FILE* config_file_write( void )
 {
     FILE *fp = NULL;
     ssize_t	ret = 0;

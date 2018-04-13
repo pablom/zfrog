@@ -123,6 +123,12 @@ void cf_websocket_handshake( struct http_request *req,
         cf_runtime_wsconnect(req->owner->ws_connect, req->owner);
 }
 
+int cf_websocket_send_clean(struct netbuf *nb)
+{
+    mem_free(nb->buf);
+    return 0;
+}
+
 void cf_websocket_send(struct connection *c, uint8_t op, const void *data, size_t len)
 {
     struct cf_buf frame;
@@ -130,7 +136,7 @@ void cf_websocket_send(struct connection *c, uint8_t op, const void *data, size_
     cf_buf_init(&frame, len);
     websocket_frame_build(&frame, op, data, len);
     /* net_send_stream() takes over the buffer data pointer */
-    net_send_stream(c, frame.data, frame.offset, NULL, NULL);
+    net_send_stream(c, frame.data, frame.offset, cf_websocket_send_clean, NULL);
     frame.data = NULL;
     cf_buf_cleanup( &frame );
 

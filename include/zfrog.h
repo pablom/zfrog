@@ -731,6 +731,7 @@ void cf_runtime_configure(struct cf_runtime_call*, int, char**);
     int cf_auth_new(const char*);
     struct cf_auth *cf_auth_lookup(const char*);
     void cf_websocket_handshake(struct http_request*, const char*, const char*, const char*);
+    int	cf_websocket_send_clean(struct netbuf*);
     void cf_websocket_send(struct connection*, uint8_t, const void*, size_t);
     void cf_websocket_broadcast(struct connection*, uint8_t, const void *, size_t, int);
     int cf_runtime_http_request(struct cf_runtime_call*, struct http_request *);
