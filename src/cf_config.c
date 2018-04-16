@@ -34,79 +34,78 @@
 
 
 #if !defined(CF_SINGLE_BINARY)
-    static int configure_load(char *);
+    static int configure_load(char*);
 #else
     static FILE* config_file_write( void );
     extern uint8_t	asset_builtin_core_conf[];
     extern uint32_t asset_len_builtin_core_conf;
 #endif
 
-static int configure_include(char *);
-static int configure_bind(char *);
-static int configure_domain(char *);
-static int configure_chroot(char *);
-static int configure_runas(char *);
-static int configure_workers(char *);
-static int configure_pidfile(char *);
-static int configure_rlimit_nofiles(char *);
-static int configure_max_connections(char *);
-static int configure_accept_threshold(char *);
-static int configure_set_affinity(char *);
-static int configure_socket_backlog(char *);
+static void	parse_config_file(FILE*);
+static void	domain_tls_init(void);
+static int configure_include(char*);
+static int configure_bind(char*);
+static int configure_domain(char*);
+static int configure_chroot(char*);
+static int configure_runas(char*);
+static int configure_workers(char*);
+static int configure_pidfile(char*);
+static int configure_rlimit_nofiles(char*);
+static int configure_max_connections(char*);
+static int configure_accept_threshold(char*);
+static int configure_set_affinity(char*);
+static int configure_socket_backlog(char*);
 
 #ifndef CF_NO_TLS
-    static int configure_certfile(char *);
-    static int configure_certkey(char *);
-    static int configure_tls_version(char *);
-    static int configure_tls_cipher(char *);
-    static int configure_tls_dhparam(char *);
-    static int configure_client_certificates(char *);
-    static int configure_pkcs11_module(char *path);
+    static int configure_certfile(char*);
+    static int configure_certkey(char*);
+    static int configure_tls_version(char*);
+    static int configure_tls_cipher(char*);
+    static int configure_tls_dhparam(char*);
+    static int configure_client_certificates(char*);
+    static int configure_pkcs11_module(char*);
 #endif
 
 #ifndef CF_NO_HTTP
-    static int configure_handler(int, char *);
-    static int configure_static_handler(char *);
-    static int configure_dynamic_handler(char *);
-    static int configure_accesslog(char *);
-    static int configure_http_header_max(char *);
-    static int configure_http_body_max(char *);
-    static int configure_http_hsts_enable(char *);
-    static int configure_http_keepalive_time(char *);
+    static int configure_handler(int, char*);
+    static int configure_static_handler(char*);
+    static int configure_dynamic_handler(char*);
+    static int configure_accesslog(char*);
+    static int configure_http_header_max(char*);
+    static int configure_http_body_max(char*);
+    static int configure_http_hsts_enable(char*);
+    static int configure_http_keepalive_time(char*);
     static int configure_http_request_ms(char*);
-    static int configure_http_request_limit(char *);
-    static int configure_http_body_disk_offload(char *);
-    static int configure_http_body_disk_path(char *);
-    static int configure_validator(char *);
-    static int configure_params(char *);
-    static int configure_validate(char *);
-    static int configure_authentication(char *);
-    static int configure_authentication_uri(char *);
-    static int configure_authentication_type(char *);
-    static int configure_authentication_value(char *);
-    static int configure_authentication_validator(char *);
-    static int configure_websocket_maxframe(char *);
-    static int configure_websocket_timeout(char *);
+    static int configure_http_request_limit(char*);
+    static int configure_http_body_disk_offload(char*);
+    static int configure_http_body_disk_path(char*);
+    static int configure_validator(char*);
+    static int configure_params(char*);
+    static int configure_validate(char*);
+    static int configure_authentication(char*);
+    static int configure_authentication_uri(char*);
+    static int configure_authentication_type(char*);
+    static int configure_authentication_value(char*);
+    static int configure_authentication_validator(char*);
+    static int configure_websocket_maxframe(char*);
+    static int configure_websocket_timeout(char*);
 #endif
 
 #ifdef CF_PGSQL
-    static int configure_pgsql_conn_max(char *);
+    static int configure_pgsql_conn_max(char*);
 #endif
 
 #ifdef CF_TASKS
-    static int configure_task_threads(char *);
+    static int configure_task_threads(char*);
 #endif
 
 #ifdef CF_PYTHON
-    static int configure_python_path(char *);
-    static int configure_python_import(char *);
+    static int configure_python_path(char*);
+    static int configure_python_import(char*);
 #endif
 #ifdef CF_LUA
-    static int configure_lua_import(char *);
+    static int configure_lua_import(char*);
 #endif
-
-static void	domain_tls_init( void );
-static void	parse_config_file(FILE*);
 
 static struct {
     const char	*name;
@@ -177,7 +176,6 @@ static struct {
 	{ NULL,				NULL },
 };
 
-
 #ifndef CF_NO_HTTP
     static uint8_t current_method = 0;
     static int current_flags = 0;
@@ -206,9 +204,6 @@ void cf_parse_config(void)
 
     /* Try to parse configuration file */
     parse_config_file( fp );
-
-    /* Close configuration file */
-    fclose( fp );
 
     if( !cf_module_loaded() )
         cf_fatal("no application module was loaded");
@@ -329,7 +324,9 @@ static int configure_include( char *path )
     fclose( fp );
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Helper function to parse bind server parameters
+ ************************************************************************/
 static int configure_bind( char *options )
 {
     char *argv[4];
@@ -400,6 +397,9 @@ static FILE* config_file_write( void )
 #endif
 
 #ifndef CF_NO_TLS
+/************************************************************************
+ *  Configure domain TLS version
+ ************************************************************************/
 static int configure_tls_version( char *version )
 {                    
     if( !strcmp(version, "1.3") ) {
@@ -421,7 +421,9 @@ static int configure_tls_version( char *version )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure domain TLS cipher list
+ ************************************************************************/
 static int configure_tls_cipher(char *cipherlist)
 {
     if( strcmp(server.tls_cipher_list, CF_DEFAULT_CIPHER_LIST) )
@@ -433,7 +435,9 @@ static int configure_tls_cipher(char *cipherlist)
     server.tls_cipher_list = mem_strdup(cipherlist);
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure domain TLS DH parameters
+ ************************************************************************/
 static int configure_tls_dhparam( char *path )
 {
     BIO	*bio = NULL;
@@ -461,7 +465,9 @@ static int configure_tls_dhparam( char *path )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure domain client certificate's file
+ ************************************************************************/
 static int configure_client_certificates(char *options)
 {
     char *argv[3];
@@ -493,7 +499,9 @@ static int configure_client_certificates(char *options)
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure domain certificate file
+ ************************************************************************/
 static int configure_certfile( char *path )
 {
     if( current_domain == NULL )
@@ -511,7 +519,9 @@ static int configure_certfile( char *path )
     current_domain->certfile = mem_strdup(path);
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure domain private key file
+ ************************************************************************/
 static int configure_certkey( char *path )
 {
     if( current_domain == NULL )
@@ -529,7 +539,9 @@ static int configure_certkey( char *path )
     current_domain->certkey = mem_strdup(path);
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure PKCS11 module
+ ************************************************************************/
 static int configure_pkcs11_module( char *path )
 {
     char *argv[3];
@@ -542,7 +554,9 @@ static int configure_pkcs11_module( char *path )
     return CF_RESULT_OK;
 }
 #endif /* CF_NO_TLS */
-
+/************************************************************************
+ *  Configure domain
+ ************************************************************************/
 static int configure_domain( char *options )
 {
     char *argv[3];
@@ -614,7 +628,9 @@ static int configure_handler(int type, char *options)
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure access log file
+ ************************************************************************/
 static int configure_accesslog( char *path )
 {
     if( current_domain == NULL )
@@ -725,8 +741,11 @@ static int configure_http_keepalive_time( char *option )
 
     return CF_RESULT_OK;
 }
-static int configure_http_request_ms(char *option)
- {
+/************************************************************************
+ *  Configure HTTP timeout request in ms
+ ************************************************************************/
+static int configure_http_request_ms( char *option )
+{
     int	err;
 
     server.http_request_ms = cf_strtonum(option, 10, 0, UINT_MAX, &err);
@@ -737,7 +756,7 @@ static int configure_http_request_ms(char *option)
     }
 
     return CF_RESULT_OK;
- }
+}
 /************************************************************************
  *  Read HTTP request limit from configuration file
  ************************************************************************/
@@ -754,7 +773,9 @@ static int configure_http_request_limit( char *option )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure validator
+ ************************************************************************/
 static int configure_validator( char *name )
 {
     uint8_t type;
@@ -902,7 +923,9 @@ static int configure_validate( char *options )
 	TAILQ_INSERT_TAIL(&(current_handler->params), p, list);
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure authentication
+ ************************************************************************/
 static int configure_authentication( char *options )
 {
     char *argv[3];
@@ -933,7 +956,9 @@ static int configure_authentication( char *options )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure authentication type
+ ************************************************************************/
 static int configure_authentication_type( char *option )
 {
     if( current_auth == NULL )
@@ -972,7 +997,9 @@ static int configure_authentication_value( char *option )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure authentication validator
+ ************************************************************************/
 static int configure_authentication_validator( char *validator )
 {
     struct cf_validator *val = NULL;
@@ -993,7 +1020,9 @@ static int configure_authentication_validator( char *validator )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure authentication uri
+ ************************************************************************/
 static int configure_authentication_uri( char *uri )
 {
     if( current_auth == NULL )
@@ -1045,7 +1074,9 @@ static int configure_websocket_timeout( char *option )
     return CF_RESULT_OK;
 }
 #endif /* CF_NO_HTTP */
-
+/************************************************************************
+ *  Configure chroot application
+ ************************************************************************/
 static int configure_chroot( char *path )
 {
     if( server.chroot_path != NULL )
@@ -1053,7 +1084,9 @@ static int configure_chroot( char *path )
     server.chroot_path = mem_strdup(path);
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure runas application
+ ************************************************************************/
 static int configure_runas( char *user )
 {
     if( server.runas_user != NULL )
@@ -1103,7 +1136,9 @@ static int configure_max_connections( char *option )
 
     return CF_RESULT_OK;
 }
-
+/************************************************************************
+ *  Configure rlimit nfiles for application
+ ************************************************************************/
 static int configure_rlimit_nofiles( char *option )
 {
     int err;
