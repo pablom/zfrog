@@ -60,10 +60,10 @@ struct ecdsa_method
 {
 	const char	*name;
     ECDSA_SIG	*(*ecdsa_do_sign)(const unsigned char *, int, const BIGNUM *, const BIGNUM *, EC_KEY *);
-    int		(*ecdsa_sign_setup)(EC_KEY *, BN_CTX *, BIGNUM **, BIGNUM **);
-    int		(*ecdsa_do_verify)(const unsigned char *, int, const ECDSA_SIG *, EC_KEY *);
-	int		flags;
-    char	*app_data;
+    int         (*ecdsa_sign_setup)(EC_KEY *, BN_CTX *, BIGNUM **, BIGNUM **);
+    int         (*ecdsa_do_verify)(const unsigned char *, int, const ECDSA_SIG *, EC_KEY *);
+    int         flags;
+    char        *app_data;
 };
 #endif
 
@@ -252,8 +252,6 @@ void cf_domain_tls_init( struct cf_domain *dom )
     switch( tls_version )
     {
     case CF_TLS_VERSION_1_3:
-        method = TLSv1_2_server_method();
-        break;
     case CF_TLS_VERSION_1_2:
 		method = TLSv1_2_server_method();
 		break;
@@ -286,9 +284,11 @@ void cf_domain_tls_init( struct cf_domain *dom )
     switch( server.tls_version )
     {
     case CF_TLS_VERSION_1_3:
-//        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_3_VERSION) )
-//            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
-//        break;
+#if OPENSSL_VERSION_NUMBER >= 0x10101004L
+        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_3_VERSION) )
+            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
+        break;
+#endif
     case CF_TLS_VERSION_1_2:
         if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_2_VERSION))
             cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);

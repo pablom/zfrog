@@ -49,7 +49,6 @@ volatile sig_atomic_t sig_recv;
     extern char	*__progname;
 #endif
 
-
 /* Global vars */
 struct zfrogServer  server; /* Server global state */
 
@@ -58,33 +57,6 @@ static void init_server_config(void);
 static void	server_start(void);
 static void	server_sslstart(void);
 static void	write_pid(void);
-
-
-static void testfn( void )
-{
-#include <locale.h>
-//#include <xlocale.h>
-    time_t		time_value;
-    struct tm	time_info;
-    char		timestamp[133];
-    struct tm	*(*gettm)(const time_t *, struct tm *) = localtime_r;
-
-
-    setlocale(LC_COLLATE,"");
-
-    //setenv("LC_ALL", "C",1);
-    //gettm = gmtime_r;
-
-    if( (time_value = time(NULL)) == -1 )
-        return;
-
-    if( gettm(&time_value, &time_info) == NULL )
-        return;
-
-    memset(timestamp, 0, sizeof(timestamp));
-
-    strftime_l(timestamp, sizeof(timestamp) - 1, "%a, %d %b %Y %T %z", &time_info, /*LC_GLOBAL_LOCALE*/ 0);
-}
 
 /****************************************************************
  *  Print out builtin information
@@ -118,7 +90,6 @@ static void builtin_report(void)
  ****************************************************************/
 static void usage( void )
 {
-    testfn();
 #ifndef CF_SINGLE_BINARY
     fprintf(stderr, "Usage: zfrog [options]\n");
 #else
