@@ -204,6 +204,12 @@ void cf_parse_config(void)
     fp = config_file_write();
 #endif
 
+    /* Try to parse configuration file */
+    parse_config_file( fp );
+
+    /* Close configuration file */
+    fclose( fp );
+
     if( !cf_module_loaded() )
         cf_fatal("no application module was loaded");
 

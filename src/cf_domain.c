@@ -28,6 +28,7 @@
     static int keymgr_response = 0;
 #endif
 
+/* Forward static function declaration */
 static void	domain_load_crl(struct cf_domain *);
 
 #ifndef CF_NO_TLS

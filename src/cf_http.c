@@ -497,8 +497,6 @@ void http_request_free( struct http_request *req )
 		next = TAILQ_NEXT(hdr, list);
 
 		TAILQ_REMOVE(&(req->req_headers), hdr, list);
-		mem_free(hdr->header);
-		mem_free(hdr->value);
         cf_mem_pool_put(&http_header_pool, hdr);
 	}
 
@@ -530,8 +528,7 @@ void http_request_free( struct http_request *req )
 
 		TAILQ_REMOVE(&(req->arguments), q, list);
 		mem_free(q->name);
-        if( q->s_value != NULL )
-			mem_free(q->s_value);
+        mem_free(q->s_value);
 		mem_free(q);
 	}
 
@@ -594,11 +591,10 @@ void http_serveable( struct http_request *req, const void *data, size_t len, con
 
 void http_response( struct http_request *req, int status, const void *d, size_t l )
 {
-    log_debug("http_response(%p, %d, %p, %zu)", req, status, d, l);
-
-    if( req->owner == NULL ) {
+    if( req->owner == NULL )
         return;
-    }
+
+    log_debug("http_response(%p, %d, %p, %zu)", req, status, d, l);
 
 	req->status = status;
 
