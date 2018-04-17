@@ -46,7 +46,7 @@
     #include "cf_lua.h"
 #endif
 
-#if defined(WORKER_DEBUG)
+#ifdef CF_WORKER_DEBUG
     #define worker_debug(fmt, ...)		printf(fmt, ##__VA_ARGS__)
 #else
     #define worker_debug(fmt, ...)
@@ -71,7 +71,7 @@
 struct wlock
 {
     volatile int lock;
-    pid_t  current;
+    pid_t        current;
 };
 
 /* Forward static function declaration */
@@ -83,7 +83,7 @@ static inline int worker_acceptlock_obtain(uint64_t);
 static inline int worker_acceptlock_release(uint64_t);
 
 #ifndef CF_NO_TLS
-    static void worker_entropy_recv(struct cf_msg *, const void *);
+    static void worker_entropy_recv(struct cf_msg*, const void*);
 #endif
 
 static struct cf_worker* workers;       /* Array with all allocated workers structure */
@@ -91,7 +91,7 @@ static int              worker_no_lock;
 static int              shm_accept_key;
 static struct wlock     *accept_lock;
 
-extern volatile sig_atomic_t	sig_recv;
+extern volatile sig_atomic_t sig_recv;
 
 /****************************************************************
  *  Init workers helper function
@@ -604,7 +604,15 @@ void cf_worker_wait( int final )
         if( kw->pid != pid )
 			continue;
 
-        cf_log(LOG_NOTICE, "worker %d (%d)-> status %d", kw->id, pid, status);
+        if( WIFEXITED(status) ){
+            cf_log(LOG_NOTICE, "worker %d (%d)-> exited: %d, status: [%d]", kw->id, pid, WEXITSTATUS(status), status);
+        } else if (WIFSIGNALED(status)) {
+            cf_log(LOG_NOTICE, "worker %d (%d)-> killed by signal: %d, status: [%d]", kw->id, pid, WTERMSIG(status), status);
+        } else if (WIFSTOPPED(status)) {
+            cf_log(LOG_NOTICE, "worker %d (%d)-> stopped by signal: %d, status: [%d]", kw->id, pid, WSTOPSIG(status), status);
+        } else if (WIFCONTINUED(status)) {
+            cf_log(LOG_NOTICE, "worker %d (%d)-> continued, status: [%d]", kw->id, pid, status);
+        }
 
         if( final )
         {
