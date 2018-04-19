@@ -17,10 +17,10 @@
 #include "cf_python_methods.h"
 
 static PyMODINIT_FUNC   python_module_init(void);
-static PyObject*        python_import(const char *);
-static void             python_log_error(const char *);
-static PyObject*        pyconnection_alloc(struct connection *);
-static PyObject*        python_callable(PyObject *, const char *);
+static PyObject*        python_import(const char*);
+static void             python_log_error(const char*);
+static PyObject*        pyconnection_alloc(struct connection*);
+static PyObject*        python_callable(PyObject*, const char*);
 
 static void python_append_path(const char*);
 static void python_push_integer(PyObject*, const char*, long);
@@ -40,19 +40,20 @@ static void python_push_type(const char*, PyObject*, PyTypeObject*);
     static PyObject *python_pgsql_alloc(struct http_request *, const char *, const char *);
 #endif
 
-static void python_runtime_execute(void *);
-static int  python_runtime_onload(void *, int);
-static void python_runtime_connect(void *, struct connection *);
+static void python_runtime_execute(void*);
+static int  python_runtime_onload(void*, int);
+static void	python_runtime_configure(void*, int, char**);
+static void python_runtime_connect(void*, struct connection*);
 
-static void python_module_free(struct cf_module *);
-static void python_module_reload(struct cf_module *);
+static void python_module_free(struct cf_module*);
+static void python_module_reload(struct cf_module*);
 static void python_module_load(struct cf_module*);
-static void *python_module_getsym(struct cf_module *, const char *);
+static void *python_module_getsym(struct cf_module*, const char*);
 
-static void *python_malloc(void *, size_t);
-static void *python_calloc(void *, size_t, size_t);
-static void *python_realloc(void *, void *, size_t);
-static void python_free(void *, void *);
+static void *python_malloc(void*, size_t);
+static void *python_calloc(void*, size_t, size_t);
+static void *python_realloc(void*, void*, size_t);
+static void python_free(void*, void*);
 
 struct cf_module_functions cf_python_module =
 {
@@ -74,7 +75,8 @@ struct cf_runtime cf_python_runtime =
 #endif
     .onload = python_runtime_onload,
     .connect = python_runtime_connect,
-    .execute = python_runtime_execute
+    .execute = python_runtime_execute,
+    .configure = python_runtime_configure
 };
 
 static struct {
@@ -95,13 +97,13 @@ static struct {
     { "CONN_STATE_ESTABLISHED", CONN_STATE_ESTABLISHED },
 
 #ifndef CF_NO_HTTP
-    { "METHOD_GET", HTTP_METHOD_GET },
-    { "METHOD_PUT", HTTP_METHOD_PUT },
-    { "METHOD_HEAD", HTTP_METHOD_HEAD },
-    { "METHOD_POST", HTTP_METHOD_POST },
-    { "METHOD_DELETE", HTTP_METHOD_DELETE },
-    { "METHOD_OPTIONS", HTTP_METHOD_OPTIONS },
-    { "METHOD_PATCH", HTTP_METHOD_PATCH },
+    { "HTTP_METHOD_GET", HTTP_METHOD_GET },
+    { "HTTP_METHOD_PUT", HTTP_METHOD_PUT },
+    { "HTTP_METHOD_HEAD", HTTP_METHOD_HEAD },
+    { "HTTP_METHOD_POST", HTTP_METHOD_POST },
+    { "HTTP_METHOD_DELETE", HTTP_METHOD_DELETE },
+    { "HTTP_METHOD_OPTIONS", HTTP_METHOD_OPTIONS },
+    { "HTTP_METHOD_PATCH", HTTP_METHOD_PATCH },
     { "WEBSOCKET_OP_TEXT", WEBSOCKET_OP_TEXT },
     { "WEBSOCKET_OP_BINARY", WEBSOCKET_OP_BINARY },
     { "WEBSOCKET_BROADCAST_LOCAL", WEBSOCKET_BROADCAST_LOCAL },
@@ -113,11 +115,11 @@ static struct {
 
 static PyMemAllocatorEx allocator =
 {
-    .ctx = NULL,
-    .malloc = python_malloc,
-    .calloc = python_calloc,
+    .ctx     = NULL,
+    .malloc  = python_malloc,
+    .calloc  = python_calloc,
     .realloc = python_realloc,
-    .free = python_free
+    .free    = python_free
 };
 
 void cf_python_init(void)
@@ -330,6 +332,38 @@ static void python_runtime_connect(void *addr, struct connection *c)
     Py_DECREF(pyret);
 }
 
+static void python_runtime_configure(void *addr, int argc, char **argv)
+{
+    int	i;
+    PyObject *args, *pyret, *pyarg;
+
+    PyObject* callable = (PyObject *)addr;
+
+    if( (args = PyTuple_New(argc)) == NULL )
+        cf_fatal("python_runtime_configure: PyTuple_New failed");
+
+    for( i = 0; i < argc; i++ )
+    {
+        if( (pyarg = PyUnicode_FromString(argv[i])) == NULL )
+            cf_fatal("python_runtime_configure: PyUnicode_FromString");
+
+        if( PyTuple_SetItem(args, i, pyarg) != 0 )
+            cf_fatal("python_runtime_configure: PyTuple_SetItem");
+    }
+
+    PyErr_Clear();
+    pyret = PyObject_Call(callable, args, NULL);
+    Py_DECREF(args);
+
+    if( pyret == NULL )
+    {
+        python_log_error("python_runtime_configure");
+        cf_fatal("failed to call configure method: wrong args?");
+    }
+
+    Py_DECREF(pyret);
+}
+
 static PyMODINIT_FUNC python_module_init(void)
 {
     int i;
@@ -403,15 +437,12 @@ static PyObject* python_log( PyObject *self, PyObject *args )
 
 static PyObject* python_listen(PyObject *self, PyObject *args)
 {
-    const char *ip, *port, *ccb;
+    const char *ip, *port;
 
-    if( !PyArg_ParseTuple(args, "sss", &ip, &port, &ccb) )
+    if( !PyArg_ParseTuple(args, "ss", &ip, &port) )
         return NULL;
 
-    if( !strcmp(ccb, "") )
-        ccb = NULL;
-
-    if( !cf_server_bind(ip, port, ccb))
+    if( !cf_server_bind(ip, port, NULL))
     {
         PyErr_SetString(PyExc_RuntimeError, "failed to listen");
         return NULL;
@@ -596,6 +627,7 @@ static int python_runtime_http_request(void *addr, struct http_request *req)
 
     if( pyret == NULL )
     {
+        python_log_error("python_runtime_http_request");
         http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
         return CF_RESULT_OK;
     }
@@ -1223,7 +1255,7 @@ static PyObject* python_pgsql_alloc( struct http_request *req, const char *db, c
     pysql->result = NULL;
     pysql->db = mem_strdup(db);
     pysql->query = mem_strdup(query);
-    pysql->state = PYCF_PGSQL_INITIALIZE;
+    pysql->state = PYCF_PGSQL_PREINIT;
 
     memset( &pysql->sql, 0, sizeof(pysql->sql) );
 
@@ -1240,7 +1272,7 @@ static PyObject* python_pgsql_iternext( struct py_pgsql *pysql )
         pysql->state = PYCF_PGSQL_INITIALIZE;
         /* fallthrough */
     case PYCF_PGSQL_INITIALIZE:
-        if( !cf_pgsql_query_init(&pysql->sql, pysql->req, pysql->db, CF_PGSQL_ASYNC) )
+        if( !cf_pgsql_setup(&pysql->sql, pysql->db, CF_PGSQL_ASYNC) )
         {
             if( pysql->sql.state == CF_PGSQL_STATE_INIT )
                 break;

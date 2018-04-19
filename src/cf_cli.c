@@ -636,11 +636,14 @@ static void cli_build( int argc, char **argv )
 
     free( assets_header );
 
-    if( !cli_dir_exists("cert") )
+    if( bopt->cf_flavor == NULL || !strstr(bopt->cf_flavor, "NOTLS=1") )
     {
-		cli_mkdir("cert", 0700);
-		cli_generate_certs();
-	}
+        if( !cli_dir_exists("cert") )
+        {
+            cli_mkdir("cert", 0700);
+            cli_generate_certs();
+        }
+    }
 
     if( bopt->single_binary )
     {
