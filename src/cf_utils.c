@@ -12,8 +12,19 @@
 #include <sys/ioctl.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
+#include <signal.h>
 
 #include "zfrog.h"
+
+#ifdef __linux__
+const char *sys_signame[NSIG] = {
+    "zero",  "HUP",  "INT",   "QUIT", "ILL",   "TRAP", "ABRT", "UNUSED",
+    "FPE",   "KILL", "USR1",  "SEGV", "USR2",  "PIPE", "ALRM", "TERM",
+    "STKFLT","CHLD", "CONT",  "STOP", "TSTP",  "TTIN", "TTOU", "URG",
+    "XCPU",  "XFSZ", "VTALRM","PROF", "WINCH", "IO",   "PWR",  "SYS", NULL
+};
+#endif
+
 
 static struct {
     char	*name;
@@ -1034,3 +1045,12 @@ int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ )
 
     return fd;
 }
+
+#ifdef __linux__
+int cf_get_sig_name( int sig, char *buf, size_t len )
+{
+    int n = snprintf(buf, len, "SIG%s", sig < NSIG ? sys_signame[sig] : "unknown");
+    //uppercase(buf);
+    return n;
+}
+#endif

@@ -664,12 +664,13 @@ void* mem_lookup(uint32_t);
 void  mem_tag(void*, uint32_t);
 void* mem_malloc_tagged(size_t, uint32_t);
 
+/* Memory pool utility functions */
+void* cf_mem_pool_get(struct cf_mem_pool*);
+void cf_mem_pool_put(struct cf_mem_pool*, void*);
+void cf_mem_pool_init(struct cf_mem_pool*, const char*, size_t, size_t);
+void cf_mem_pool_cleanup(struct cf_mem_pool*);
 
-void *cf_mem_pool_get(struct cf_mem_pool *);
-void cf_mem_pool_put(struct cf_mem_pool *, void *);
-void cf_mem_pool_init(struct cf_mem_pool *, const char *, size_t, size_t);
-void cf_mem_pool_cleanup(struct cf_mem_pool *);
-
+/* Utility functions */
 time_t	cf_date_to_time(char *);
 char *cf_time_to_date(time_t);
 char *mem_strdup(const char *);
@@ -677,8 +678,6 @@ void cf_log(int, const char *, ...) __attribute__((format (printf, 2, 3)));
 uint64_t cf_strtonum64(const char *, int, int *);
 size_t cf_strlcpy(char *, const char *, const size_t);
 char* cf_strncpy0(char *, const char *, size_t);
-
-void core_server_disconnect(struct connection*);
 int	cf_split_string(char*, const char*, char**, size_t);
 void cf_strip_chars(char*, const char, char**);
 int	cf_snprintf(char *, size_t, int*, const char*, ...);
@@ -688,8 +687,11 @@ int cf_base64_decode(const char*, size_t, uint8_t**, size_t*);
 void *cf_mem_find(void*, size_t, void*, size_t);
 char *cf_text_trim(char*, size_t);
 char *cf_fread_line(FILE*, char*, size_t);
+#ifdef __linux__
+    int cf_get_sig_name(int, char*, size_t);
+#endif
 
-
+/* Messages function definitions */
 void cf_msg_init(void);
 void cf_msg_worker_init(void);
 void cf_msg_parent_init(void);
