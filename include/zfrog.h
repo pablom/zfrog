@@ -687,6 +687,8 @@ int cf_base64_decode(const char*, size_t, uint8_t**, size_t*);
 void *cf_mem_find(void*, size_t, void*, size_t);
 char *cf_text_trim(char*, size_t);
 char *cf_fread_line(FILE*, char*, size_t);
+char* cf_uppercase(char*);
+int cf_endswith(const char*, const char*);
 #ifdef __linux__
     int cf_get_sig_name(int, char*, size_t);
 #endif

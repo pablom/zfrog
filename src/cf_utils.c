@@ -672,6 +672,20 @@ void* cf_mem_find( void *src, size_t slen, void *needle, size_t len )
 
     return NULL;
 }
+/****************************************************************
+ *  Helper function to check that string is ended with
+ ****************************************************************/
+int cf_endswith( const char* str, const char* suffix )
+{
+    if( str && suffix )
+    {
+        size_t str_len = strlen(str);
+        size_t suffix_len = strlen(suffix);
+        return str_len > suffix_len && !strcmp(str + (str_len - suffix_len), suffix);
+    }
+
+    return 0;
+}
 
 char* cf_text_trim( char* string, size_t len )
 {
@@ -1046,11 +1060,24 @@ int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ )
     return fd;
 }
 
+char* cf_uppercase( char* str )
+{
+    int i = 0;
+
+    if( str == NULL )
+        return NULL;
+
+    do {
+        str[i] = (char) toupper(str[i]);
+    } while (str[i++] != '\0');
+    return str;
+}
+
 #ifdef __linux__
 int cf_get_sig_name( int sig, char *buf, size_t len )
 {
     int n = snprintf(buf, len, "SIG%s", sig < NSIG ? sys_signame[sig] : "unknown");
-    //uppercase(buf);
+    cf_uppercase(buf);
     return n;
 }
 #endif
