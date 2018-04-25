@@ -171,9 +171,7 @@ static int msg_recv_data( struct netbuf *nb )
     {
 		destination = msg->dst;
         TAILQ_FOREACH(c, &connections, list)
-        {
-            if( c == nb->owner )
-				continue;
+        {           
             if( c->proto != CONN_PROTO_MSG || c->hdlr_extra == NULL )
 				continue;
 
