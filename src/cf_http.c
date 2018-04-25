@@ -1076,10 +1076,11 @@ void http_file_rewind( struct http_file *file )
 	file->offset = 0;
 }
 
-void http_response_cookie(struct http_request *req, const char *name,
-                           const char *val, const char *path, time_t expires, uint32_t maxage,
-                           struct http_cookie **out )
+void http_response_cookie( struct http_request* req, const char* name,
+                           const char* val, const char* path, time_t expires, uint32_t maxage,
+                           struct http_cookie** out )
 {
+    char* p = NULL;
     struct http_cookie *ck = NULL;
 
     if( name == NULL || val == NULL )
@@ -1093,6 +1094,10 @@ void http_response_cookie(struct http_request *req, const char *name,
     ck->value = mem_strdup(val);
     ck->domain = mem_strdup(req->host);
     ck->flags = HTTP_COOKIE_HTTPONLY | HTTP_COOKIE_SECURE;
+
+    /* Cut off port from the domain when needed */
+    if( (p = strrchr(ck->domain, ':')) != NULL )
+        *p = '\0';
 
     if (path != NULL)
         ck->path = mem_strdup(path);
