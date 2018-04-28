@@ -403,7 +403,11 @@ static FILE* config_file_write( void )
 static int configure_tls_version( char *version )
 {                    
     if( !strcmp(version, "1.3") ) {
+#if OPENSSL_VERSION_NUMBER >= 0x10101004L
         server.tls_version = CF_TLS_VERSION_1_3;
+#else
+        server.tls_version = CF_TLS_VERSION_1_2;
+#endif
     } else if( !strcmp(version, "1.2") ) {
         server.tls_version = CF_TLS_VERSION_1_2;
     } else if( !strcmp(version, "1.1") ) {

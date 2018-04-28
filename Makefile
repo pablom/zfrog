@@ -454,7 +454,6 @@ example-all: example-generic example-integers example-websocket example-paramete
           example-headers example-cookies example-messaging
 
 
-
 .DEFAULT_GOAL := all
 
 .PHONY: all clean install uninstall

@@ -97,12 +97,12 @@ workers		4
 #       http_request_ms		The number of milliseconds workers can max
 #				spend inside the HTTP processing loop.
 
-#http_header_max	    4096
-#http_body_max		    1024000
+#http_header_max	        4096
+#http_body_max		        1024000
 #http_keepalive_time	    0
-#http_hsts_enable	    31536000
-#http_request_limit	    1000
-#http_request_ms	    10
+#http_hsts_enable	        31536000
+#http_request_limit	        1000
+#http_request_ms	        10
 #http_body_disk_offload	    0
 #http_body_disk_path	    tmp_files
 
@@ -137,6 +137,7 @@ validator	v_session	function	v_session_validate
 
 # Specify what TLS version to be used. Default is TLSv1.2
 # Allowed values:
+#   1.3 for TLSv1.3
 #	1.2 for TLSv1.2 (default)
 #	1.1 for TLSv1.1
 #	1.0 for TLSv1.0

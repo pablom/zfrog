@@ -528,7 +528,7 @@ struct zfrogServer
     int     debug_log;
 
 #ifndef CF_NO_TLS
-    int    tls_version;      /* TLS version     */
+    int    tls_version;      /* TLS version     */    
     char*  tls_cipher_list;  /* TLS cipher list */
     DH*    tls_dhparam;      /* DH parameters   */
 #endif
