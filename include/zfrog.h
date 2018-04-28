@@ -154,13 +154,13 @@ TAILQ_HEAD(netbuf_head, netbuf);
 #define CONN_PROTO_MSG              3
 #define CONN_PROTO_REDIS            4
 
-#define CONN_READ_POSSIBLE          0x0001
-#define CONN_WRITE_POSSIBLE         0x0002
-#define CONN_WRITE_BLOCK            0x0400
-#define CONN_IDLE_TIMER_ACT         0x1000
-#define CONN_READ_BLOCK             0x2000
-#define CONN_CLOSE_EMPTY            0x4000
-#define CONN_WS_CLOSE_SENT          0x8000
+#define CONN_READ_POSSIBLE          0x01
+#define CONN_WRITE_POSSIBLE         0x02
+#define CONN_WRITE_BLOCK            0x04
+#define CONN_IDLE_TIMER_ACT         0x10
+#define CONN_READ_BLOCK             0x20
+#define CONN_CLOSE_EMPTY            0x40
+#define CONN_WS_CLOSE_SENT          0x80
 
 #define CF_IDLE_TIMER_MAX           5000
 

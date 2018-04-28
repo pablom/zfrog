@@ -35,12 +35,9 @@ LDFLAGS_CLI = $(LDFLAGS)
 
 # Download urls for dependency libraries
 OPENSSL_URL=https://www.openssl.org/source/openssl-1.1.0h.tar.gz
-OPENSSL_GITHUB_URL=https://github.com/openssl/openssl/archive/OpenSSL_1_1_0h.tar.gz
 YAJL_URL=https://github.com/lloyd/yajl/archive/2.1.0.tar.gz
 LUAJIT_URL=https://luajit.org/download/LuaJIT-2.0.5.tar.gz
-LUAJIT_GITHUB_URL=https://github.com/LuaJIT/LuaJIT/archive/v2.0.5.tar.gz
 LIBSODIUM_URL=https://github.com/jedisct1/libsodium/releases/download/1.0.16/libsodium-1.0.16.tar.gz
-#WGET_PROXY=-e use_proxy=yes -e https_proxy=proxy:800
 
 DEPS =
 
@@ -298,10 +295,10 @@ $(OBJDIR_CSTL)/%.o: src/cstl/%.c
 deps:
 	rm -rf deps
 	mkdir -p deps
-	wget -P $(PWD)/deps $(OPENSSL_URL) $(WGET_PROXY)
-	wget -P $(PWD)/deps $(LUAJIT_URL) $(WGET_PROXY)
-	wget -P $(PWD)/deps $(LIBSODIUM_URL) $(WGET_PROXY)
-	wget -O $(PWD)/deps/yajl-2.1.0.tar.gz $(YAJL_URL) $(WGET_PROXY)
+	wget -P $(PWD)/deps $(OPENSSL_URL)
+	wget -P $(PWD)/deps $(LUAJIT_URL)
+	wget -P $(PWD)/deps $(LIBSODIUM_URL)
+	wget -O $(PWD)/deps/yajl-2.1.0.tar.gz $(YAJL_URL)
 
 clean:
 	find $(OBJDIR) -mindepth 1 -maxdepth 1 -type f -name \*.o -exec rm {} \;

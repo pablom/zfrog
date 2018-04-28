@@ -601,7 +601,7 @@ static int keymgr_rsa_finish( RSA *rsa )
     return 1;
 }
 
-static ECDSA_SIG * keymgr_ecdsa_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *in_kinv, const BIGNUM *in_r, EC_KEY *eckey)
+static ECDSA_SIG* keymgr_ecdsa_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *in_kinv, const BIGNUM *in_r, EC_KEY *eckey)
 {
     size_t len;
     ECDSA_SIG *sig;

@@ -1505,28 +1505,26 @@ static void cli_buildopt_parse(const char *path)
 
         if( bopt == NULL )
         {
-            if( (t = strchr(p, '=')) != NULL )
-				goto parse_option;
+            if( (t = strchr(p, '=')) == NULL )
+            {
+                if( (t = strchr(p, ' ')) == NULL )
+                    cli_fatal("unexpected '%s'", p);
 
-            if( (t = strchr(p, ' ')) == NULL )
-                cli_fatal("unexpected '%s'", p);
+                *(t)++ = '\0';
 
-            *(t)++ = '\0';
+                if( strcmp(t, "{") )
+                    cli_fatal("expected '{', got '%s'", t);
 
-            if( strcmp(t, "{") )
-                cli_fatal("expected '{', got '%s'", t);
-
-            bopt = cli_buildopt_new(p);
-			continue;
+                bopt = cli_buildopt_new(p);
+                continue;
+            }
 		}
-
-        if( (t = strchr(p, '=')) == NULL )
+        else if( (t = strchr(p, '=')) == NULL )
         {
 			printf("bad buildopt line: '%s'\n", p);
 			continue;
 		}
 
-parse_option:
 		*(t)++ = '\0';
 
 		p = cli_text_trim(p, strlen(p));
@@ -1536,15 +1534,15 @@ parse_option:
 			cli_buildopt_cflags(bopt, t);
         else if( !strcasecmp(p, "cxxflags") )
 			cli_buildopt_cxxflags(bopt, t);
-        else if (!strcasecmp(p, "ldflags"))
+        else if( !strcasecmp(p, "ldflags") )
 			cli_buildopt_ldflags(bopt, t);
-        else if (!strcasecmp(p, "single_binary"))
+        else if( !strcasecmp(p, "single_binary") )
 			cli_buildopt_single_binary(bopt, t);
-        else if (!strcasecmp(p, "cf_source"))
+        else if( !strcasecmp(p, "cf_source") )
             cli_buildopt_source(bopt, t);
-        else if (!strcasecmp(p, "cf_flavor"))
+        else if( !strcasecmp(p, "cf_flavor") )
             cli_buildopt_flavor(bopt, t);
-        else if (!strcasecmp(p, "mime_add"))
+        else if( !strcasecmp(p, "mime_add") )
 			cli_buildopt_mime(bopt, t);
         else
 			printf("ignoring unknown option '%s'\n", p);

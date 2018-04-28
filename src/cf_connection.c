@@ -188,8 +188,10 @@ void cf_connection_check_timeout( uint64_t now )
             continue;
         if( !(c->flags & CONN_IDLE_TIMER_ACT) )
             continue;
+#ifndef CF_NO_HTTP
         if( !TAILQ_EMPTY(&c->http_requests) )
             continue;
+#endif
         cf_connection_check_idletimer(now, c);
     }
 }
