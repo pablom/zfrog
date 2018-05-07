@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
+#include <float.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -931,6 +932,12 @@ int http_argument_get(struct http_request *req, const char *name, void **out, vo
             return CF_RESULT_OK;
 		case HTTP_ARG_TYPE_UINT64:
             COPY_AS_INTTYPE_64(uint64_t, 0);
+            return CF_RESULT_OK;
+        case HTTP_ARG_TYPE_FLOAT:
+            COPY_ARG_DOUBLE(-FLT_MAX, FLT_MAX, float);
+            return CF_RESULT_OK;
+        case HTTP_ARG_TYPE_DOUBLE:
+            COPY_ARG_DOUBLE(-DBL_MAX, DBL_MAX, double);
             return CF_RESULT_OK;
 		case HTTP_ARG_TYPE_STRING:
 			*out = q->s_value;

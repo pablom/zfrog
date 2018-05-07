@@ -676,6 +676,7 @@ char *cf_time_to_date(time_t);
 char *mem_strdup(const char *);
 void cf_log(int, const char *, ...) __attribute__((format (printf, 2, 3)));
 uint64_t cf_strtonum64(const char *, int, int *);
+double cf_strtodouble(const char*, long double, long double, int*);
 size_t cf_strlcpy(char *, const char *, const size_t);
 char* cf_strncpy0(char *, const char *, size_t);
 int	cf_split_string(char*, const char*, char**, size_t);

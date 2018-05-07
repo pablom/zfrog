@@ -42,6 +42,8 @@ extern "C" {
 #define HTTP_ARG_TYPE_STRING	6
 #define HTTP_ARG_TYPE_INT64     7
 #define HTTP_ARG_TYPE_UINT64	8
+#define HTTP_ARG_TYPE_FLOAT     9
+#define HTTP_ARG_TYPE_DOUBLE	10
 
 #define HTTP_STATE_ERROR        0
 #define HTTP_STATE_CONTINUE     1
@@ -82,43 +84,53 @@ struct http_arg
 	TAILQ_ENTRY(http_arg)	list;
 };
 
-#define COPY_ARG_TYPE(v, t)				\
-	do {						\
-		*(t *)nout = v;				\
+#define COPY_ARG_TYPE(v, t)	\
+    do {					\
+        *(t *)nout = v;		\
 	} while (0)
 
-#define COPY_ARG_INT64(type, sign)					\
-	do {								\
-		int err;						\
-		type nval;						\
+#define COPY_ARG_INT64(type, sign)                          \
+    do {                                                    \
+        int err;                                            \
+        type nval;                                          \
 		nval = (type)cf_strtonum64(q->s_value, sign, &err);	\
-        if( err != CF_RESULT_OK )				\
-            return CF_RESULT_ERROR;			\
-		COPY_ARG_TYPE(nval, type);				\
+        if( err != CF_RESULT_OK )                           \
+            return CF_RESULT_ERROR;                         \
+        COPY_ARG_TYPE(nval, type);                          \
 	} while (0)
 
-#define COPY_ARG_INT(min, max, type)					\
-	do {								\
-		int err;						\
-		int64_t nval;						\
+#define COPY_ARG_DOUBLE(min, max, type)                         \
+    do {                                                        \
+        int err;                                                \
+        type nval;                                              \
+        nval = cf_strtodouble(q->s_value, min, max, &err);      \
+        if( err != CF_RESULT_OK )                               \
+            return CF_RESULT_ERROR;                             \
+        COPY_ARG_TYPE(nval, type);                              \
+    } while (0)
+
+#define COPY_ARG_INT(min, max, type)                        \
+    do {                                                    \
+        int err;                                            \
+        int64_t nval;                                       \
 		nval = cf_strtonum(q->s_value, 10, min, max, &err);	\
-		if (err != CF_RESULT_OK)				\
-            return CF_RESULT_ERROR;			\
-		COPY_ARG_TYPE(nval, type);				\
+        if (err != CF_RESULT_OK)                            \
+            return CF_RESULT_ERROR;                         \
+        COPY_ARG_TYPE(nval, type);                          \
 	} while (0)
 
-#define COPY_AS_INTTYPE_64(type, sign)					\
+#define COPY_AS_INTTYPE_64(type, sign)	\
 	do {								\
-		if (nout == NULL)					\
-            return CF_RESULT_ERROR;			\
-		COPY_ARG_INT64(type, sign);				\
+        if (nout == NULL)				\
+            return CF_RESULT_ERROR;		\
+        COPY_ARG_INT64(type, sign);		\
 	} while (0)
 
-#define COPY_AS_INTTYPE(min, max, type)					\
+#define COPY_AS_INTTYPE(min, max, type)	\
 	do {								\
-		if (nout == NULL)					\
-            return CF_RESULT_ERROR;			\
-		COPY_ARG_INT(min, max, type);				\
+        if (nout == NULL)				\
+            return CF_RESULT_ERROR;		\
+        COPY_ARG_INT(min, max, type);	\
 	} while (0)
 
 #define http_argument_type(r, n, so, no, t)				\
@@ -147,6 +159,12 @@ struct http_arg
 
 #define http_argument_get_int64(r, n, o)				\
 	http_argument_type(r, n, NULL, o, HTTP_ARG_TYPE_INT64)
+
+#define http_argument_get_float(r, n, o)				\
+    http_argument_type(r, n, NULL, o, HTTP_ARG_TYPE_FLOAT)
+
+#define http_argument_get_double(r, n, o)				\
+    http_argument_type(r, n, NULL, o, HTTP_ARG_TYPE_DOUBLE)
 
 struct http_file
 {

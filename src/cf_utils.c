@@ -292,6 +292,33 @@ uint64_t cf_strtonum64( const char *str, int sign, int *err )
     return ((sign) ? (uint64_t)ll : l);
 }
 /****************************************************************
+ * Convert string to double value
+ ****************************************************************/
+double cf_strtodouble( const char* str, long double min, long double max, int* err )
+ {
+    double d;
+    char* ep = NULL;
+
+    if( min > max )
+    {
+        if( err ) *err = CF_RESULT_ERROR;
+        return 0;
+    }
+
+    errno = 0;
+    d = strtod(str, &ep);
+
+    if( d == 0 || errno == ERANGE || str == ep ||
+            *ep != '\0' || d < min || d > max )
+    {
+        if( err ) *err = CF_RESULT_ERROR;
+        return 0;
+    }
+
+    if( err ) *err = CF_RESULT_OK;
+    return d;
+ }
+/****************************************************************
  *  Split string by delimiter
  ****************************************************************/
 int cf_split_string( char *input, const char *delim, char **out, size_t ele )

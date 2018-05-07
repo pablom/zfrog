@@ -1480,10 +1480,11 @@ static void cli_run_zfrog(void)
     cli_fatal("failed to start '%s': %s", args[0], errno_s);
 }
 /*----------------------------------------------------------------------------*/
-static void cli_buildopt_parse(const char *path)
+static void cli_buildopt_parse( const char* path )
 {
-    FILE *fp = NULL;
-    struct buildopt	*bopt = NULL;
+    FILE* fp = NULL;
+    const char* env = NULL;
+    struct buildopt* bopt = NULL;
     char buf[BUFSIZ], *p, *t;
 
     if( (fp = fopen(path, "r")) == NULL ) {
@@ -1548,7 +1549,14 @@ static void cli_buildopt_parse(const char *path)
 			printf("ignoring unknown option '%s'\n", p);
 	}
 
-	fclose(fp);
+    /* Close configuration file */
+    fclose( fp );
+
+    if( (env = getenv("ZFROG_SOURCE")) != NULL )
+        cli_buildopt_source(NULL, env);
+
+    if( (env = getenv("ZFROG_FLAVOR")) != NULL )
+        cli_buildopt_flavor(NULL, env);
 }
 /*----------------------------------------------------------------------------*/
 static struct buildopt* cli_buildopt_new(const char *name)
