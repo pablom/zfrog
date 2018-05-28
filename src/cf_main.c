@@ -429,6 +429,35 @@ void cf_listener_cleanup( void )
 	}
 }
 /****************************************************************
+ *  Helper function to setup signal catch
+ ****************************************************************/
+void cf_signal_setup( void )
+{
+    struct sigaction sa;
+
+    sig_recv = 0;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = cf_signal;
+
+    if( sigfillset(&sa.sa_mask) == -1 )
+        cf_fatal("sigfillset: %s", errno_s);
+
+    if( sigaction(SIGHUP, &sa, NULL) == -1 )
+        cf_fatal("sigaction: %s", errno_s);
+    if( sigaction(SIGQUIT, &sa, NULL) == -1 )
+        cf_fatal("sigaction: %s", errno_s);
+    if( sigaction(SIGTERM, &sa, NULL) == -1 )
+        cf_fatal("sigaction: %s", errno_s);
+
+    if( server.foreground )
+    {
+        if( sigaction(SIGINT, &sa, NULL) == -1 )
+            cf_fatal("sigaction: %s", errno_s);
+    } else {
+        signal(SIGINT, SIG_IGN);
+    }
+}
+/****************************************************************
  *  Helper function to catch system signals
  ****************************************************************/
 void cf_signal( int sig )
@@ -679,16 +708,8 @@ int main( int argc, char *argv[] )
     }
 #endif
 
-    sig_recv = 0;
-    signal( SIGHUP, cf_signal );
-    signal( SIGQUIT, cf_signal );
-    signal( SIGTERM, cf_signal );
-
-    if( server.foreground )
-        signal(SIGINT, cf_signal);
-    else
-        signal(SIGINT, SIG_IGN);
-
+    /* Setup signal catch functions */
+    cf_signal_setup();
     /* Start server */
     server_start();
 

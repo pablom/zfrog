@@ -328,16 +328,8 @@ static void worker_entry( struct cf_worker *kw )
     /* Redefine server pid with current worker pid */
     //server.pid = kw->pid;
 
-	sig_recv = 0;
-    signal(SIGHUP, cf_signal);
-    signal(SIGQUIT, cf_signal);
-    signal(SIGTERM, cf_signal);
-	signal(SIGPIPE, SIG_IGN);
-
-    if( server.foreground )
-        signal(SIGINT, cf_signal);
-	else
-		signal(SIGINT, SIG_IGN);
+    /* Set signals catch function */
+    cf_signal_setup();
 
 #ifndef CF_NO_TLS
     if( kw->id == CF_WORKER_KEYMGR )

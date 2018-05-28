@@ -580,7 +580,7 @@ struct zfrogServer
  *----------------------------------------------------------------------------*/
 extern struct zfrogServer server;
 
-
+void cf_signal_setup(void);
 void cf_signal(int);
 void cf_worker_wait(int);
 void cf_worker_init(void);
