@@ -63,6 +63,7 @@ static int configure_socket_backlog(char*);
     static int configure_tls_cipher(char*);
     static int configure_tls_dhparam(char*);
     static int configure_client_certificates(char*);
+    static int configure_client_verify_depth(char*);
     static int configure_pkcs11_module(char*);
 #endif
 
@@ -140,6 +141,7 @@ static struct {
     { "certfile",                   configure_certfile },
     { "certkey",                    configure_certkey },
     { "client_certificates",        configure_client_certificates },
+    { "client_verify_depth",	    configure_client_verify_depth },
     { "pkcs11_module",              configure_pkcs11_module },
 #endif
 #ifndef CF_NO_HTTP
@@ -466,6 +468,27 @@ static int configure_tls_dhparam( char *path )
 		printf("PEM_read_bio_DHparams(): %s\n", ssl_errno_s);
         return CF_RESULT_ERROR;
 	}
+
+    return CF_RESULT_OK;
+}
+static int configure_client_verify_depth(char *value)
+{
+    int	err, depth;
+
+    if( current_domain == NULL )
+    {
+        printf("client_verify_depth not specified in domain context\n");
+        return CF_RESULT_ERROR;
+    }
+
+    depth = cf_strtonum(value, 10, 0, INT_MAX, &err);
+    if( err != CF_RESULT_OK )
+    {
+        printf("bad client_verify_depth value: %s\n", value);
+        return CF_RESULT_ERROR;
+    }
+
+    current_domain->x509_verify_depth = depth;
 
     return CF_RESULT_OK;
 }

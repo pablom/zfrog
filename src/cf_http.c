@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <float.h>
 #include <fcntl.h>
+#include <float.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -1428,7 +1429,7 @@ void* http_state_create( struct http_request *req, size_t len )
 /****************************************************************
  *  Get state from current HTTP request
  ****************************************************************/
-void * http_state_get( struct http_request *req )
+void* http_state_get( struct http_request *req )
 {
     return req->hdlr_extra;
 }
