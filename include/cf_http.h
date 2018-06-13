@@ -139,7 +139,7 @@ struct http_arg
 #define http_argument_get_string(r, n, o)				\
 	http_argument_type(r, n, (void **)o, NULL, HTTP_ARG_TYPE_STRING)
 
-#define http_argument_get_byte(r, n, o)				\
+#define http_argument_get_byte(r, n, o)                 \
 	http_argument_type(r, n, NULL, o, HTTP_ARG_TYPE_BYTE)
 
 #define http_argument_get_uint16(r, n, o)				\
@@ -263,11 +263,11 @@ struct http_state
 };
 
 
-void		cf_accesslog(struct http_request *);
+void		cf_accesslog(struct http_request*);
 
 void		http_init(void);
 void		http_cleanup(void);
-void 		http_server_version(const char *);
+void 		http_server_version(const char*);
 void		http_process(void);
 const char *http_status_text(int);
 const char *http_method_text(int);
@@ -279,21 +279,21 @@ void		http_process_request(struct http_request *);
 int         http_body_rewind(struct http_request *);
 ssize_t		http_body_read(struct http_request *, void *, size_t);
 void		http_response(struct http_request *, int, const void *, size_t);
-void		http_response_stream(struct http_request *, int, void *, size_t, int (*cb)(struct netbuf *), void *);
-int         http_request_header(struct http_request *, const char *, const char **);
-int         http_request_cookie(struct http_request *, const char *, char **);
-void        http_response_header(struct http_request *, const char *, const char *);
-int         http_state_run(struct http_state *, uint8_t, struct http_request *);
-void		http_serveable(struct http_request *, const void *, size_t, const char *, const char *);
+void		http_response_stream(struct http_request*, int, void *, size_t, int (*cb)(struct netbuf *), void *);
+int         http_request_header(struct http_request*, const char *, const char **);
+int         http_request_cookie(struct http_request*, const char*, char**);
+void        http_response_header(struct http_request*, const char*, const char*);
+int         http_state_run(struct http_state*, uint8_t, struct http_request*);
+void		http_serveable(struct http_request*, const void*, size_t, const char*, const char*);
 
-void		http_response_cookie(struct http_request *, const char *,
-                                 const char *, const char *, time_t, uint32_t,
+void		http_response_cookie(struct http_request*, const char*,
+                                 const char*, const char*, time_t, uint32_t,
                                  struct http_cookie **);
 
-void* http_state_get(struct http_request *);
-int	  http_state_exists(struct http_request *);
-void  http_state_cleanup(struct http_request *);
-void  *http_state_create(struct http_request *, size_t);
+void* http_state_get(struct http_request*);
+int	  http_state_exists(struct http_request*);
+void  http_state_cleanup(struct http_request*);
+void* http_state_create(struct http_request*, size_t);
 
 int  http_argument_urldecode(char *);
 int  http_header_recv(struct netbuf *);

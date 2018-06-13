@@ -389,7 +389,7 @@ struct cf_domain
     char  *certfile;    /* Certificate file path */
     char  *certkey;     /* Private key path */
     SSL_CTX *ssl_ctx;
-
+    int	  x509_verify_depth;
 #endif
 
     TAILQ_HEAD(, cf_module_handle)	handlers;
@@ -682,7 +682,7 @@ char* cf_strncpy0(char *, const char *, size_t);
 int	cf_split_string(char*, const char*, char**, size_t);
 void cf_strip_chars(char*, const char, char**);
 int	cf_snprintf(char *, size_t, int*, const char*, ...);
-long long	cf_strtonum(const char*, int, long long, long long, int*);
+long long cf_strtonum(const char*, int, long long, long long, int*);
 int cf_base64_encode(const void*, size_t, char**);
 int cf_base64_decode(const char*, size_t, uint8_t**, size_t*);
 void *cf_mem_find(void*, size_t, void*, size_t);

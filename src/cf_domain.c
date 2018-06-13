@@ -172,6 +172,7 @@ int cf_domain_new( char *domain )
 	dom->ssl_ctx = NULL;
 	dom->certfile = NULL;
 	dom->crlfile = NULL;
+    dom->x509_verify_depth = 1;
 #endif
     dom->domain = mem_strdup(domain);
 	TAILQ_INIT(&(dom->handlers));
@@ -237,7 +238,7 @@ void cf_domain_tls_init( struct cf_domain *dom )
     EVP_PKEY *pkey = NULL;
     STACK_OF(X509_NAME)	*certs = NULL;
     EC_KEY *eckey = NULL;
-    X509_STORE *store = NULL;
+    //X509_STORE *store = NULL;
     const SSL_METHOD *method = NULL;
 
 #if !defined(OPENSSL_NO_EC)
@@ -383,14 +384,14 @@ void cf_domain_tls_init( struct cf_domain *dom )
 		}
 
 		SSL_CTX_load_verify_locations(dom->ssl_ctx, dom->cafile, NULL);
-		SSL_CTX_set_verify_depth(dom->ssl_ctx, 1);
+        SSL_CTX_set_verify_depth(dom->ssl_ctx, dom->x509_verify_depth);
 		SSL_CTX_set_client_CA_list(dom->ssl_ctx, certs);
-        SSL_CTX_set_verify(dom->ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+        SSL_CTX_set_verify(dom->ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, domain_x509_verify);
 
-        if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
-            cf_fatal("SSL_CTX_get_cert_store(): %s", ssl_errno_s);
+        //if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
+        //    cf_fatal("SSL_CTX_get_cert_store(): %s", ssl_errno_s);
 
-		X509_STORE_set_verify_cb(store, domain_x509_verify);
+        //X509_STORE_set_verify_cb(store, domain_x509_verify);
 	}
 
 	SSL_CTX_set_session_id_context(dom->ssl_ctx,(unsigned char *)SSL_SESSION_ID, strlen(SSL_SESSION_ID));
