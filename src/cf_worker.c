@@ -350,7 +350,8 @@ static void worker_entry( struct cf_worker *kw )
 #endif
 
     cf_timer_init();
-    connection_init();
+    cf_fileref_init();
+    cf_connection_init();
     cf_domain_load_crl();
     cf_domain_keymgr_init();
 
@@ -532,7 +533,7 @@ static void worker_entry( struct cf_worker *kw )
 
     /* Clean up resources */
     cf_platform_event_cleanup();
-    connection_cleanup();
+    cf_connection_cleanup();
     cf_domain_cleanup();
     cf_module_cleanup();
 

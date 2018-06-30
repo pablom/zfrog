@@ -288,3 +288,48 @@ void cf_platform_proctitle( char *title )
 	setproctitle("%s", title);
 #endif
 }
+
+#ifndef CF_NO_SENDFILE
+int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
+{
+    int   ret;
+    off_t len, smin;
+
+    smin = nb->fd_len - nb->fd_off;
+    len = MIN(SENDFILE_PAYLOAD_MAX, smin);
+
+#if defined(__MACH__)
+    ret = sendfile(nb->file_ref->fd, c->fd, nb->fd_off, &len, NULL, 0);
+#else
+    ret = sendfile(nb->file_ref->fd, c->fd, nb->fd_off, len, NULL, &len, 0);
+#endif
+
+    if( ret == -1 )
+    {
+        if( errno == EAGAIN )
+        {
+            nb->fd_off += len;
+            c->flags &= ~CONN_WRITE_POSSIBLE;
+            return CF_RESULT_OK;
+        }
+
+        if( errno == EINTR )
+        {
+            nb->fd_off += len;
+            return CF_RESULT_OK;
+        }
+
+        return CF_RESULT_ERROR;
+    }
+
+    nb->fd_off += len;
+
+    if( len == 0 || nb->fd_off == nb->fd_len )
+    {
+        net_remove_netbuf(&(c->send_queue), nb);
+        c->snb = NULL;
+    }
+
+    return CF_RESULT_OK;
+}
+#endif

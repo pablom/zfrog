@@ -75,7 +75,7 @@ void cf_keymgr_run( void )
     cf_worker_privdrop();
 
 	net_init();
-    connection_init();
+    cf_connection_init();
     cf_platform_event_init();
 
     cf_msg_worker_init();
@@ -115,7 +115,7 @@ void cf_keymgr_run( void )
 
     cf_keymgr_cleanup();
     cf_platform_event_cleanup();
-    connection_cleanup();
+    cf_connection_cleanup();
 	net_cleanup();
 }
 /****************************************************************

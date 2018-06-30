@@ -22,10 +22,10 @@ FEATURES_INC=
 OSNAME = $(shell uname -s | sed -e 's/[-_].*//g' | tr A-Z a-z)
 TARGET = $(shell uname -s | tr '[A-Z]' '[a-z]' 2>/dev/null || echo unknown)
 
-CFLAGS  += -Wall -Werror -Wmissing-declarations -Wshadow -Wstrict-prototypes
+CFLAGS  += -Wall -Werror -Wmissing-declarations -Wshadow -Wstrict-prototypes -Wmissing-prototypes
 CFLAGS  += -Wpointer-arith -Wcast-qual -Wsign-compare -Wshadow -pedantic -fstack-protector-all
-CFLAGS  += -Iinclude -Iinclude/cstl 
-CFLAGS  += -I$(OBJDIR)/include
+CFLAGS  += -DPREFIX='"$(PREFIX)"'
+CFLAGS  += -Iinclude -Iinclude/cstl -I$(OBJDIR)/include
 CFLAGS  += -m64
 
 LDFLAGS += -m64
@@ -79,6 +79,12 @@ else
     CFLAGS += -O3
 endif
 ###########################################################################
+#   'sendfile' support
+###########################################################################
+ifneq ("$(CF_NOSENDFILE)", "")
+    CFLAGS += -DCF_NO_SENDFILE
+endif
+###########################################################################
 #   HTTP support
 ###########################################################################
 ifeq ($(CF_NO_HTTP), 1)
@@ -86,7 +92,7 @@ ifeq ($(CF_NO_HTTP), 1)
     FEATURES += -DCF_NO_HTTP
 else
     S_SRC+= src/cf_auth.c src/cf_accesslog.c src/cf_http.c src/cf_websocket.c\
-            src/cf_validator.c
+            src/cf_validator.c src/cf_filemap.c src/cf_fileref.c
 endif
 ###########################################################################
 #   TLS support
@@ -430,6 +436,9 @@ example-redis:
 
 example-redis-jsonrpc:
 	cd examples/redis-jsonrpc && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
+
+example-ttyd:
+	cd examples/ttyd && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 ########################################################################
 # no HTTP support examples 
 ########################################################################

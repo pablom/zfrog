@@ -19,13 +19,41 @@
 
 void net_init( void )
 {
-    cf_mem_pool_init(&server.nb_pool, "nb_pool", sizeof(struct netbuf), 1000);
+    /* Add some overhead so we don't roll over for internal items. */
+    u_int32_t elm = server.worker_max_connections + 10;
+    cf_mem_pool_init(&server.nb_pool, "nb_pool", sizeof(struct netbuf), elm);
 }
 
 void net_cleanup( void )
 {
     log_debug("net_cleanup()");
     cf_mem_pool_cleanup(&server.nb_pool);
+}
+
+struct netbuf* net_netbuf_get(void)
+{
+    struct netbuf* nb = NULL;
+
+    nb = cf_mem_pool_get(&server.nb_pool);
+
+    nb->cb = NULL;
+    nb->buf = NULL;
+    nb->owner = NULL;
+    nb->extra = NULL;
+    nb->file_ref = NULL;
+
+    nb->type = 0;
+    nb->s_off = 0;
+    nb->b_len = 0;
+    nb->m_len = 0;
+    nb->flags = 0;
+
+#ifndef CF_NO_SENDFILE
+    nb->fd_off = -1;
+    nb->fd_len = -1;
+#endif
+
+    return nb;
 }
 
 void net_send_queue( struct connection *c, const void *data, size_t len )
@@ -60,11 +88,9 @@ void net_send_queue( struct connection *c, const void *data, size_t len )
 		}
 	}
 
-    nb = cf_mem_pool_get(&server.nb_pool);
-	nb->flags = 0;
-	nb->cb = NULL;
+    nb = net_netbuf_get();
+
 	nb->owner = c;
-	nb->s_off = 0;
 	nb->b_len = len;
 	nb->type = NETBUF_SEND;
 
@@ -86,10 +112,9 @@ void net_send_stream( struct connection *c, void *data, size_t len, int (*cb)(st
 
     log_debug("net_send_stream(%p, %p, %zu)", c, data, len);
 
-    nb = cf_mem_pool_get(&server.nb_pool);
+    nb = net_netbuf_get();
 	nb->cb = cb;
 	nb->owner = c;
-	nb->s_off = 0;
 	nb->buf = data;
 	nb->b_len = len;
 	nb->m_len = nb->b_len;
@@ -99,6 +124,28 @@ void net_send_stream( struct connection *c, void *data, size_t len, int (*cb)(st
 	TAILQ_INSERT_TAIL(&(c->send_queue), nb, list);
     if( out != NULL )
 		*out = nb;
+}
+void net_send_fileref( struct connection* c, struct cf_fileref* ref )
+{
+    struct netbuf* nb = NULL;
+
+    nb = net_netbuf_get();
+    nb->owner = c;
+    nb->file_ref = ref;
+    nb->type = NETBUF_SEND;
+    nb->flags = NETBUF_IS_FILEREF;
+
+#ifndef CF_NO_SENDFILE
+    nb->fd_off = 0;
+    nb->fd_len = ref->size;
+#else
+    nb->buf = ref->base;
+    nb->b_len = ref->size;
+    nb->m_len = nb->b_len;
+    nb->flags |= NETBUF_IS_STREAM;
+#endif
+
+    TAILQ_INSERT_TAIL(&(c->send_queue), nb, list);
 }
 /****************************************************************
  *  Reset incoming net buffer
@@ -123,7 +170,7 @@ void net_recv_reset( struct connection *c, size_t len, int (*cb)(struct netbuf *
     c->rnb->buf = mem_malloc(c->rnb->m_len);
 }
 
-void net_recv_queue( struct connection *c, size_t len, int flags,
+void net_recv_queue( struct connection* c, size_t len, int flags,
                      int (*cb)(struct netbuf *))
 {
     log_debug("net_recv_queue(): %p %zu %d", c, len, flags);
@@ -131,13 +178,11 @@ void net_recv_queue( struct connection *c, size_t len, int flags,
     if( c->rnb != NULL )
         cf_fatal("net_recv_queue(): called incorrectly for %p", c);
 
-    c->rnb = cf_mem_pool_get(&server.nb_pool);
+    c->rnb = net_netbuf_get();
 	c->rnb->cb = cb;
 	c->rnb->owner = c;
-	c->rnb->s_off = 0;
 	c->rnb->b_len = len;
 	c->rnb->m_len = len;
-	c->rnb->extra = NULL;
 	c->rnb->flags = flags;
 	c->rnb->type = NETBUF_RECV;
     c->rnb->buf = mem_malloc(c->rnb->b_len);
@@ -164,6 +209,13 @@ int net_send( struct connection *c )
     size_t r, len, smin;
 
 	c->snb = TAILQ_FIRST(&(c->send_queue));
+
+#ifndef CF_NO_SENDFILE
+    if( (c->snb->flags & NETBUF_IS_FILEREF) && !(c->snb->flags & NETBUF_IS_STREAM) )
+    {
+        return cf_platform_sendfile(c, c->snb);
+    }
+#endif
 
     if( c->snb->b_len != 0 )
     {
@@ -264,6 +316,9 @@ void net_remove_netbuf( struct netbuf_head *list, struct netbuf *nb )
     {
         nb->cb(nb);
 	}
+
+    if( nb->flags & NETBUF_IS_FILEREF )
+        cf_fileref_release( nb->file_ref );
 
 	TAILQ_REMOVE(list, nb, list);
     cf_mem_pool_put(&server.nb_pool, nb);

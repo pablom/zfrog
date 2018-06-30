@@ -272,3 +272,10 @@ void cf_platform_proctitle( char *title )
     if( prctl(PR_SET_NAME, title) == -1 )
         log_debug("prctl(): %s", errno_s);
 }
+
+#ifndef CF_NO_SENDFILE
+int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
+{
+
+}
+#endif

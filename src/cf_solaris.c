@@ -11,6 +11,7 @@
 #include <sys/devpoll.h>
 #include <sys/processor.h>
 #include <sys/procset.h>
+#include <sys/sendfile.h>
 #include <kstat.h>
 
 #include <sys/port.h>
@@ -382,5 +383,39 @@ int cf_uptime( double* uptime )
     kstat_close( kc );
 
   return CF_RESULT_OK;
+}
+#endif
+
+#ifndef CF_NO_SENDFILE
+int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
+{
+    size_t	len = 0;
+    ssize_t	sent = 0;
+    off_t	smin = 0;
+
+    smin = nb->fd_len - nb->fd_off;
+    len = MIN(SENDFILE_PAYLOAD_MAX, smin);
+
+    if( (sent = sendfile(c->fd, nb->file_ref->fd, &nb->fd_off, len)) == -1 )
+    {
+        if( errno == EAGAIN )
+        {
+            c->flags &= ~CONN_WRITE_POSSIBLE;
+            return CF_RESULT_OK;
+        }
+
+        if( errno == EINTR )
+            return CF_RESULT_OK;
+
+        return CF_RESULT_ERROR;
+    }
+
+    if( sent == 0 || nb->fd_off == nb->fd_len )
+    {
+        net_remove_netbuf(&(c->send_queue), nb);
+        c->snb = NULL;
+    }
+
+    return CF_RESULT_OK;
 }
 #endif

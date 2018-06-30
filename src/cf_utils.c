@@ -365,7 +365,7 @@ void cf_strip_chars( char *in, const char strip, char **out )
 /****************************************************************
  *  Convert HTTP date/time string buffer to time structure
  ****************************************************************/
-time_t cf_date_to_time( char *http_date )
+time_t cf_date_to_time( const char *http_date )
 {
     time_t t;
     int err, i;

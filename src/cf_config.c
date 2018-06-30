@@ -74,6 +74,9 @@ static int configure_socket_backlog(char*);
     static int configure_accesslog(char*);
     static int configure_http_header_max(char*);
     static int configure_http_body_max(char*);
+    static int configure_filemap(char*);
+    static int configure_filemap_index(char*);
+    static int configure_http_media_type(char*);
     static int configure_http_hsts_enable(char*);
     static int configure_http_keepalive_time(char*);
     static int configure_http_request_ms(char*);
@@ -145,6 +148,8 @@ static struct {
     { "pkcs11_module",              configure_pkcs11_module },
 #endif
 #ifndef CF_NO_HTTP
+    { "filemap",			        configure_filemap },
+    { "filemap_index",		        configure_filemap_index },
     { "static",                     configure_static_handler },
     { "dynamic",                    configure_dynamic_handler },
     { "accesslog",                  configure_accesslog },
@@ -156,6 +161,7 @@ static struct {
     { "http_request_limit",         configure_http_request_limit },
     { "http_body_disk_offload",     configure_http_body_disk_offload },
     { "http_body_disk_path",        configure_http_body_disk_path },
+    { "http_media_type",		    configure_http_media_type },
     { "validator",                  configure_validator },
     { "params",                     configure_params },
     { "validate",                   configure_validate },
@@ -471,6 +477,9 @@ static int configure_tls_dhparam( char *path )
 
     return CF_RESULT_OK;
 }
+/************************************************************************
+ *  Configure domain client certificate's verify depth
+ ************************************************************************/
 static int configure_client_verify_depth(char *value)
 {
     int	err, depth;
@@ -679,6 +688,74 @@ static int configure_accesslog( char *path )
 		printf("accesslog open(%s): %s\n", path, errno_s);
         return CF_RESULT_ERROR;
 	}
+
+    return CF_RESULT_OK;
+}
+
+static int configure_filemap( char *options )
+{
+    char *argv[3];
+
+    if( current_domain == NULL )
+    {
+        printf("filemap outside of domain context\n");
+        return CF_RESULT_ERROR;
+    }
+
+    cf_split_string(options, " ", argv, 3);
+
+    if( argv[0] == NULL || argv[1] == NULL )
+    {
+        printf("missing parameters for filemap\n");
+        return CF_RESULT_ERROR;
+    }
+
+    if( !cf_filemap_create(current_domain, argv[1], argv[0]) )
+    {
+        printf("cannot create filemap for %s\n", argv[1]);
+        return CF_RESULT_ERROR;
+    }
+
+    return CF_RESULT_OK;
+}
+
+static int configure_filemap_index( char *index )
+{
+    mem_free( server.filemap_index );
+    server.filemap_index = mem_strdup(index);
+    return CF_RESULT_OK;
+}
+
+static int configure_http_media_type( char *type )
+{
+    int	i;
+    char *extensions, *ext[10];
+
+    extensions = strchr(type, ' ');
+
+    if( extensions == NULL )
+    {
+        printf("bad http_media_type value: %s\n", type);
+        return CF_RESULT_ERROR;
+    }
+
+    *(extensions)++ = '\0';
+
+    cf_split_string(extensions, " \t", ext, 10);
+    for( i = 0; ext[i] != NULL; i++ )
+    {
+        if( !http_media_register(ext[i], type) )
+        {
+            printf("duplicate extension found: %s\n", ext[i]);
+            return CF_RESULT_ERROR;
+        }
+    }
+
+    if( i == 0 )
+    {
+        printf("missing extensions in: %s\n", type);
+        return CF_RESULT_ERROR;
+    }
 
     return CF_RESULT_OK;
 }

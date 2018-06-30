@@ -68,7 +68,6 @@ struct http_cookie
     char        *path;
     char        *domain;
     uint32_t    maxage;
-
     time_t      expires;
     u_int16_t   flags;
 
@@ -168,11 +167,11 @@ struct http_arg
 
 struct http_file
 {
-	char			*name;
-	char			*filename;
-	size_t			position;
-	size_t			offset;
-	size_t			length;
+    char                *name;
+    char                *filename;
+    size_t              position;
+    size_t              offset;
+    size_t              length;
 	struct http_request	*req;
 	TAILQ_ENTRY(http_file)	list;
 };
@@ -262,6 +261,14 @@ struct http_state
     int	(*cb)(struct http_request *);
 };
 
+struct http_media_type
+{
+    char    *ext;
+    char	*type;
+
+    LIST_ENTRY(http_media_type)	list;
+};
+
 
 void		cf_accesslog(struct http_request*);
 
@@ -290,6 +297,9 @@ void		http_response_cookie(struct http_request*, const char*,
                                  const char*, const char*, time_t, uint32_t,
                                  struct http_cookie **);
 
+void http_response_fileref(struct http_request*, int, struct cf_fileref*);
+int	http_media_register(const char*, const char*);
+const char* http_media_type(const char*);
 void* http_state_get(struct http_request*);
 int	  http_state_exists(struct http_request*);
 void  http_state_cleanup(struct http_request*);

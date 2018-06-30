@@ -13,7 +13,7 @@ Test:
 	Host: 127.0.0.1
 
 	GET / HTTP/1.1
-	Host: www.google.se
+	Host: www.google.com
 
 	(And hit enter)
 

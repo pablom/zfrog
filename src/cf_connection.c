@@ -26,7 +26,7 @@ struct connection_list	disconnected;
 /****************************************************************
  *  Helper function to init all global connection's parameters
  ****************************************************************/
-void connection_init( void )
+void cf_connection_init( void )
 {
     uint32_t elm;
 
@@ -41,7 +41,7 @@ void connection_init( void )
 /****************************************************************
  *  Helper function clean all global connection's parameters
  ****************************************************************/
-void connection_cleanup( void )
+void cf_connection_cleanup( void )
 {
     log_debug("connection_cleanup()");
 
@@ -87,7 +87,7 @@ struct connection* cf_connection_new( void *owner, uint8_t type )
 /****************************************************************
  *  Helper function to accept incoming connection
  ****************************************************************/
-int connection_accept( struct listener *listener, struct connection **out )
+int cf_connection_accept( struct listener *listener, struct connection **out )
 {
     struct connection *c = NULL;
     struct sockaddr	*addr = NULL;

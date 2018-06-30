@@ -230,6 +230,7 @@ static void init_server_config( void )
     /* Web sockets settings */
     server.websocket_timeout = 120000;
     server.websocket_maxframe = 16384;
+    server.filemap_index = NULL;
 #endif
 
 #ifdef CF_TASKS
@@ -516,7 +517,7 @@ static void server_start( void )
     server.worker_max_connections = server.worker_count;
 
 	net_init();
-    connection_init();
+    cf_connection_init();
     cf_platform_event_init();
     cf_msg_parent_init();
 
@@ -553,7 +554,7 @@ static void server_start( void )
 	}
 
     cf_platform_event_cleanup();
-    connection_cleanup();
+    cf_connection_cleanup();
     cf_domain_cleanup();
 	net_cleanup();
 }

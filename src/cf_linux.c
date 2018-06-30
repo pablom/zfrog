@@ -1,7 +1,9 @@
 // cf_linux.c
 
+#include <sys/param.h>
 #include <sys/epoll.h>
 #include <sys/prctl.h>
+#include <sys/sendfile.h>
 #include <sched.h>
 
 #include "zfrog.h"
@@ -156,7 +158,7 @@ int cf_platform_event_wait( uint64_t timer )
                 if( server.worker_accept_threshold != 0 && r >= server.worker_accept_threshold )
 					break;
 
-                if( !connection_accept(l, &c) )
+                if( !cf_connection_accept(l, &c) )
                 {
 					r = 1;
 					break;
@@ -293,3 +295,38 @@ void cf_platform_proctitle( char *title )
     if( prctl(PR_SET_NAME, title) == -1 )
         log_debug("prctl(): %s", errno_s);
 }
+
+#ifndef CF_NO_SENDFILE
+int cf_platform_sendfile( struct connection* c, struct netbuf* nb)
+{
+    size_t	len = 0;
+    ssize_t	sent = 0;
+    off_t	smin = 0;
+
+    smin = nb->fd_len - nb->fd_off;
+    len = MIN(SENDFILE_PAYLOAD_MAX, smin);
+
+    if( (sent = sendfile(c->fd, nb->file_ref->fd, &nb->fd_off, len)) == -1 )
+    {
+        if( errno == EAGAIN )
+        {
+            c->flags &= ~CONN_WRITE_POSSIBLE;
+            return CF_RESULT_OK;
+        }
+
+        if( errno == EINTR )
+            return CF_RESULT_OK;
+
+        return CF_RESULT_ERROR;
+    }
+
+    if( sent == 0 || nb->fd_off == nb->fd_len )
+    {
+        net_remove_netbuf(&(c->send_queue), nb);
+        c->snb = NULL;
+    }
+
+    return CF_RESULT_OK;
+}
+#endif /* CF_NO_SENDFILE */
+

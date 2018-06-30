@@ -29,6 +29,25 @@
     #include "cf_python.h"
 #endif
 
+static struct {
+    const char	*ext;
+    const char	*type;
+} builtin_media[] = {
+    { "gif",	"image/gif"  },
+    { "png",	"image/png"  },
+    { "jpeg",	"image/jpeg" },
+    { "jpg",	"image/jpeg" },
+    { "zip",	"application/zip"  },
+    { "pdf",	"application/pdf"  },
+    { "json",	"application/json" },
+    { "js",		"application/javascript" },
+    { "htm",	"text/html"  },
+    { "txt",	"text/plain" },
+    { "css",	"text/css"   },
+    { "html",	"text/html"  },
+    { NULL,		NULL },
+};
+
 
 static struct http_request* http_request_new(struct connection*, const char*, const char*, char*, const char*);
 static int	http_body_recv(struct netbuf *);
@@ -48,6 +67,8 @@ static uint16_t         http_version_len;
 
 static TAILQ_HEAD(, http_request)	http_requests;
 static TAILQ_HEAD(, http_request)	http_requests_sleeping;
+static LIST_HEAD(, http_media_type)	http_media_types;
+
 static struct cf_mem_pool http_request_pool;
 static struct cf_mem_pool http_header_pool;
 static struct cf_mem_pool http_cookie_pool;
@@ -58,7 +79,7 @@ static struct cf_mem_pool http_body_path;
  ****************************************************************/
 void http_init( void )
 {
-    int	prealloc, l;
+    int	prealloc, l, i;
 
 	TAILQ_INIT(&http_requests);
 	TAILQ_INIT(&http_requests_sleeping);
@@ -78,6 +99,14 @@ void http_init( void )
     cf_mem_pool_init(&http_header_pool, "http_header_pool", sizeof(struct http_header), prealloc * HTTP_REQ_HEADER_MAX);
     cf_mem_pool_init(&http_cookie_pool, "http_cookie_pool", sizeof(struct http_cookie), prealloc * HTTP_MAX_COOKIES);
     cf_mem_pool_init(&http_body_path, "http_body_path", HTTP_BODY_PATH_MAX, prealloc);
+
+    for( i = 0; builtin_media[i].ext != NULL; i++ )
+    {
+        if( !http_media_register(builtin_media[i].ext, builtin_media[i].type) )
+        {
+            cf_fatal("duplicate media type for %s", builtin_media[i].ext);
+        }
+    }
 }
 /****************************************************************
  *  HTTP global cleanup
@@ -639,6 +668,55 @@ void http_response_stream(struct http_request *req, int status, void *base, size
 	}
 }
 
+void http_response_fileref( struct http_request* req, int status, struct cf_fileref* ref)
+{
+    struct tm* tm = NULL;
+    time_t mtime;
+    char tbuf[128];
+    const char* media_type = NULL;
+    const char* modified = NULL;
+
+    if( req->owner == NULL )
+        return;
+
+    if( (media_type = http_media_type(ref->path)) != NULL )
+        http_response_header(req, "content-type", media_type);
+
+    if( http_request_header(req, "if-modified-since", &modified) )
+    {
+        mtime = cf_date_to_time(modified);
+
+        if( mtime == ref->mtime )
+        {
+            cf_fileref_release(ref);
+            http_response(req, HTTP_STATUS_NOT_MODIFIED, NULL, 0);
+            return;
+        }
+    }
+
+    if( (tm = gmtime(&ref->mtime)) != NULL )
+    {
+        if( strftime(tbuf, sizeof(tbuf),"%a, %d %b %Y %H:%M:%S GMT", tm) > 0 )
+            http_response_header(req, "last-modified", tbuf);
+    }
+
+    req->status = status;
+    switch( req->owner->proto )
+    {
+    case CONN_PROTO_HTTP:
+        http_response_normal(req, req->owner, status, NULL, ref->size);
+        break;
+    default:
+        cf_fatal("http_response_fd() bad proto %d", req->owner->proto);
+        /* NOTREACHED. */
+    }
+
+    if( req->method != HTTP_METHOD_HEAD )
+        net_send_fileref(req->owner, ref);
+    else
+        cf_fileref_release(ref);
+}
+
 int http_request_header(struct http_request *req, const char *header, const char **out)
 {
     struct http_header *hdr = NULL;
@@ -992,9 +1070,12 @@ int http_argument_urldecode( char *arg )
 		h[3] = *(p + 2);
 		h[4] = '\0';
 
-        v = (uint8_t)cf_strtonum(h, 16, 0, 255, &err);
+        v = (uint8_t)cf_strtonum(h, 16, 0x00, 0xFF, &err);
         if( err != CF_RESULT_OK )
             return err;
+
+        if( v <= 0x1F || v == 0x7F || (v >= 0x80 && v <= 0x9F) )
+            return CF_RESULT_ERROR;
 
 		*in++ = (char)v;
 		p += 3;
@@ -2112,6 +2193,46 @@ const char* http_get_cookie( struct http_request *request, const char *name )
 
     /* Delete temporary buffer */
     mem_free( t_str );
+
+    return NULL;
+}
+
+int http_media_register( const char* ext, const char* type )
+{
+    struct http_media_type* media = NULL;
+
+    LIST_FOREACH(media, &http_media_types, list)
+    {
+        if( !strcasecmp(media->ext, ext) )
+            return CF_RESULT_ERROR;
+    }
+
+    media = mem_calloc(1, sizeof(*media));
+    media->ext = mem_strdup(ext);
+    media->type = mem_strdup(type);
+
+    LIST_INSERT_HEAD(&http_media_types, media, list);
+
+    return CF_RESULT_OK;
+}
+
+const char* http_media_type( const char* path )
+{
+    const char* p = NULL;
+    struct http_media_type* media = NULL;
+
+    if( (p = strrchr(path, '.')) == NULL )
+        return NULL;
+
+    p++;
+    if( *p == '\0' )
+        return NULL;
+
+    LIST_FOREACH(media, &http_media_types, list)
+    {
+        if( !strcasecmp(media->ext, p) )
+            return media->type;
+    }
 
     return NULL;
 }

@@ -184,7 +184,7 @@ void* mem_calloc( size_t memb, size_t len )
 void mem_free( void *ptr )
 {
     uint8_t *addr = NULL;
-    struct meminfo	*mem = NULL;
+    struct meminfo* mem = NULL;
     size_t len, idx;
 
     if( ptr == NULL )

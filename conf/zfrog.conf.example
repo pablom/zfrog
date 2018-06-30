@@ -137,11 +137,11 @@ validator	v_session	function	v_session_validate
 
 # Specify what TLS version to be used. Default is TLSv1.2
 # Allowed values:
-#   1.3 for TLSv1.3
-#	1.2 for TLSv1.2 (default)
-#	1.1 for TLSv1.1
-#	1.0 for TLSv1.0
-#	both for TLSv1.0 and TLSv1.2
+#       1.3 for TLSv1.3
+#       1.2 for TLSv1.2 (default)
+#       1.1 for TLSv1.1
+#       1.0 for TLSv1.0
+#       both for TLSv1.0 and TLSv1.2
 #tls_version	1.2
 
 # Specify the TLS ciphers that will be used.
@@ -225,18 +225,22 @@ domain localhost {
 	accesslog	/var/log/zfrog_access.log
 
 	# Page handlers with no authentication required.
-	static		/css/style.css	serve_style_css
-	static		/				serve_index
+        static		/css/style.css          serve_style_css
+        static		/			serve_index
 	static		/intro.jpg		serve_intro
 	static		/b64test		serve_b64test
 	static		/upload			serve_file_upload
 	static		/lock-test		serve_lock_test
 	static		/validator		serve_validator
-	static		/params-test	serve_params_test
+        static		/params-test            serve_params_test
 	static		/private		serve_private
 
 	# Page handlers with authentication.
 	static		/private/test	serve_private_test	auth_example
+
+        # Allow access to files from the directory static_files via
+        # the /files/ URI.
+        filemap		/files/			static_files
 
 	# Configure /params-test POST to only accept the following parameters.
 	# They are automatically tested against the validator listed.
@@ -253,7 +257,7 @@ domain localhost {
 	# fails. All extra parameters in the GET query are filtered out.
 	params get /params-test {
 		validate	arg1	v_example
-		validate	id		v_number
+                validate	id	v_number
 	}
 
         # Configure a params block for allowed parameters in the
@@ -274,6 +278,6 @@ domain localhost {
 #	client_certificates	cert/other/ca.crt
 
 #	static		/css/style.css		serve_style_css
-#	static		/					serve_index
+#	static		/			serve_index
 #	dynamic		^/[a-z0-9_]*$		serve_profile
 #}

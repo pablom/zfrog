@@ -14,7 +14,7 @@ Test:
 
 	$ curl -i -k \
 	    -d '{"id":1,"jsonrpc":"2.0","method":"echo","params":["Hello world"]}' \
-	    https://127.0.0.1:8888/v1
+	    https://127.0.0.1:8888/v1 --keepalive-time=30
 
 The result should echo back the string at `params`: Hello world.
 

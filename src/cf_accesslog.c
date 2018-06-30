@@ -80,7 +80,7 @@ int cf_accesslog_write(const void *data, uint32_t len)
 		break;
 	}
 
-	cn = "none";
+    cn = "-";
 
 #ifndef CF_NO_TLS
     if( logpacket.cn[0] != '\0' )
@@ -88,7 +88,7 @@ int cf_accesslog_write(const void *data, uint32_t len)
 #endif
 
     if( inet_ntop(logpacket.addrtype, &(logpacket.addr), addr, sizeof(addr)) == NULL ) {
-        cf_strlcpy(addr, "unknown", sizeof(addr));
+        cf_strlcpy(addr, "-", sizeof(addr));
     }
 
 	time(&now);

@@ -11,6 +11,8 @@ Platforms supported
 * OpenBSD
 * FreeBSD
 * OSX
+* Solaris
+* AIX
 
 More information can be found on https://zfrog.xyz
 
@@ -34,12 +36,13 @@ Requirements for pgsql (optional)
 If you would like to build a specific flavor, you can enable
 those by setting a shell environment variable before running **_make_**.
 
-* CF_TASKS=1  (compiles in task support)
-* CF_PGSQL=1  (compiles in pgsql support)
-* CF_DEBUG=1  (enables use of -d for debug)
-* CF_NOTLS=1  (compiles zfrog without TLS)
-* CF_NOHTTP=1 (compiles zfrog without HTTP support)
-* CF_JSONRPC=1 (compiles in JSONRPC support)
-* CF_PYTHON=1  (compiles in the Python support)
-* CF_LUA=1     (compiles in the Lua support)
-* CF_REDIS=1   (compiles in the Redis support)
+* CF_TASKS=1        (compiles in task support)
+* CF_PGSQL=1        (compiles in pgsql support)
+* CF_DEBUG=1        (enables use of -d for debug)
+* CF_NOTLS=1        (compiles zfrog without TLS)
+* CF_NOHTTP=1       (compiles zfrog without HTTP support)
+* CF_JSONRPC=1      (compiles in JSONRPC support)
+* CF_PYTHON=1       (compiles in the Python support)
+* CF_LUA=1          (compiles in the Lua support)
+* CF_REDIS=1        (compiles in the Redis support)
+* CF_NOSENDFILE=1   (compiles without 'sendfile' supports)
