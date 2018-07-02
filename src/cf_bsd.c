@@ -172,7 +172,7 @@ int cf_platform_event_wait(uint64_t timer)
                 if( server.worker_accept_threshold != 0 && r >= server.worker_accept_threshold )
 					break;
 
-                if( !connection_accept(l, &c) )
+                if( !cf_connection_accept(l, &c) )
                 {
 					r = 1;
 					break;
