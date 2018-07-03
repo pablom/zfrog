@@ -12,6 +12,7 @@ struct cf_log_packet
 {
     uint8_t     method;
     int         status;
+    size_t		length;
     uint16_t	time_req;
     uint16_t	worker_id;
     uint16_t	worker_cpu;
@@ -20,6 +21,7 @@ struct cf_log_packet
     char		host[CF_DOMAINNAME_LEN];
 	char		path[HTTP_URI_LEN];
 	char		agent[HTTP_USERAGENT_LEN];
+    char		referer[HTTP_REFERER_LEN];
 #ifndef CF_NO_TLS
     char cn[X509_CN_LENGTH];
 #endif
@@ -38,11 +40,16 @@ int cf_accesslog_write(const void *data, uint32_t len)
 {
     int	l;
     time_t now;
+    struct tm* tm = NULL;
     ssize_t sent;
     struct cf_domain *dom = NULL;
     struct cf_log_packet logpacket;
     char addr[INET6_ADDRSTRLEN];
-    char *method, *buf, *tbuf, *cn;
+    char *method = NULL;
+    char *buf = NULL;
+    char *cn = NULL;
+
+    char tbuf[128];
 
     if( len != sizeof(struct cf_log_packet) )
         return CF_RESULT_ERROR;
@@ -91,11 +98,14 @@ int cf_accesslog_write(const void *data, uint32_t len)
         cf_strlcpy(addr, "-", sizeof(addr));
     }
 
-	time(&now);
-    tbuf = cf_time_to_date(now);
-	l = asprintf(&buf, "[%s] %s %d %s %s (w#%d) (%dms) (%s) (%s)\n",
-	    tbuf, addr, logpacket.status, method, logpacket.path,
-	    logpacket.worker_id, logpacket.time_req, cn, logpacket.agent);
+    time( &now );
+    tm = localtime( &now );
+    strftime(tbuf, sizeof(tbuf), "%d/%b/%Y:%H:%M:%S %z", tm);
+
+    l = asprintf(&buf,
+        "%s - %s [%s] \"%s %s HTTP/1.1\" %d %zu \"%s\" \"%s\" (w#%d) (%dms)\n",
+        addr, cn, tbuf, method, logpacket.path, logpacket.status,
+        logpacket.length, logpacket.referer, logpacket.agent, logpacket.worker_id, logpacket.time_req);
 
     if( l == -1 )
     {
@@ -125,20 +135,21 @@ void cf_accesslog( struct http_request *req )
 
 	logpacket.addrtype = req->owner->addrtype;
 
-    if( logpacket.addrtype == AF_INET )
-    {
+    if( logpacket.addrtype == AF_INET ) {
         memcpy( logpacket.addr, &(req->owner->addr.ipv4.sin_addr), sizeof(req->owner->addr.ipv4.sin_addr));
     }
-    else
-    {
+    else {
         memcpy( logpacket.addr, &(req->owner->addr.ipv6.sin6_addr), sizeof(req->owner->addr.ipv6.sin6_addr));
-	}
+    }
 
 	logpacket.status = req->status;
 	logpacket.method = req->method;
+    logpacket.length = req->content_length;
+    logpacket.time_req = req->total; /* Total request time */
+
     logpacket.worker_id = server.worker->id;
     logpacket.worker_cpu = server.worker->cpu;
-	logpacket.time_req = req->total;
+
 
     if( cf_strlcpy(logpacket.host, req->host, sizeof(logpacket.host)) >= sizeof(logpacket.host) )
         cf_log(LOG_NOTICE, "cf_accesslog: host truncated");
@@ -152,9 +163,15 @@ void cf_accesslog( struct http_request *req )
             cf_log(LOG_NOTICE, "cf_accesslog: agent truncated");
     }
     else
-    {
         cf_strlcpy(logpacket.agent, "unknown", sizeof(logpacket.agent));
-	}
+
+    if( req->referer != NULL )
+    {
+        if( cf_strlcpy(logpacket.referer, req->referer,sizeof(logpacket.referer)) >= sizeof(logpacket.referer))
+            cf_log(LOG_NOTICE,"cf_accesslog: referer truncated");
+    }
+    else
+        cf_strlcpy(logpacket.referer, "-", sizeof(logpacket.referer));
 
 #ifndef CF_NO_TLS
 	memset(logpacket.cn, '\0', sizeof(logpacket.cn));

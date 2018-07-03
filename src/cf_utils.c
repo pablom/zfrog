@@ -469,7 +469,7 @@ time_t cf_date_to_time( const char *http_date )
     return t;
 }
 /****************************************************************
- *  Convert current time structure to string buffer
+ *  Convert current UTC time structure to string buffer
  ****************************************************************/
 char* cf_time_to_date( time_t now )
 {
