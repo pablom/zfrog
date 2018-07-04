@@ -23,7 +23,7 @@ static struct epoll_event *events = NULL;
 /****************************************************************
  *  Init platform function
  ****************************************************************/
-void cf_platform_init()
+void cf_platform_init(void)
 {
     long n;
 
