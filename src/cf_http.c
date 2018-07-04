@@ -1238,20 +1238,26 @@ void http_populate_cookies(struct http_request *req)
  ****************************************************************/
 void http_populate_post( struct http_request *req )
 {
-    ssize_t ret;
+    ssize_t ret = 0;
     int i, v;
-    struct cf_buf		*body;
+    struct cf_buf* body = NULL;
+    const char* content_type = NULL;
     char data[BUFSIZ];
-    char *args[HTTP_MAX_QUERY_ARGS], *val[3], *string;
+    char *args[HTTP_MAX_QUERY_ARGS], *val[3];
+    char* tstr = NULL;
 
     if( req->method != HTTP_METHOD_POST )
 		return;
+
+    if( !http_request_header(req, "content-type", &content_type ) ||
+            strcasecmp(content_type, "application/x-www-form-urlencoded") )
+        return;
 
     if( req->http_body != NULL )
     {
 		body = NULL;
 		req->http_body->offset = req->content_length;
-        string = cf_buf_stringify(req->http_body, NULL);
+        tstr = cf_buf_stringify(req->http_body, NULL);
     }
     else
     {
@@ -1269,10 +1275,11 @@ void http_populate_post( struct http_request *req )
 				break;
             cf_buf_append(body, data, ret);
 		}
-        string = cf_buf_stringify(body, NULL);
+
+        tstr = cf_buf_stringify(body, NULL);
 	}
 
-	v = cf_split_string(string, "&", args, HTTP_MAX_QUERY_ARGS);
+    v = cf_split_string(tstr, "&", args, HTTP_MAX_QUERY_ARGS);
 
     for( i = 0; i < v; i++ )
     {

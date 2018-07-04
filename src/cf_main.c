@@ -230,7 +230,9 @@ static void init_server_config( void )
     /* Web sockets settings */
     server.websocket_timeout = 120000;
     server.websocket_maxframe = 16384;
+    /* File map settings */
     server.filemap_index = NULL;
+    server.filemap_ext = NULL;
 #endif
 
 #ifdef CF_TASKS

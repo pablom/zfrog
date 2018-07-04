@@ -76,6 +76,7 @@ static int configure_socket_backlog(char*);
     static int configure_http_body_max(char*);
     static int configure_filemap(char*);
     static int configure_filemap_index(char*);
+    static int configure_filemap_ext(char*);
     static int configure_http_media_type(char*);
     static int configure_http_hsts_enable(char*);
     static int configure_http_keepalive_time(char*);
@@ -150,6 +151,7 @@ static struct {
 #ifndef CF_NO_HTTP
     { "filemap",			        configure_filemap },
     { "filemap_index",		        configure_filemap_index },
+    { "filemap_ext",		        configure_filemap_ext },
     { "static",                     configure_static_handler },
     { "dynamic",                    configure_dynamic_handler },
     { "accesslog",                  configure_accesslog },
@@ -723,6 +725,14 @@ static int configure_filemap_index( char *index )
 {
     mem_free( server.filemap_index );
     server.filemap_index = mem_strdup(index);
+    return CF_RESULT_OK;
+}
+
+static int configure_filemap_ext( char *ext )
+{
+    mem_free(server.filemap_ext);
+    server.filemap_ext = mem_strdup(ext);
+
     return CF_RESULT_OK;
 }
 

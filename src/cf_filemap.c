@@ -81,6 +81,9 @@ int filemap_resolve( struct http_request* req )
 
     TAILQ_FOREACH(entry, &maps, list)
     {
+        if( entry->domain != req->hdlr->dom )
+            continue;
+
         if( !strncmp(entry->root, req->path, entry->root_len) )
         {
             if( best == NULL || entry->root_len > best_len )
@@ -107,10 +110,13 @@ static void filemap_serve( struct http_request* req, struct filemap_entry* map )
 {
     struct stat	st;
     struct cf_fileref* ref = NULL;
+    const char* path = NULL;
     int	len, fd, index;
     char fpath[MAXPATHLEN];
 
-	len = snprintf(fpath, sizeof(fpath), "%s/%s", map->ondisk,req->path + map->root_len);
+    path = req->path + map->root_len;
+
+    len = snprintf(fpath, sizeof(fpath), "%s/%s", map->ondisk, path);
 
     if( len == -1 || (size_t)len >= sizeof(fpath) )
     {
@@ -140,7 +146,21 @@ lookup:
             switch( errno )
             {
 			case ENOENT:
-				req->status = HTTP_STATUS_NOT_FOUND;
+                if( index || server.filemap_ext == NULL )
+                {
+                    req->status = HTTP_STATUS_NOT_FOUND;
+                }
+                else
+                {
+                    len = snprintf(fpath, sizeof(fpath),"%s/%s%s", map->ondisk, path, server.filemap_ext);
+                    if( len == -1 || (size_t)len >= sizeof(fpath) )
+                    {
+                        http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
+                        return;
+                    }
+                    index++;
+                    goto lookup;
+                }
 				break;
 			case EPERM:
 			case EACCES:
@@ -172,23 +192,18 @@ lookup:
             /* cf_fileref_create() takes ownership of the fd. */
             ref = cf_fileref_create(fpath, fd,st.st_size, st.st_mtime);
             if( ref == NULL )
-            {
 				http_response(req,HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
-            }
             else
-            {
 				fd = -1;
-			}
         }
         else if( S_ISDIR(st.st_mode) && index == 0 )
         {
-            len = snprintf(fpath, sizeof(fpath),"%s/%s%s", map->ondisk, req->path + map->root_len, server.filemap_index != NULL ? server.filemap_index : "index.html");
-
+            len = snprintf(fpath, sizeof(fpath), "%s/%s%s", map->ondisk, path, server.filemap_index != NULL ? server.filemap_index : "index.html");
             if( len == -1 || (size_t)len >= sizeof(fpath) )
             {
-				http_response(req,HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
-				return;
-			}
+                http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
+                return;
+            }
 
 			index++;
 			goto lookup;

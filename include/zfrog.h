@@ -548,7 +548,7 @@ struct zfrogServer
     uint32_t  worker_accept_threshold;
 
     uint32_t  socket_backlog; /* Socket backlog */
-    uint16_t  cpu_count;
+    uint16_t  cpu_count;      /* CPU count */
     uint8_t   nlisteners;     /* Number of current listeners */
 
     char*   chroot_path; /* */
@@ -579,6 +579,7 @@ struct zfrogServer
     uint64_t    websocket_timeout;
 
     char*       filemap_index;
+    char*       filemap_ext;
 #endif
 
 #ifdef CF_TASKS
