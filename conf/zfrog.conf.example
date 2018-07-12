@@ -46,7 +46,7 @@ workers		4
 # This is disabled by default. If you wish to enable this
 # specify the number of connections a worker will accept
 # before returning from the accept loop.
-#worker_accept_threshold		0
+#worker_accept_threshold	0
 
 # Workers bind themselves to a single CPU by default.
 # Turn this off by setting this option to 0
@@ -62,11 +62,37 @@ workers		4
 # of this file by generating 1024 cryptographically safe random bytes
 # and writing them to the file specified.
 #
-# zfrog will refuse to start if the specified file does not exist,
+# zFrog will refuse to start if the specified file does not exist,
 # is of the wrong size or cannot be opened in anyway.
 #
 # NOTE: This file location must be inside your chrooted environment.
 #rand_file	random.data
+
+
+# Key manager specific options.
+#	If TLS is enabled you will need to specify paths to the domain
+#	certificate and key that zFrog will load. This loading is done
+#	from the keymgr (separate process) and all paths must be relative
+#	to the keymgr_root_path configuration option.
+#
+#	keymgr_root_path	The root path the keymgr will chdir into.
+#				If chroot was not disable at startup time
+#				the keymgr process will chroot into here.
+#
+#	keymgr_runas_user	The user to run the keymgr as.
+#
+#	If privsep and chrooting is enabled at startup time but these
+#	configuration options were not set, they will take over the
+#	values from the 'root' and 'runas' configuration options.
+#
+#keymgr_root_path
+#keymgr_runas_user
+
+# Filemap settings
+#	filemap_index	Name of the file to be used as the directory
+#				index for a filemap.
+#filemap_index index.html
+
 
 # HTTP specific settings.
 #	http_header_max		Maximum size of HTTP headers (in bytes).
@@ -97,12 +123,12 @@ workers		4
 #       http_request_ms		The number of milliseconds workers can max
 #				spend inside the HTTP processing loop.
 
-#http_header_max	        4096
-#http_body_max		        1024000
-#http_keepalive_time	    0
-#http_hsts_enable	        31536000
-#http_request_limit	        1000
-#http_request_ms	        10
+#http_header_max            4096
+#http_body_max              1024000
+#http_keepalive_time        0
+#http_hsts_enable	    31536000
+#http_request_limit	    1000
+#http_request_ms	    10
 #http_body_disk_offload	    0
 #http_body_disk_path	    tmp_files
 
@@ -150,8 +176,9 @@ validator	v_session	function	v_session_validate
 # Required DH parameters for TLS.
 #tls_dhparam	dh2048.pem
 
+#-------------------------------------------------------------------------------------
 # Authentication configuration
-#
+#-------------------------------------------------------------------------------------
 # Using authentication blocks you can define a standard way for
 # zFrog to validate your users. In the example below we create
 # a authentication block called auth_example, which requires
@@ -193,8 +220,9 @@ authentication auth_example {
 	authentication_uri		/private
 }
 
+#-------------------------------------------------------------------------------------
 # Domain configuration
-#
+#-------------------------------------------------------------------------------------
 # Each domain configuration starts with listing what domain
 # the directives that follow are to be applied upon.
 #
@@ -202,12 +230,18 @@ authentication auth_example {
 #
 #	accesslog
 #		- File where all requests are logged.
-#	client_certificates [CA] [optional CRL]
-#		- Require client certificates to be sent for the given
-#		  CA with an optional CRL file.
 #
+#	client_verify [CA] [optional CRL]
+#		- Turns on client verification, requiring the client to
+#		  send a certificate that will be verified by the given CA.
+#	client_verify_depth [depth]
+#		- Configure the depth for x509 chain validation.
+#		  By default 1.
+#
+
+#-------------------------------------------------------------------------------------
 # Handlers
-#
+#-------------------------------------------------------------------------------------
 # Handlers are either static (for fixed paths) or dynamic.
 # Dynamic handlers take a POSIX regular expression as its path.
 #
@@ -275,7 +309,8 @@ domain localhost {
 #	certfile		cert/other/server.crt
 #	certkey			cert/other/server.key
 #	accesslog		/var/log/other_zfrog_access.log
-#	client_certificates	cert/other/ca.crt
+#	client_verify           cert/other/ca.crt
+#	client_verify_depth	1
 
 #	static		/css/style.css		serve_style_css
 #	static		/			serve_index

@@ -46,7 +46,7 @@ static void	domain_tls_init(void);
 static int configure_include(char*);
 static int configure_bind(char*);
 static int configure_domain(char*);
-static int configure_chroot(char*);
+static int configure_root(char*);
 static int configure_runas(char*);
 static int configure_workers(char*);
 static int configure_pidfile(char*);
@@ -62,8 +62,10 @@ static int configure_socket_backlog(char*);
     static int configure_tls_version(char*);
     static int configure_tls_cipher(char*);
     static int configure_tls_dhparam(char*);
-    static int configure_client_certificates(char*);
+    static int configure_client_verify(char*);
     static int configure_client_verify_depth(char*);
+    static int configure_keymgr_root(char*);
+    static int configure_keymgr_runas(char*);
     static int configure_pkcs11_module(char*);
 #endif
 
@@ -129,7 +131,7 @@ static struct {
     { "lua_import",                 configure_lua_import },
 #endif
     { "domain",                     configure_domain },
-    { "chroot",                     configure_chroot },
+    { "chroot",                     configure_root },
     { "runas",                      configure_runas },
     { "workers",                    configure_workers },
     { "worker_max_connections",     configure_max_connections },
@@ -144,8 +146,10 @@ static struct {
     { "tls_dhparam",                configure_tls_dhparam },
     { "certfile",                   configure_certfile },
     { "certkey",                    configure_certkey },
-    { "client_certificates",        configure_client_certificates },
+    { "client_verify",              configure_client_verify },
     { "client_verify_depth",	    configure_client_verify_depth },
+    { "keymgr_runas",               configure_keymgr_runas },
+    { "keymgr_root",                configure_keymgr_root },
     { "pkcs11_module",              configure_pkcs11_module },
 #endif
 #ifndef CF_NO_HTTP
@@ -202,6 +206,7 @@ static struct cf_domain	*current_domain = NULL;
 void cf_parse_config(void)
 {
     FILE* fp = NULL;
+    char path[PATH_MAX];
 
 #ifndef CF_SINGLE_BINARY        
     log_debug("parsing configuration file '%s'", server.config_file);
@@ -214,13 +219,19 @@ void cf_parse_config(void)
 
     /* Try to parse configuration file */
     parse_config_file( fp );
+    /* Close configuration file */
+    fclose( fp );
 
     if( !cf_module_loaded() )
         cf_fatal("no application module was loaded");
 
-    if( server.skip_chroot != 1 && server.chroot_path == NULL )
+    if( server.skip_chroot != 1 && server.root_path == NULL )
     {
-        cf_fatal("missing a chroot path");
+        if( getcwd(path, sizeof(path)) == NULL )
+            cf_fatal("getcwd: %s", errno_s);
+
+        server.root_path = mem_strdup( path );
+        cf_log(LOG_NOTICE, "privsep: no root path set, using working directory");
 	}
 
     if( getuid() != 0 && server.skip_chroot == 0 ) {
@@ -316,8 +327,6 @@ static void parse_config_file( FILE *fp )
 			printf("ignoring \"%s\" on line %d\n", p, lineno);
 		lineno++;
 	}
-
-	fclose(fp);
 }
 /************************************************************************
  *  Helper function to parse configuration file from include directive
@@ -482,7 +491,7 @@ static int configure_tls_dhparam( char *path )
 /************************************************************************
  *  Configure domain client certificate's verify depth
  ************************************************************************/
-static int configure_client_verify_depth(char *value)
+static int configure_client_verify_depth( char* value )
 {
     int	err, depth;
 
@@ -506,7 +515,7 @@ static int configure_client_verify_depth(char *value)
 /************************************************************************
  *  Configure domain client certificate's file
  ************************************************************************/
-static int configure_client_certificates(char *options)
+static int configure_client_verify( char* options )
 {
     char *argv[3];
 
@@ -575,6 +584,26 @@ static int configure_certkey( char *path )
 	}
 
     current_domain->certkey = mem_strdup(path);
+    return CF_RESULT_OK;
+}
+
+static int configure_keymgr_runas( char* user )
+{
+    if( server.keymgr_runas_user != NULL )
+        mem_free(server.keymgr_runas_user);
+
+    server.keymgr_runas_user = mem_strdup(user);
+
+    return CF_RESULT_OK;
+}
+
+static int configure_keymgr_root( char* root )
+{
+    if( server.keymgr_root_path != NULL )
+        mem_free(server.keymgr_root_path);
+
+    server.keymgr_root_path = mem_strdup(root);
+
     return CF_RESULT_OK;
 }
 /************************************************************************
@@ -1107,6 +1136,7 @@ static int configure_authentication_value( char *option )
 
     if( current_auth->value != NULL )
         mem_free(current_auth->value);
+
     current_auth->value = mem_strdup(option);
 
     return CF_RESULT_OK;
@@ -1191,11 +1221,12 @@ static int configure_websocket_timeout( char *option )
 /************************************************************************
  *  Configure chroot application
  ************************************************************************/
-static int configure_chroot( char *path )
+static int configure_root( char *path )
 {
-    if( server.chroot_path != NULL )
-        mem_free(server.chroot_path);
-    server.chroot_path = mem_strdup(path);
+    if( server.root_path != NULL )
+        mem_free(server.root_path);
+
+    server.root_path = mem_strdup(path);
     return CF_RESULT_OK;
 }
 /************************************************************************
@@ -1205,7 +1236,9 @@ static int configure_runas( char *user )
 {
     if( server.runas_user != NULL )
         mem_free(server.runas_user);
+
     server.runas_user = mem_strdup(user);
+
     return CF_RESULT_OK;
 }
 /****************************************************************
@@ -1231,6 +1264,7 @@ static int configure_pidfile( char *path )
 {
     if( strcmp(server.pidfile, CF_PIDFILE_DEFAULT) )
         mem_free(server.pidfile);
+
     server.pidfile = mem_strdup(path);
     return CF_RESULT_OK;
 }
@@ -1245,7 +1279,7 @@ static int configure_max_connections( char *option )
     if( err != CF_RESULT_OK )
     {
 		printf("bad value for worker_max_connections: %s\n", option);
-        return (CF_RESULT_ERROR);
+        return CF_RESULT_ERROR;
 	}
 
     return CF_RESULT_OK;
@@ -1315,7 +1349,7 @@ static int configure_socket_backlog( char *option )
 
 static void domain_tls_init( void )
 {
-    cf_domain_tls_init( current_domain );
+    cf_domain_tls_init( current_domain, NULL, 0 );
 	current_domain = NULL;
 }
 

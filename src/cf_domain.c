@@ -28,19 +28,22 @@
     static int keymgr_response = 0;
 #endif
 
-/* Forward static function declaration */
-static void	domain_load_crl(struct cf_domain *);
 
-#ifndef CF_NO_TLS
-    /* Forward function declaration */
+#ifndef CF_NO_TLS   
+    /* Forward static function declaration */
+    static BIO* domain_bio_mem(const void*, size_t);
     static int domain_x509_verify(int, X509_STORE_CTX*);
+    static X509* domain_load_certificate_chain(SSL_CTX*, const void*, size_t);
+    static void	domain_load_crl(struct cf_domain*);
+
+    /* Key manager forward function declaration */
     static void	keymgr_init(void);
     static void	keymgr_await_data(void);
     static void	keymgr_msg_response(struct cf_msg*, const void*);
     static int keymgr_rsa_init(RSA*);
     static int keymgr_rsa_finish(RSA*);
     static int keymgr_rsa_privenc(int, const unsigned char*, unsigned char*, RSA*, int);
-    static ECDSA_SIG *keymgr_ecdsa_sign(const unsigned char*, int, const BIGNUM*, const BIGNUM*, EC_KEY*);
+    static ECDSA_SIG* keymgr_ecdsa_sign(const unsigned char*, int, const BIGNUM*, const BIGNUM*, EC_KEY*);
 
 #ifdef CF_TLS_SRP
     static void domain_srp_init(struct cf_domain*); /* Secure Remote Password Protocol (SRPP) */
@@ -226,195 +229,8 @@ void cf_domain_free( struct cf_domain *dom )
     /* Delete structure itself */
     mem_free(dom);
 }
-/****************************************************************
- *  Init TLS domain function
- ****************************************************************/
-void cf_domain_tls_init( struct cf_domain *dom )
-{
-#ifndef CF_NO_TLS
-    BIO	*in = NULL;
-    RSA	*rsa = NULL;
-    X509 *x509 = NULL;
-    EVP_PKEY *pkey = NULL;
-    STACK_OF(X509_NAME)	*certs = NULL;
-    EC_KEY *eckey = NULL;
-    //X509_STORE *store = NULL;
-    const SSL_METHOD *method = NULL;
 
-#if !defined(OPENSSL_NO_EC)
-    EC_KEY *ecdh = NULL;
-#endif
 
-    log_debug("cf_domain_tls_init(%s)", dom->domain);
-
-#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
-    if( (method = TLS_method()) == NULL )
-        cf_fatal("TLS_method(): %s", ssl_errno_s);
-#else
-    switch( tls_version )
-    {
-    case CF_TLS_VERSION_1_2:
-		method = TLSv1_2_server_method();
-		break;
-    case CF_TLS_VERSION_1_1:
-        method = TLSv1_1_server_method();
-        break;
-    case CF_TLS_VERSION_1_0:
-		method = TLSv1_server_method();
-		break;
-    case CF_TLS_VERSION_BOTH:
-		method = SSLv23_server_method();
-		break;
-	default:
-        cf_fatal("unknown tls_version: %d", tls_version);
-		return;
-	}
-#endif
-
-    /* Create SSL context */
-    if( (dom->ssl_ctx = SSL_CTX_new( method )) == NULL )
-        cf_fatal("cf_domain_tls_init(): SSL_ctx_new(): %s", ssl_errno_s);
-
-#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
-    if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_VERSION) )
-        cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
-
-    if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_2_VERSION) )
-        cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
-
-    switch( server.tls_version )
-    {
-    case CF_TLS_VERSION_1_3:
-#if OPENSSL_VERSION_NUMBER >= 0x10101004L
-        if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_3_VERSION))
-            cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
-        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_3_VERSION) )
-            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
-        break;
-#endif
-    case CF_TLS_VERSION_1_2:
-        if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_2_VERSION))
-            cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
-        break;
-    case CF_TLS_VERSION_1_0:
-        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_VERSION) )
-            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
-        break;
-    case CF_TLS_VERSION_BOTH:
-        break;
-    default:
-        cf_fatal("unknown tls_version: %d", server.tls_version);
-        return;
-    }
-#endif
-
-    if( !SSL_CTX_use_certificate_chain_file(dom->ssl_ctx, dom->certfile) )
-    {
-        cf_fatal("SSL_CTX_use_certificate_chain_file(%s): %s", dom->certfile, ssl_errno_s);
-	}
-
-    if( (in = BIO_new(BIO_s_file())) == NULL )
-        cf_fatal("BIO_new: %s", ssl_errno_s);
-
-    if( BIO_read_filename(in, dom->certfile) <= 0 )
-        cf_fatal("BIO_read_filename: %s", ssl_errno_s);
-
-    if( (x509 = PEM_read_bio_X509(in, NULL, NULL, NULL)) == NULL ) {
-        cf_fatal("PEM_read_bio_X509: %s", ssl_errno_s);
-    }
-
-	BIO_free(in);
-
-    if( (pkey = X509_get_pubkey(x509)) == NULL )
-        cf_fatal("certificate has no public key");
-
-    switch( EVP_PKEY_id(pkey) )
-    {
-	case EVP_PKEY_RSA:
-        if( (rsa = EVP_PKEY_get1_RSA(pkey)) == NULL )
-            cf_fatal("no RSA public key present");
-		RSA_set_app_data(rsa, dom);
-#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
-        RSA_set_method(rsa, keymgr_rsa_meth);
-#else
-		RSA_set_method(rsa, &keymgr_rsa);
-#endif
-		break;
-	case EVP_PKEY_EC:
-        if( (eckey = EVP_PKEY_get1_EC_KEY(pkey)) == NULL )
-            cf_fatal("no EC public key present");
-#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
-        EC_KEY_set_ex_data(eckey, 0, dom);
-        EC_KEY_set_method(eckey, keymgr_ec_meth);
-#else
-		ECDSA_set_ex_data(eckey, 0, dom);
-		ECDSA_set_method(eckey, &keymgr_ecdsa);
-#endif
-		break;
-	default:
-        cf_fatal("unknown public key in certificate");
-	}
-
-    if( !SSL_CTX_use_PrivateKey(dom->ssl_ctx, pkey) )
-        cf_fatal("SSL_CTX_use_PrivateKey(): %s", ssl_errno_s);
-
-    if( !SSL_CTX_check_private_key(dom->ssl_ctx) )
-        cf_fatal("Public/Private key for %s do not match", dom->domain);
-
-    if( server.tls_dhparam == NULL )
-        cf_fatal("No DH parameters given");
-
-    SSL_CTX_set_tmp_dh(dom->ssl_ctx, server.tls_dhparam);
-    SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_SINGLE_DH_USE);
-
-    if( (ecdh = EC_KEY_new_by_curve_name(NID_secp384r1)) == NULL )
-        cf_fatal("EC_KEY_new_by_curve_name: %s", ssl_errno_s);
-
-	SSL_CTX_set_tmp_ecdh(dom->ssl_ctx, ecdh);
-	EC_KEY_free(ecdh);
-
-    SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
-	SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_COMPRESSION);
-
-    if( dom->cafile != NULL )
-    {
-        if( (certs = SSL_load_client_CA_file(dom->cafile)) == NULL )
-        {
-            cf_fatal("SSL_load_client_CA_file(%s): %s", dom->cafile, ssl_errno_s);
-		}
-
-		SSL_CTX_load_verify_locations(dom->ssl_ctx, dom->cafile, NULL);
-        SSL_CTX_set_verify_depth(dom->ssl_ctx, dom->x509_verify_depth);
-		SSL_CTX_set_client_CA_list(dom->ssl_ctx, certs);
-        SSL_CTX_set_verify(dom->ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, domain_x509_verify);
-
-        //if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
-        //    cf_fatal("SSL_CTX_get_cert_store(): %s", ssl_errno_s);
-
-        //X509_STORE_set_verify_cb(store, domain_x509_verify);
-	}
-
-	SSL_CTX_set_session_id_context(dom->ssl_ctx,(unsigned char *)SSL_SESSION_ID, strlen(SSL_SESSION_ID));
-
-	SSL_CTX_set_mode(dom->ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
-
-    if( server.tls_version == CF_TLS_VERSION_BOTH )
-    {
-		SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_SSLv2);
-		SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_SSLv3);
-		SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_TLSv1_1);
-	}
-
-	SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
-    SSL_CTX_set_cipher_list(dom->ssl_ctx, server.tls_cipher_list);
-
-    SSL_CTX_set_info_callback(dom->ssl_ctx, cf_tls_info_callback);
-    SSL_CTX_set_tlsext_servername_callback(dom->ssl_ctx, cf_tls_sni_cb);
-
-    mem_free(dom->certfile);
-	dom->certfile = NULL;
-#endif
-}
 
 void cf_domain_callback( void (*cb)(struct cf_domain *) )
 {
@@ -468,52 +284,210 @@ void cf_domain_load_crl( void )
     TAILQ_FOREACH(dom, &server.domains, list)
 		domain_load_crl(dom);
 }
+#ifndef CF_NO_TLS
 /****************************************************************
  *  Init key manager function
  ****************************************************************/
 void cf_domain_keymgr_init( void )
 {
-#ifndef CF_NO_TLS
-	keymgr_init();
+    keymgr_init();
     cf_msg_register(CF_MSG_KEYMGR_RESP, keymgr_msg_response);
-#endif
 }
 /****************************************************************
- *  Load certificates for specific domain
+ *  Init TLS domain function
  ****************************************************************/
-static void domain_load_crl( struct cf_domain *dom )
+void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
 {
-#ifndef CF_NO_TLS
-    X509_STORE *store = NULL;
+    BIO* in = NULL;
+    RSA* rsa = NULL;
+    X509* x509 = NULL;
+    EVP_PKEY *pkey = NULL;
+    STACK_OF(X509_NAME)	*certs = NULL;
+    EC_KEY* eckey = NULL;
+    //X509_STORE *store = NULL;
+    const SSL_METHOD* method = NULL;
 
-	ERR_clear_error();
-
-    if( dom->cafile == NULL )
-		return;
-
-    if( dom->crlfile == NULL )
-    {
-        cf_log(LOG_WARNING, "WARNING: Running without CRL");
-		return;
-	}
-
-    if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
-    {
-        cf_log(LOG_ERR, "SSL_CTX_get_cert_store(): %s", ssl_errno_s);
-		return;
-	}
-
-    if( !X509_STORE_load_locations(store, dom->crlfile, NULL) )
-    {
-        cf_log(LOG_ERR, "X509_STORE_load_locations(): %s", ssl_errno_s);
-		return;
-	}
-
-    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
+#if !defined(OPENSSL_NO_EC)
+    EC_KEY* ecdh = NULL;
 #endif
+
+    log_debug("cf_domain_tls_init(%s)", dom->domain);
+
+    if( dom->ssl_ctx != NULL )
+        SSL_CTX_free(dom->ssl_ctx);
+
+#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
+    if( (method = TLS_method()) == NULL )
+        cf_fatal("TLS_method(): %s", ssl_errno_s);
+#else
+    switch( tls_version )
+    {
+    case CF_TLS_VERSION_1_2:
+        method = TLSv1_2_server_method();
+        break;
+    case CF_TLS_VERSION_1_1:
+        method = TLSv1_1_server_method();
+        break;
+    case CF_TLS_VERSION_1_0:
+        method = TLSv1_server_method();
+        break;
+    case CF_TLS_VERSION_BOTH:
+        method = SSLv23_server_method();
+        break;
+    default:
+        cf_fatal("unknown tls_version: %d", tls_version);
+        return;
+    }
+#endif
+
+    /* Create SSL context */
+    if( (dom->ssl_ctx = SSL_CTX_new( method )) == NULL )
+        cf_fatal("SSL_ctx_new(): %s", ssl_errno_s);
+
+#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
+    if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_VERSION) )
+        cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
+
+    if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_2_VERSION) )
+        cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
+
+    switch( server.tls_version )
+    {
+    case CF_TLS_VERSION_1_3:
+#if OPENSSL_VERSION_NUMBER >= 0x10101004L
+        if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_3_VERSION))
+            cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
+        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_3_VERSION) )
+            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
+        break;
+#endif
+    case CF_TLS_VERSION_1_2:
+        if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_2_VERSION))
+            cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
+        break;
+    case CF_TLS_VERSION_1_0:
+        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_VERSION) )
+            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
+        break;
+    case CF_TLS_VERSION_BOTH:
+        break;
+    default:
+        cf_fatal("unknown tls_version: %d", server.tls_version);
+        return;
+    }
+#endif
+
+
+    if( !SSL_CTX_use_certificate_chain_file(dom->ssl_ctx, dom->certfile) )
+    {
+        cf_fatal("SSL_CTX_use_certificate_chain_file(%s): %s", dom->certfile, ssl_errno_s);
+    }
+
+    if( (in = BIO_new(BIO_s_file())) == NULL )
+        cf_fatal("BIO_new: %s", ssl_errno_s);
+
+    if( BIO_read_filename(in, dom->certfile) <= 0 )
+        cf_fatal("BIO_read_filename: %s", ssl_errno_s);
+
+    if( (x509 = PEM_read_bio_X509(in, NULL, NULL, NULL)) == NULL ) {
+        cf_fatal("PEM_read_bio_X509: %s", ssl_errno_s);
+    }
+
+    BIO_free(in);
+
+    /* */
+    x509 = domain_load_certificate_chain(dom->ssl_ctx, NULL, 0);
+
+
+    if( (pkey = X509_get_pubkey(x509)) == NULL )
+        cf_fatal("certificate has no public key");
+
+    switch( EVP_PKEY_id(pkey) )
+    {
+    case EVP_PKEY_RSA:
+        if( (rsa = EVP_PKEY_get1_RSA(pkey)) == NULL )
+            cf_fatal("no RSA public key present");
+        RSA_set_app_data(rsa, dom);
+#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
+        RSA_set_method(rsa, keymgr_rsa_meth);
+#else
+        RSA_set_method(rsa, &keymgr_rsa);
+#endif
+        break;
+    case EVP_PKEY_EC:
+        if( (eckey = EVP_PKEY_get1_EC_KEY(pkey)) == NULL )
+            cf_fatal("no EC public key present");
+#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
+        EC_KEY_set_ex_data(eckey, 0, dom);
+        EC_KEY_set_method(eckey, keymgr_ec_meth);
+#else
+        ECDSA_set_ex_data(eckey, 0, dom);
+        ECDSA_set_method(eckey, &keymgr_ecdsa);
+#endif
+        break;
+    default:
+        cf_fatal("unknown public key in certificate");
+    }
+
+    if( !SSL_CTX_use_PrivateKey(dom->ssl_ctx, pkey) )
+        cf_fatal("SSL_CTX_use_PrivateKey(): %s", ssl_errno_s);
+
+    if( !SSL_CTX_check_private_key(dom->ssl_ctx) )
+        cf_fatal("Public/Private key for %s do not match", dom->domain);
+
+    if( server.tls_dhparam == NULL )
+        cf_fatal("No DH parameters given");
+
+    SSL_CTX_set_tmp_dh(dom->ssl_ctx, server.tls_dhparam);
+    SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_SINGLE_DH_USE);
+
+    if( (ecdh = EC_KEY_new_by_curve_name(NID_secp384r1)) == NULL )
+        cf_fatal("EC_KEY_new_by_curve_name: %s", ssl_errno_s);
+
+    SSL_CTX_set_tmp_ecdh(dom->ssl_ctx, ecdh);
+    EC_KEY_free(ecdh);
+
+    SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
+    SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_COMPRESSION);
+
+    if( dom->cafile != NULL )
+    {
+        if( (certs = SSL_load_client_CA_file(dom->cafile)) == NULL )
+        {
+            cf_fatal("SSL_load_client_CA_file(%s): %s", dom->cafile, ssl_errno_s);
+        }
+
+        SSL_CTX_load_verify_locations(dom->ssl_ctx, dom->cafile, NULL);
+        SSL_CTX_set_verify_depth(dom->ssl_ctx, dom->x509_verify_depth);
+        SSL_CTX_set_client_CA_list(dom->ssl_ctx, certs);
+        SSL_CTX_set_verify(dom->ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, domain_x509_verify);
+
+        //if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
+        //    cf_fatal("SSL_CTX_get_cert_store(): %s", ssl_errno_s);
+
+        //X509_STORE_set_verify_cb(store, domain_x509_verify);
+    }
+
+    SSL_CTX_set_session_id_context(dom->ssl_ctx,(unsigned char *)SSL_SESSION_ID, strlen(SSL_SESSION_ID));
+    SSL_CTX_set_mode(dom->ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
+
+    if( server.tls_version == CF_TLS_VERSION_BOTH )
+    {
+        SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_SSLv2);
+        SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_SSLv3);
+        SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_TLSv1_1);
+    }
+
+    SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    SSL_CTX_set_cipher_list(dom->ssl_ctx, server.tls_cipher_list);
+
+    SSL_CTX_set_info_callback(dom->ssl_ctx, cf_tls_info_callback);
+    SSL_CTX_set_tlsext_servername_callback(dom->ssl_ctx, cf_tls_sni_cb);
+
+    mem_free(dom->certfile);
+    dom->certfile = NULL;
 }
 
-#ifndef CF_NO_TLS
 static void keymgr_init(void)
 {
     const RSA_METHOD *meth = NULL;
@@ -547,7 +521,7 @@ static int keymgr_rsa_init( RSA *rsa )
     return 0;
 }
 
-static int keymgr_rsa_privenc(int flen, const unsigned char *from, unsigned char *to, RSA *rsa, int padding)
+static int keymgr_rsa_privenc(int flen, const unsigned char* from, unsigned char* to, RSA* rsa, int padding)
 {
     int	ret;
     size_t len;
@@ -782,6 +756,117 @@ static int domain_x509_verify(int ok, X509_STORE_CTX *ctx)
 
     return ok;
 }
+/****************************************************************
+ *  Load certificates for specific domain
+ ****************************************************************/
+static void domain_load_crl( struct cf_domain* dom )
+{
+    X509_STORE* store = NULL;
+
+    if( dom->cafile == NULL )
+        return;
+
+    if( dom->crlfile == NULL ) {
+        cf_log(LOG_WARNING, "WARNING: no CRL configured for '%s'", dom->domain);
+        return;
+    }
+
+    /* Clear errors */
+    ERR_clear_error();
+
+    if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
+    {
+        cf_log(LOG_ERR, "SSL_CTX_get_cert_store(): %s", ssl_errno_s);
+        return;
+    }
+
+    if( !X509_STORE_load_locations(store, dom->crlfile, NULL) )
+    {
+        cf_log(LOG_ERR, "X509_STORE_load_locations(): %s", ssl_errno_s);
+        return;
+    }
+
+    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
+}
+/*******************************************************************
+ *  What follows is basically a reimplementation of
+ *  SSL_CTX_use_certificate_chain_file() from OpenSSL but with our
+ *  BIO set to the pem data that we received.
+ *******************************************************************/
+static X509* domain_load_certificate_chain( SSL_CTX* ctx, const void* data, size_t len )
+{
+    unsigned long err;
+    BIO* in;
+    X509 *x, *ca;
+
+    ERR_clear_error();
+    in = domain_bio_mem(data, len);
+
+    if( (x = PEM_read_bio_X509_AUX(in, NULL, NULL, NULL)) == NULL)
+        cf_fatal("PEM_read_bio_X509_AUX: %s", ssl_errno_s);
+
+    /* refcount for x509 will go up one. */
+    if( SSL_CTX_use_certificate(ctx, x) == 0 )
+        cf_fatal("SSL_CTX_use_certificate: %s", ssl_errno_s);
+
+#if defined(LIBRESSL_VERSION_TEXT)
+    sk_X509_pop_free(ctx->extra_certs, X509_free);
+    ctx->extra_certs = NULL;
+#else
+    SSL_CTX_clear_chain_certs(ctx);
+#endif
+
+    ERR_clear_error();
+    while( (ca = PEM_read_bio_X509(in, NULL, NULL, NULL)) != NULL )
+    {
+        /* ca its reference count won't be increased. */
+#if defined(LIBRESSL_VERSION_TEXT)
+        if( SSL_CTX_add_extra_chain_cert(ctx, ca) == 0 )
+            cf_fatal("SSL_CTX_add_extra_chain_cert: %s", ssl_errno_s);
+#else
+        if( SSL_CTX_add0_chain_cert(ctx, ca) == 0 )
+            cf_fatal("SSL_CTX_add0_chain_cert: %s", ssl_errno_s);
+#endif
+    }
+
+    err = ERR_peek_last_error();
+
+    if( ERR_GET_LIB(err) != ERR_LIB_PEM || ERR_GET_REASON(err) != PEM_R_NO_START_LINE )
+        cf_fatal("PEM_read_bio_X509: %s", ssl_errno_s);
+
+    BIO_free( in );
+
+    return x;
+}
+/*****************************************************************************
+ * XXX - Hack around the fact that LibreSSL its BIO_new_mem_buf() does not
+ * take a const pointer for their first argument.
+ *
+ * Since we build with -Wcast-qual and -Werror I rather do this than having
+ * a bunch of pragma preprocessor magic to remove the warnings for that code
+ * if we're dealing with LibreSSL.
+ *
+ * They fixed this in their upcoming 2.8.0 release but that is not out yet
+ * and I'd like this to run on older OpenBSD platforms as well.
+ *****************************************************************************/
+static BIO* domain_bio_mem( const void* data, size_t len )
+{
+    BIO* in = NULL;
+    union { void *p; const void *cp; }	deconst;
+
+    /* because OpenSSL likes taking ints as memory buffer lengths. */
+    if( len > INT_MAX )
+        cf_fatal("domain_bio_mem: len(%zu) > INT_MAX", len);
+
+    deconst.cp = data;
+
+    if( (in = BIO_new_mem_buf(deconst.p, len)) == NULL )
+        cf_fatal("BIO_new_mem_buf: %s", ssl_errno_s);
+
+    return in;
+}
+
+
 #ifdef CF_TLS_SRP
 /****************************************************************
  *  Init Secure Remote Password Protocol (SRPP)

@@ -17,6 +17,7 @@ struct filemap_entry
 	size_t				root_len;
     struct cf_domain	*domain;
 	char				*ondisk;
+    size_t				ondisk_len;
 	TAILQ_ENTRY(filemap_entry)	list;
 };
 
@@ -31,17 +32,35 @@ void cf_filemap_init(void)
 	TAILQ_INIT(&maps);
 }
 
-int cf_filemap_create(struct cf_domain* dom, const char* path, const char* root)
+int cf_filemap_create( struct cf_domain* dom, const char* path, const char* root )
 {
-    size_t	sz = 0;
-    int		len = 0;
+    size_t sz = 0;
+    int	len = 0;
+    struct stat	st;
     struct filemap_entry* entry = NULL;
     char regex[1024];
+    char fpath[PATH_MAX];
 
     if( (sz = strlen(root)) == 0 )
         return CF_RESULT_ERROR;
 
     if( root[0] != '/' || root[sz - 1] != '/' ) {
+        return CF_RESULT_ERROR;
+    }
+
+    if( server.root_path != NULL )
+    {
+        len = snprintf(fpath, sizeof(fpath), "%s/%s", server.root_path, path);
+        if( len == -1 || (size_t)len >= sizeof(fpath) )
+            cf_fatal("cf_filemap_create: failed to concat paths");
+    }
+    else
+    {
+        if( cf_strlcpy(fpath, path, sizeof(fpath)) >= sizeof(fpath) )
+            cf_fatal("cf_filemap_create: failed to copy path");
+    }
+
+    if( stat(fpath, &st) == -1 ) {
         return CF_RESULT_ERROR;
     }
 
@@ -57,11 +76,28 @@ int cf_filemap_create(struct cf_domain* dom, const char* path, const char* root)
 	entry->domain = dom;
 	entry->root_len = sz;
     entry->root = mem_strdup(root);
+    entry->ondisk_len = strlen(path);
     entry->ondisk = mem_strdup(path);
 
 	TAILQ_INSERT_TAIL(&maps, entry, list);
 
     return CF_RESULT_OK;
+}
+
+void cf_filemap_resolve_paths( void )
+{
+    struct filemap_entry* entry = NULL;
+    char rpath[PATH_MAX];
+
+    TAILQ_FOREACH(entry, &maps, list)
+    {
+        if( realpath(entry->ondisk, rpath) == NULL )
+            cf_fatal("realpath(%s): %s", entry->ondisk, errno_s);
+
+        mem_free(entry->ondisk);
+        entry->ondisk_len = strlen(rpath);
+        entry->ondisk = mem_strdup(rpath);
+    }
 }
 
 int filemap_resolve( struct http_request* req )

@@ -1,5 +1,23 @@
 // cf_keymgr.c
 
+/*********************************************************************************
+ *  The zFrog keymgr process is responsible for managing certificates and their
+ *  matching private keys.
+ *
+ *  It is the only process in zFrog that holds the private keys (the workers
+ *  do not have a copy of them in memory).
+ *
+ *  When a worker requires the private key for signing it will send a message
+ *  to the keymgr with the to-be-signed data (CF_MSG_KEYMGR_REQ). The keymgr
+ *  will perform the signing and respond with a CF_MSG_KEYMGR_RESP message.
+ *
+ *  The keymgr can transparently reload the private keys and certificates
+ *  for a configured domain when it receives a SIGUSR1. It it reloads them
+ *  it will send the newly loaded certificate chains to the worker processes
+ *  which will update their TLS contexts accordingly.
+*********************************************************************************/
+
+
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -26,7 +44,7 @@ struct key
     TAILQ_ENTRY(key) list;
 };
 
-char *rand_file = NULL;
+char* rand_file = NULL;
 static TAILQ_HEAD(, key)	keys;
 extern volatile sig_atomic_t sig_recv;
 static int initialized = 0;
@@ -40,7 +58,8 @@ static void	keymgr_msg_recv(struct cf_msg *, const void *);
 static void	keymgr_rsa_encrypt(struct cf_msg *, const void *, struct key *);
 static void	keymgr_ecdsa_sign(struct cf_msg *, const void *, struct key *);
 static void keymgr_pkcs11_rsa_encrypt(struct cf_msg *, const void *, struct key *);
-
+static void	keymgr_certificate_request(struct cf_msg*, const void*);
+static void	keymgr_submit_certificates(struct cf_domain*, uint16_t);
 
 /****************************************************************
  *  Key manager worker main entry function
@@ -72,7 +91,7 @@ void cf_keymgr_run( void )
     cf_init_pkcs11_module();
 
     cf_domain_callback( keymgr_load_privatekey );
-    cf_worker_privdrop();
+    cf_worker_privdrop( server.runas_user, server.root_path );
 
 	net_init();
     cf_connection_init();
@@ -81,6 +100,7 @@ void cf_keymgr_run( void )
     cf_msg_worker_init();
     cf_msg_register(CF_MSG_KEYMGR_REQ, keymgr_msg_recv);
     cf_msg_register(CF_MSG_ENTROPY_REQ, keymgr_entropy_request);
+    cf_msg_register(CF_MSG_CERTIFICATE_REQ, keymgr_certificate_request);
 
     cf_log(LOG_NOTICE, "key manager (%d) started", getpid());
 
@@ -180,19 +200,19 @@ static void keymgr_load_privatekey( struct cf_domain *dom )
 	TAILQ_INSERT_TAIL(&keys, key, list);
 }
 
-static void keymgr_msg_recv( struct cf_msg *msg, const void *data )
+static void keymgr_msg_recv( struct cf_msg* msg, const void* data )
 {
-    const struct cf_keyreq *req = NULL;
-    struct key *key = NULL;
+    const struct cf_keyreq* req = NULL;
+    struct key* key = NULL;
 
     if( msg->length < sizeof(*req) )
 		return;
 
-    req = (const struct cf_keyreq *)data;
+    req = (const struct cf_keyreq*)data;
+
     if( msg->length != (sizeof(*req) + req->data_len) )
 		return;
 
-	key = NULL;
     TAILQ_FOREACH(key, &keys, list)
     {
         if( !strncmp(key->dom->domain, req->domain, req->domain_len) )
@@ -221,7 +241,7 @@ static void keymgr_msg_recv( struct cf_msg *msg, const void *data )
     }
 }
 
-static void keymgr_pkcs11_rsa_encrypt( struct cf_msg *msg, const void *data, struct key *key )
+static void keymgr_pkcs11_rsa_encrypt( struct cf_msg* msg, const void* data, struct key* key )
 {
     int ret;
     const struct cf_keyreq *req = NULL;
@@ -240,7 +260,7 @@ static void keymgr_pkcs11_rsa_encrypt( struct cf_msg *msg, const void *data, str
     cf_msg_send(msg->src, CF_MSG_KEYMGR_RESP, buf, ret);
 }
 
-static void keymgr_rsa_encrypt(struct cf_msg *msg, const void *data, struct key *key)
+static void keymgr_rsa_encrypt( struct cf_msg* msg, const void* data, struct key* key )
 {
     int	ret;
     RSA	*rsa = NULL;
@@ -267,7 +287,7 @@ static void keymgr_rsa_encrypt(struct cf_msg *msg, const void *data, struct key 
     cf_msg_send(msg->src, CF_MSG_KEYMGR_RESP, buf, ret);
 }
 
-static void keymgr_ecdsa_sign(struct cf_msg *msg, const void *data, struct key *key)
+static void keymgr_ecdsa_sign( struct cf_msg* msg, const void* data, struct key* key )
 {
     size_t len;
     EC_KEY *ec = NULL;
@@ -296,7 +316,7 @@ static void keymgr_ecdsa_sign(struct cf_msg *msg, const void *data, struct key *
     cf_msg_send(msg->src, CF_MSG_KEYMGR_RESP, sig, siglen);
 }
 
-static void keymgr_entropy_request( struct cf_msg *msg, const void *data )
+static void keymgr_entropy_request( struct cf_msg* msg, const void* data )
 {
     uint8_t	buf[RAND_FILE_SIZE];
 
@@ -315,28 +335,25 @@ static void keymgr_load_randfile(void)
     int	fd;
     struct stat	st;
     ssize_t ret;
-    size_t total;
+    size_t total = 0;
     uint8_t	buf[RAND_FILE_SIZE];
 
     if( rand_file == NULL )
         return;
 
-    if ((fd = open(rand_file, O_RDONLY)) == -1)
+    if( (fd = open(rand_file, O_RDONLY)) == -1 )
         cf_fatal("open(%s): %s", rand_file, errno_s);
 
-    if (fstat(fd, &st) == -1)
+    if( fstat(fd, &st) == -1 )
         cf_fatal("stat(%s): %s", rand_file, errno_s);
-    if (!S_ISREG(st.st_mode))
+    if( !S_ISREG(st.st_mode) )
         cf_fatal("%s is not a file", rand_file);
-    if (st.st_size != RAND_FILE_SIZE)
+    if( st.st_size != RAND_FILE_SIZE )
         cf_fatal("%s has an invalid size", rand_file);
-
-    total = 0;
 
     while( total != RAND_FILE_SIZE )
     {
-        ret = read(fd, buf, sizeof(buf));
-        if (ret == 0)
+        if( (ret = read(fd, buf, sizeof(buf))) == 0 )
             cf_fatal("EOF on %s", rand_file);
 
         if( ret == -1 )
@@ -357,7 +374,7 @@ static void keymgr_load_randfile(void)
         cf_log(LOG_WARNING, "failed to unlink %s: %s", rand_file, errno_s);
 }
 
-static void keymgr_save_randfile(void)
+static void keymgr_save_randfile( void )
 {
     int	fd;
     struct stat	st;
@@ -408,3 +425,55 @@ cleanup:
     OPENSSL_cleanse(buf, sizeof(buf));
 }
 
+static void keymgr_certificate_request( struct cf_msg* msg, const void* data )
+{
+    struct cf_domain* dom = NULL;
+
+    TAILQ_FOREACH(dom, &server.domains, list)
+        keymgr_submit_certificates(dom, msg->src);
+}
+
+static void keymgr_submit_certificates( struct cf_domain* dom, uint16_t dst)
+{
+    int fd;
+    struct stat st;
+    ssize_t ret;
+    size_t len;
+    struct cf_x509_msg* msg = NULL;
+    uint8_t* payload = NULL;
+
+    if( (fd = open(dom->certfile, O_RDONLY)) == -1 )
+        cf_fatal("open(%s): %s", dom->certfile, errno_s);
+    if( fstat(fd, &st) == -1 )
+        cf_fatal("stat(%s): %s", dom->certfile, errno_s);
+    if( !S_ISREG(st.st_mode) )
+        cf_fatal("%s is not a file", dom->certfile);
+
+    if( st.st_size <= 0 || st.st_size > (1024 * 1024 * 5) )
+    {
+        cf_fatal("%s length is not valid (%jd)", dom->certfile,(intmax_t)st.st_size);
+    }
+
+    len = sizeof(*msg) + st.st_size;
+    payload = mem_calloc(1, len);
+
+    msg = (struct cf_x509_msg *)payload;
+    msg->domain_len = strlen(dom->domain);
+    if( msg->domain_len > sizeof(msg->domain) )
+        cf_fatal("domain name '%s' too long", dom->domain);
+    memcpy(msg->domain, dom->domain, msg->domain_len);
+
+    msg->data_len = st.st_size;
+    ret = read(fd, &msg->data[0], msg->data_len);
+    if( ret == 0 )
+        cf_fatal("eof while reading %s", dom->certfile);
+
+    if( (size_t)ret != msg->data_len )
+    {
+        cf_fatal("bad read on %s: expected %zu, got %zd", dom->certfile, msg->data_len, ret);
+    }
+
+    cf_msg_send(dst, CF_MSG_CERTIFICATE, payload, len);
+    mem_free( payload );
+    close(fd);
+}

@@ -84,12 +84,13 @@ static inline int worker_acceptlock_release(uint64_t);
 
 #ifndef CF_NO_TLS
     static void worker_entropy_recv(struct cf_msg*, const void*);
+    static void worker_certificate_recv(struct cf_msg*, const void*);
 #endif
 
 static struct cf_worker* workers;       /* Array with all allocated workers structure */
-static int              worker_no_lock;
-static int              shm_accept_key;
-static struct wlock     *accept_lock;
+static int               worker_no_lock;
+static int               shm_accept_key;
+static struct wlock*     accept_lock;
 
 extern volatile sig_atomic_t sig_recv;
 
@@ -191,7 +192,7 @@ struct cf_worker* cf_worker_data( uint8_t id )
  ****************************************************************/
 void cf_worker_shutdown( void )
 {
-    struct cf_worker *kw = NULL;
+    struct cf_worker* kw = NULL;
     uint16_t id, done;
 
     cf_log(LOG_NOTICE, "waiting for workers to drain and shutdown");
@@ -234,7 +235,7 @@ void cf_worker_dispatch_signal( int sig )
 /****************************************************************
  *  Worker drop priv helper function
  ****************************************************************/
-void cf_worker_privdrop( void )
+void cf_worker_privdrop( const char *runas, const char *root_path )
 {
     rlim_t fd;
     struct rlimit rl;
@@ -243,17 +244,16 @@ void cf_worker_privdrop( void )
     /* Must happen before chroot */
     if( server.skip_runas == 0 )
     {
-        pw = getpwnam(server.runas_user);
-        if (pw == NULL)
+        if( (pw = getpwnam(runas)) == NULL )
         {
-            cf_fatal("cannot getpwnam(\"%s\") runas user: %s", server.runas_user, errno_s);
+            cf_fatal("cannot getpwnam(\"%s\") runas user: %s", runas, errno_s);
 		}
 	}
 
     if( server.skip_chroot == 0 )
     {
-        if( chroot(server.chroot_path) == -1 )
-            cf_fatal("cannot chroot(\"%s\"): %s", server.chroot_path, errno_s);
+        if( chroot(root_path) == -1 )
+            cf_fatal("cannot chroot(\"%s\"): %s", root_path, errno_s);
 
         if( chdir("/") == -1 )
 			cf_fatal("cannot chdir(\"/\"): %s", errno_s);
@@ -305,7 +305,7 @@ static void worker_entry( struct cf_worker *kw )
     uint64_t netwait = 0;
     uint64_t timerwait = 0;
     uint64_t next_prune = 0;
-    struct cf_runtime_call *rcall = NULL;
+    struct cf_runtime_call* rcall = NULL;
 
 #ifndef CF_NO_TLS
     uint64_t last_seed = 0;
@@ -340,12 +340,13 @@ static void worker_entry( struct cf_worker *kw )
 #endif
 
     /* Drop privileges */
-    cf_worker_privdrop();
+    cf_worker_privdrop( server.runas_user, server.root_path );
     /* Network initialisation */
 	net_init();
 
 #ifndef CF_NO_HTTP
 	http_init();
+    cf_filemap_resolve_paths();
     cf_accesslog_worker_init();
 #endif
 
@@ -353,7 +354,10 @@ static void worker_entry( struct cf_worker *kw )
     cf_fileref_init();
     cf_connection_init();
     cf_domain_load_crl();
+
+#ifndef CF_NO_TLS
     cf_domain_keymgr_init();
+#endif
 
     cf_platform_event_init();
     cf_msg_worker_init();
@@ -372,6 +376,7 @@ static void worker_entry( struct cf_worker *kw )
 
 #ifndef CF_NO_TLS
     cf_msg_register(CF_MSG_ENTROPY_RESP, worker_entropy_recv);
+    cf_msg_register(CF_MSG_CERTIFICATE, worker_certificate_recv);
 #endif 
 
 #ifdef CF_REDIS
@@ -597,7 +602,7 @@ void cf_worker_wait( int final )
         if( kw->pid != pid )
 			continue;
 
-        if( WIFEXITED(status) ){
+        if( WIFEXITED(status) ) {
             cf_log(LOG_NOTICE, "worker %d (%d)-> exited: %d, status: [%d]", kw->id, pid, WEXITSTATUS(status), status);
         } else if (WIFSIGNALED(status)) {
             cf_log(LOG_NOTICE, "worker %d (%d)-> killed by signal: %d, status: [%d]", kw->id, pid, WTERMSIG(status), status);
@@ -651,6 +656,23 @@ void cf_worker_wait( int final )
 		break;
 	}
 }
+/****************************************************************************
+ *  Calling this from your page handler will cause your current worker
+ *  to give up the acceptlock (if it holds it).
+ *
+ *  This is particularly useful if you are about to run code that may block
+ *  a bit longer then you are comfortable with. Calling this will cause
+ *  the acceptlock to shuffle to another free worker which in turn makes
+ *  sure your application can keep accepting requests.
+ ****************************************************************************/
+void cf_worker_make_busy(void)
+ {
+    if( server.worker->has_lock )
+    {
+        worker_unlock();
+        server.worker->has_lock = 0;
+    }
+ }
 /****************************************************************
  *  Helper function
  ****************************************************************/
@@ -727,7 +749,7 @@ static int worker_trylock(void)
     return 1;
 }
 /****************************************************************
- *  Helper function to get proc pid path
+ *  Helper function to unlock
  ****************************************************************/
 static void worker_unlock(void)
 {
@@ -737,16 +759,57 @@ static void worker_unlock(void)
         cf_log(LOG_NOTICE, "worker_unlock(): wasnt locked");
 }
 
-
 #ifndef CF_NO_TLS
 static void worker_entropy_recv( struct cf_msg *msg, const void *data )
 {
     if( msg->length != 1024 ) {
-        cf_log(LOG_WARNING, "short entropy response (got:%u - wanted:1024)", msg->length);
+        cf_log(LOG_WARNING, "short entropy response (got:%zu - wanted:1024)", msg->length);
     }
 
     RAND_poll();
     RAND_seed(data, msg->length);
 }
+
+static void worker_certificate_recv( struct cf_msg* msg, const void* data )
+{
+    struct cf_domain* dom = NULL;
+    const struct cf_x509_msg* req = NULL;
+
+    if( msg->length < sizeof(*req) )
+    {
+        cf_log(LOG_WARNING, "short CF_MSG_CERTIFICATE message (%zu)", msg->length);
+        return;
+    }
+
+    req = (const struct cf_x509_msg*)data;
+    if( msg->length != (sizeof(*req) + req->data_len) )
+    {
+        cf_log(LOG_WARNING, "invalid CF_MSG_CERTIFICATE payload (%zu)", msg->length);
+        return;
+    }
+
+    if( req->domain_len > CF_DOMAINNAME_LEN )
+    {
+        cf_log(LOG_WARNING, "invalid CF_MSG_CERTIFICATE domain (%u)", req->domain_len);
+        return;
+    }
+
+    dom = NULL;
+    TAILQ_FOREACH(dom, &server.domains, list)
+    {
+        if( !strncmp(dom->domain, req->domain, req->domain_len) )
+            break;
+    }
+
+    if( dom == NULL )
+    {
+        cf_log(LOG_WARNING,"got CF_MSG_CERTIFICATE for domain that does not exist");
+        return;
+    }
+
+    /* reinitialize the domain TLS context. */
+    cf_domain_tls_init(dom, req->data, req->data_len);
+}
+
 #endif
 

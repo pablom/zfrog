@@ -205,7 +205,7 @@ static void init_server_config( void )
     server.debug_log = 0;
     server.foreground = 0;
     server.skip_chroot = 0;
-    server.chroot_path = NULL;
+    server.root_path = NULL;    /* zFrog root path */
     server.skip_runas = 0;
     server.runas_user = NULL;
 
@@ -215,6 +215,8 @@ static void init_server_config( void )
 #ifndef CF_NO_TLS
     server.tls_cipher_list = CF_DEFAULT_CIPHER_LIST;
     server.tls_version = CF_TLS_VERSION_1_2;
+    server.keymgr_root_path = NULL;
+    server.keymgr_runas_user = NULL;
 #endif
 
 #ifndef CF_NO_HTTP

@@ -297,28 +297,30 @@ void cf_platform_proctitle( char *title )
 }
 
 #ifndef CF_NO_SENDFILE
-int cf_platform_sendfile( struct connection* c, struct netbuf* nb)
+int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
 {
-    size_t	len = 0;
     ssize_t	sent = 0;
-    off_t	smin = 0;
+    off_t	smin = nb->fd_len - nb->fd_off;
+    size_t  prevoff = nb->fd_off;
+    size_t	len = MIN(SENDFILE_PAYLOAD_MAX, smin);
 
-    smin = nb->fd_len - nb->fd_off;
-    len = MIN(SENDFILE_PAYLOAD_MAX, smin);
-
-    if( (sent = sendfile(c->fd, nb->file_ref->fd, &nb->fd_off, len)) == -1 )
+    do
     {
-        if( errno == EAGAIN )
+        if( (sent = sendfile(c->fd, nb->file_ref->fd, &nb->fd_off, len)) == -1 )
         {
-            c->flags &= ~CONN_WRITE_POSSIBLE;
-            return CF_RESULT_OK;
+            if( errno == EAGAIN )
+            {
+                c->flags &= ~CONN_WRITE_POSSIBLE;
+                return CF_RESULT_OK;
+            }
+
+            if( errno == EINTR )
+                return CF_RESULT_OK;
+
+            return CF_RESULT_ERROR;
         }
-
-        if( errno == EINTR )
-            return CF_RESULT_OK;
-
-        return CF_RESULT_ERROR;
     }
+    while( nb->fd_off - prevoff != (size_t)len );
 
     if( sent == 0 || nb->fd_off == nb->fd_len )
     {
