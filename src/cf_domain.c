@@ -160,7 +160,7 @@ void cf_domain_cleanup(void)
  ****************************************************************/
 int cf_domain_new( char *domain )
 {
-    struct cf_domain *dom = NULL;
+    struct cf_domain* dom = NULL;
 
     if( cf_domain_lookup(domain) != NULL )
         return CF_RESULT_ERROR;
@@ -229,8 +229,6 @@ void cf_domain_free( struct cf_domain *dom )
     /* Delete structure itself */
     mem_free(dom);
 }
-
-
 
 void cf_domain_callback( void (*cb)(struct cf_domain *) )
 {

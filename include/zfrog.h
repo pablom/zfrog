@@ -124,11 +124,11 @@ struct cf_fileref
     off_t		size;
     char		*path;
     time_t		mtime;
-    u_int64_t	expiration;
+    uint64_t	expiration;
 #ifndef CF_NO_SENDFILE
-    int     fd;
+    int         fd;
 #else
-    void*   base;   
+    void*       base;
 #endif
 
     TAILQ_ENTRY(cf_fileref)	list;
@@ -290,7 +290,6 @@ struct cf_runtime_call
 
 extern struct cf_runtime cf_native_runtime;
 
-
 struct listener
 {
     uint8_t  type;
@@ -425,7 +424,7 @@ struct cf_domain
     TAILQ_ENTRY(cf_domain)          list;
 };
 
-TAILQ_HEAD(cf_domain_h, cf_domain);
+TAILQ_HEAD(cf_domain_header, cf_domain);
 
 #ifndef CF_NO_HTTPP
 
@@ -456,8 +455,8 @@ struct cf_buf
 
 struct cf_mem_pool_region
 {
-	void				*start;
-	size_t				length;
+    void		*start;
+    size_t		length;
 
     LIST_ENTRY(cf_mem_pool_region)	list;
 };
@@ -609,13 +608,13 @@ struct zfrogServer
 #endif
 
 #ifdef CF_REDIS
-    uint16_t redis_serv_conn_max;
+    uint16_t    redis_serv_conn_max;
 #endif
 
     struct cf_worker* worker;         /* Current worker structure pointer */
 
-    struct cf_domain*   primary_dom;
-    struct cf_domain_h  domains;
+    struct cf_domain*        primary_dom;
+    struct cf_domain_header  domains;
 
     struct listener_head  listeners;
     struct cf_mem_pool    nb_pool;
