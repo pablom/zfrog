@@ -861,7 +861,7 @@ void cf_buf_replace_position_string(struct cf_buf*, char*, size_t, void*, size_t
 void cf_buf_replace_first_string(struct cf_buf*, char*, void*, size_t);
 
 void cf_keymgr_run(void);
-void cf_keymgr_cleanup(void);
+void cf_keymgr_cleanup(int);
 void cf_init_pkcs11_module(void);
 
 int cf_cloexec_ioctl(int, int);

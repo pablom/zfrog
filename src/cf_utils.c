@@ -782,7 +782,7 @@ void cf_fatal( const char *fmt, ... )
 
 #ifndef CF_NO_TLS
     if( server.worker != NULL && server.worker->id == CF_WORKER_KEYMGR )
-        cf_keymgr_cleanup();
+        cf_keymgr_cleanup(1);
 #endif
 
 	printf("%s: %s\n", __progname, buf);

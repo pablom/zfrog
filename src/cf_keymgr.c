@@ -52,7 +52,7 @@ static int initialized = 0;
 static void	keymgr_load_randfile(void);
 static void	keymgr_save_randfile(void);
 static void	keymgr_entropy_request(struct cf_msg *, const void *);
-
+static void keymgr_reload(void);
 static void	keymgr_load_privatekey(struct cf_domain *);
 static void	keymgr_msg_recv(struct cf_msg *, const void *);
 static void	keymgr_rsa_encrypt(struct cf_msg *, const void *, struct key *);
@@ -102,6 +102,15 @@ void cf_keymgr_run( void )
     cf_msg_register(CF_MSG_ENTROPY_REQ, keymgr_entropy_request);
     cf_msg_register(CF_MSG_CERTIFICATE_REQ, keymgr_certificate_request);
 
+    keymgr_reload();
+
+    RAND_poll();
+
+#if defined(__OpenBSD__)
+    if( pledge("stdio", NULL) == -1 )
+        cf_fatal("failed to pledge keymgr process");
+#endif
+
     cf_log(LOG_NOTICE, "key manager (%d) started", getpid());
 
     while( quit != 1 )
@@ -123,6 +132,9 @@ void cf_keymgr_run( void )
 			case SIGTERM:				
                 quit = 1;
 				break;
+            case SIGUSR1:
+                keymgr_reload();
+                break;
 			default:
 				break;
 			}
@@ -133,7 +145,7 @@ void cf_keymgr_run( void )
         cf_connection_prune( CF_CONNECTION_PRUNE_DISCONNECT );
 	}
 
-    cf_keymgr_cleanup();
+    cf_keymgr_cleanup(1);
     cf_platform_event_cleanup();
     cf_connection_cleanup();
 	net_cleanup();
@@ -141,11 +153,12 @@ void cf_keymgr_run( void )
 /****************************************************************
  *  Key manager cleanup function
  ****************************************************************/
-void cf_keymgr_cleanup(void)
+void cf_keymgr_cleanup( int final )
 {
     struct key	*key, *next;
 
-    cf_log(LOG_NOTICE, "cleaning up keys");
+    if( final )
+        cf_log(LOG_NOTICE, "cleaning up keys");
 
     if( initialized == 0 )
 		return;
@@ -161,6 +174,24 @@ void cf_keymgr_cleanup(void)
 
 		mem_free(key);
 	}
+}
+/****************************************************************
+ *  Key manager reload cartificates and keys function
+ ****************************************************************/
+static void keymgr_reload(void)
+{
+    struct cf_domain* dom = NULL;
+
+    cf_log(LOG_INFO, "(re)loading certificates and keys");
+
+    cf_keymgr_cleanup(0);
+    TAILQ_INIT(&keys);
+
+    cf_domain_callback(keymgr_load_privatekey);
+
+    /* can't use kore_domain_callback() due to dst parameter */
+    TAILQ_FOREACH(dom, &server.domains, list)
+        keymgr_submit_certificates(dom, CF_MSG_WORKER_ALL);
 }
 /****************************************************************
  *  Helper function to load private key for domain
@@ -329,7 +360,9 @@ static void keymgr_entropy_request( struct cf_msg* msg, const void* data )
     /* No cleanse, this stuff is leaked in the kernel path anyway */
     cf_msg_send(msg->src, CF_MSG_ENTROPY_RESP, buf, sizeof(buf));
 }
-
+/****************************************************************
+ *  Helper function to load random file
+ ****************************************************************/
 static void keymgr_load_randfile(void)
 {
     int	fd;
@@ -373,7 +406,9 @@ static void keymgr_load_randfile(void)
     if( unlink(rand_file) == -1 )
         cf_log(LOG_WARNING, "failed to unlink %s: %s", rand_file, errno_s);
 }
-
+/****************************************************************
+ *  Helper function to save random file
+ ****************************************************************/
 static void keymgr_save_randfile( void )
 {
     int	fd;
@@ -390,38 +425,37 @@ static void keymgr_save_randfile( void )
         unlink(RAND_TMP_FILE);
     }
 
-    if( RAND_bytes(buf, sizeof(buf)) != 1 )
+    if( RAND_bytes(buf, sizeof(buf)) == 1 )
     {
+        if( (fd = open(RAND_TMP_FILE, O_CREAT | O_TRUNC | O_WRONLY, 0400)) != -1 )
+        {
+            /* Try to write random data to file */
+            ret = write(fd, buf, sizeof(buf));
+
+            if( close(fd) == -1 )
+                cf_log(LOG_WARNING, "close(%s): %s", RAND_TMP_FILE, errno_s);
+
+            if( ret != -1 && (size_t)ret == sizeof(buf) )
+            {
+                if( rename(RAND_TMP_FILE, rand_file) == -1 )
+                {
+                    cf_log(LOG_WARNING, "rename(%s, %s): %s", RAND_TMP_FILE, rand_file, errno_s);
+                    unlink(rand_file);
+                    unlink( RAND_TMP_FILE );
+                }
+            }
+            else
+            {
+                cf_log(LOG_WARNING, "failed to write random data");
+                unlink( RAND_TMP_FILE );
+            }
+        }
+        else
+            cf_log(LOG_WARNING, "failed to open %s: %s - random data not written", RAND_TMP_FILE, errno_s);
+    }
+    else
         cf_log(LOG_WARNING, "RAND_bytes: %s", ssl_errno_s);
-        goto cleanup;
-    }
 
-    if( (fd = open(RAND_TMP_FILE, O_CREAT | O_TRUNC | O_WRONLY, 0400)) == -1 )
-    {
-        cf_log(LOG_WARNING, "failed to open %s: %s - random data not written", RAND_TMP_FILE, errno_s);
-        goto cleanup;
-    }
-
-    ret = write(fd, buf, sizeof(buf));
-    if( ret == -1 || (size_t)ret != sizeof(buf) )
-    {
-        cf_log(LOG_WARNING, "failed to write random data");
-        close(fd);
-        unlink(RAND_TMP_FILE);
-        goto cleanup;
-    }
-
-    if( close(fd) == -1 )
-        cf_log(LOG_WARNING, "close(%s): %s", RAND_TMP_FILE, errno_s);
-
-    if( rename(RAND_TMP_FILE, rand_file) == -1 )
-    {
-        cf_log(LOG_WARNING, "rename(%s, %s): %s", RAND_TMP_FILE, rand_file, errno_s);
-        unlink(rand_file);
-        unlink(RAND_TMP_FILE);
-    }
-
-cleanup:
     OPENSSL_cleanse(buf, sizeof(buf));
 }
 

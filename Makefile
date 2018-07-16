@@ -42,19 +42,19 @@ LIBSODIUM_URL=https://github.com/jedisct1/libsodium/releases/download/1.0.16/lib
 DEPS =
 
 ###########################################################################
-#   zfrog  sources
+#  zfrog  sources
 ###########################################################################
-S_SRC=  src/cf_main.c src/cf_buf.c src/cf_config.c src/cf_connection.c src/cf_timer.c \
+S_SRC = src/cf_main.c src/cf_buf.c src/cf_config.c src/cf_connection.c src/cf_timer.c \
         src/cf_domain.c src/cf_memory.c src/cf_msg.c src/cf_module.c src/cf_network.c \
         src/cf_mem_pool.c src/cf_utils.c src/cf_worker.c src/cf_runtime.c
 
 ###########################################################################
-#   zfrog cli sources
+#  zfrog cli sources
 ###########################################################################
-S_SRC_CLI= src/cf_cli.c
+S_SRC_CLI = src/cf_cli.c
 
 ###########################################################################
-#   cstl  sources
+#  cstl  sources
 ###########################################################################
 S_SRC_CSTL = src/cstl/cf_cstl_memory.c src/cstl/cf_cstl_pair.c src/cstl/cf_cstl_set.c \
              src/cstl/cf_cstl_map.c src/cstl/cf_cstl_vector.c src/cstl/cf_cstl_list.c \
@@ -69,7 +69,7 @@ ifeq ($(CF_SINGLE_BINARY), 1)
 endif
 
 ###########################################################################
-#   Debug support
+#  Debug support
 ###########################################################################
 ifeq ($(CF_DEBUG), 1)
     CFLAGS += -DCF_DEBUG -g -ggdb
@@ -79,13 +79,20 @@ else
     CFLAGS += -O3
 endif
 ###########################################################################
-#   'sendfile' support
+#  'sendfile' support
 ###########################################################################
 ifneq ("$(CF_NOSENDFILE)", "")
     CFLAGS += -DCF_NO_SENDFILE
 endif
 ###########################################################################
-#   HTTP support
+#  Coroutine support
+###########################################################################
+ifeq ($(CF_COROUTINE), 1)
+    CFLAGS += -DCF_COROUTINE
+    S_SRC += src/cf_coroutine.c src/co_swapcontext.S
+endif
+###########################################################################
+#  HTTP support
 ###########################################################################
 ifeq ($(CF_NO_HTTP), 1)
     CFLAGS += -DCF_NO_HTTP
@@ -95,7 +102,7 @@ else
             src/cf_validator.c src/cf_filemap.c src/cf_fileref.c
 endif
 ###########################################################################
-#   TLS support
+#  TLS support
 ###########################################################################
 ifeq ($(CF_NO_TLS), 1)
     CFLAGS += -DCF_NO_TLS
@@ -113,7 +120,7 @@ else
     endif
 endif
 ###########################################################################
-#   Tasks support
+#  Tasks support
 ###########################################################################
 ifeq ($(CF_TASKS), 1)
     S_SRC += src/cf_tasks.c
@@ -122,7 +129,7 @@ ifeq ($(CF_TASKS), 1)
     FEATURES += -DCF_TASKS
 endif
 ###########################################################################
-#   JsonRPC support
+#  JsonRPC support
 ###########################################################################
 ifeq ($(CF_JSONRPC), 1)
     S_SRC += src/cf_jsonrpc.c
@@ -144,42 +151,42 @@ endif
 #   PostgreSQL support
 ###########################################################################
 ifeq ($(CF_PGSQL), 1)
-    S_SRC+=src/cf_pgsql.c
-    LDFLAGS+=-L$(shell pg_config --libdir) -lpq
-    CFLAGS+=-I$(shell pg_config --includedir) -DCF_PGSQL \
+    S_SRC += src/cf_pgsql.c
+    LDFLAGS += -L$(shell pg_config --libdir) -lpq
+    CFLAGS += -I$(shell pg_config --includedir) -DCF_PGSQL \
         -DPGSQL_INCLUDE_PATH="\"$(shell pg_config --includedir)\""
-    FEATURES+=-DCF_PGSQL
-    FEATURES_INC+=-I$(shell pg_config --includedir)
+    FEATURES += -DCF_PGSQL
+    FEATURES_INC += -I$(shell pg_config --includedir)
 endif
 ###########################################################################
-#   Oracle SQL support
+#  Oracle SQL support
 ###########################################################################
 ifeq ($(CF_ORACLE), 1)
-    S_SRC+=src/cf_oci.c
-    LDFLAGS+=-Llib -lclntsh -Wl,-rpath-link=lib
-    CFLAGS+=-DCF_ORACLE -Iinclude/oci
-    FEATURES+=-DCF_ORACLE
+    S_SRC += src/cf_oci.c
+    LDFLAGS += -Llib -lclntsh -Wl,-rpath-link=lib
+    CFLAGS += -DCF_ORACLE -Iinclude/oci
+    FEATURES += -DCF_ORACLE
 endif
 ###########################################################################
-#   MySQL support
+#  MySQL support
 ###########################################################################
 ifeq ($(CF_MYSQL), 1)
-    S_SRC+=src/cf_mysql.c
-    CFLAGS+=-DCF_MYSQL
-    FEATURES+=-DCF_MYSQL
+    S_SRC += src/cf_mysql.c
+    CFLAGS += -DCF_MYSQL
+    FEATURES += -DCF_MYSQL
 endif
 ###########################################################################
-#   Python support
+#  Python support
 ###########################################################################
 ifeq ($(CF_PYTHON), 1)
-    S_SRC+=src/cf_python.c
-    LDFLAGS+=$(shell python3-config --ldflags)
-    CFLAGS+=$(shell python3-config --includes) -DCF_PYTHON
-    FEATURES+=-DCF_PYTHON
-    FEATURES_INC+=$(shell python3-config --includes)
+    S_SRC += src/cf_python.c
+    LDFLAGS += $(shell python3-config --ldflags)
+    CFLAGS += $(shell python3-config --includes) -DCF_PYTHON
+    FEATURES += -DCF_PYTHON
+    FEATURES_INC += $(shell python3-config --includes)
 endif
 ###########################################################################
-#   Lua support
+#  Lua support
 ###########################################################################
 ifeq ($(CF_LUA), 1)
     S_SRC += src/cf_lua.c
@@ -194,7 +201,7 @@ ifeq ($(CF_LUA), 1)
 	endif
 endif
 ###########################################################################
-#   Redis support
+#  Redis support
 ###########################################################################
 ifeq ($(CF_REDIS), 1)
     S_SRC += src/cf_redis.c
@@ -202,14 +209,14 @@ ifeq ($(CF_REDIS), 1)
     FEATURES += -DCF_REDIS
 endif
 ###########################################################################
-#   CTemplate support
+#  CTemplate support
 ###########################################################################
 ifeq ($(CF_CTEMPL), 1)
     CFLAGS += -DCF_CTEMPL
     S_SRC += src/cf_ctemplate.c
 endif
 ###########################################################################
-#   Mustache template support
+#  Mustache template support
 ###########################################################################
 ifeq ($(CF_TMUSTACHE), 1)
     CFLAGS += -DCF_TMUSTACHE
@@ -217,19 +224,19 @@ ifeq ($(CF_TMUSTACHE), 1)
 endif
 
 ###########################################################################
-#   Linux (i686)
+#  Linux (i686)
 ###########################################################################
 ifeq ($(TARGET), linux)
         S_SRC += src/cf_linux.c
         CFLAGS += -D_GNU_SOURCE=1 -std=c99
         LDFLAGS += -rdynamic -ldl
 ###########################################################################
-#   MacOS
+#  MacOS
 ###########################################################################
 else ifeq ($(TARGET), darwin)
         S_SRC += src/cf_bsd.c
 ###########################################################################
-#   Solaris (Sparc)
+#  Solaris (Sparc)
 ###########################################################################
 else ifeq ($(TARGET), sunos)
         CC=gcc
@@ -239,21 +246,21 @@ else ifeq ($(TARGET), sunos)
         CFLAGS += -D_PTHREADS -D_POSIX_C_SOURCE=200112L
         LDFLAGS += -ldl -lsocket -lnsl
 ###########################################################################
-#   FreeBSD
+#  FreeBSD
 ###########################################################################
 else ifeq ($(TARGET), freebsd)
         S_SRC += src/cf_bsd.c
 ###########################################################################
-#   AIX (power pc)
+#  AIX (power pc)
 ###########################################################################
 else ifeq ($(TARGET), aix)
         S_SRC += src/cf_aix.c
 endif
 
 ###########################################################################
-S_OBJS= $(S_SRC:src/%.c=$(OBJDIR)/%.o)
-S_OBJS_CLI= $(S_SRC_CLI:src/%.c=$(OBJDIR)/%.o)
-S_OBJS_CSTL= $(S_SRC_CSTL:src/cstl/%.c=$(OBJDIR_CSTL)/%.o)
+S_OBJS = $(S_SRC:src/%.c=$(OBJDIR)/%.o)
+S_OBJS_CLI = $(S_SRC_CLI:src/%.c=$(OBJDIR)/%.o)
+S_OBJS_CSTL = $(S_SRC_CSTL:src/cstl/%.c=$(OBJDIR_CSTL)/%.o)
 
 $(ZFROG): $(OBJDIR) $(S_OBJS)
 	$(CC) $(S_OBJS) $(LDFLAGS) -o $(ZFROG)
@@ -457,11 +464,9 @@ example-tasks:
 example-json_yajl:
 	cd examples/json_yajl && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-
 # Build all test applications by default
 example-all: example-generic example-integers example-websocket example-parameters example-memtag \
           example-headers example-cookies example-messaging
-
 
 .DEFAULT_GOAL := all
 

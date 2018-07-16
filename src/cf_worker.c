@@ -421,13 +421,6 @@ static void worker_entry( struct cf_worker *kw )
         netwait = 100;
         /* Get current time in milliseconds */
 		now = cf_time_ms();
-#ifdef OLD
-        netwait = cf_timer_run( now );
-
-        if( netwait > 10 )
-            netwait = 10;
-#endif
-
 
 #ifndef CF_NO_TLS
         if( (now - last_seed) > CF_RESEED_TIME )
@@ -486,41 +479,6 @@ static void worker_entry( struct cf_worker *kw )
                 cf_platform_disable_accept();
             }
         }
-#ifdef OLD
-        /*************************************************/
-        if( now > next_lock )
-        {
-            if( worker_acceptlock_obtain() )
-            {
-                if( had_lock == 0 )
-                {
-                    /* Enable accept new connection for listeners */
-                    cf_platform_enable_accept();
-					had_lock = 1;
-				}
-			}
-		}
-
-        if( !server.worker->has_lock )
-        {
-            if( had_lock == 1 )
-            {
-				had_lock = 0;
-                /* Disable accept new connection for listeners */
-                cf_platform_disable_accept();
-			}
-		}
-
-        /* Catch events for all available connections */
-        r = cf_platform_event_wait( netwait );
-
-        if( server.worker->has_lock && r > 0 )
-        {
-            worker_acceptlock_release();
-			next_lock = now + WORKER_LOCK_TIMEOUT;
-		}
-#endif
-
 
 #ifndef CF_NO_HTTP
 		http_process();
@@ -553,10 +511,6 @@ static void worker_entry( struct cf_worker *kw )
 
 #ifdef CF_PYTHON
     cf_python_cleanup();
-#endif
-
-#ifdef CF_LUA
-    cf_lua_cleanup();
 #endif
 
 #ifdef CF_LUA
@@ -666,13 +620,16 @@ void cf_worker_wait( int final )
  *  sure your application can keep accepting requests.
  ****************************************************************************/
 void cf_worker_make_busy(void)
- {
+{
+    if( server.worker_count == WORKER_SOLO_COUNT || worker_no_lock == 1 )
+        return;
+
     if( server.worker->has_lock )
     {
         worker_unlock();
         server.worker->has_lock = 0;
     }
- }
+}
 /****************************************************************
  *  Helper function
  ****************************************************************/
