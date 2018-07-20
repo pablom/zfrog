@@ -239,6 +239,7 @@ struct http_request
     struct cf_module_handle	*hdlr;
 
     u_int8_t     http_body_digest[HTTP_BODY_DIGEST_LEN];
+    SHA256_CTX			hashctx;
 
 #ifdef CF_PYTHON
     void  *py_coro;

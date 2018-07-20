@@ -1019,6 +1019,10 @@ int http_header_recv( struct netbuf *nb )
             cf_buf_append(req->http_body, end_headers, (nb->s_off - len));
 		}
 
+        /* Calculate body digest */
+        SHA256_Init( &req->hashctx );
+        SHA256_Update( &req->hashctx, end_headers, (nb->s_off - len) );
+
 		bytes_left = req->content_length - (nb->s_off - len);
 
         if( bytes_left > 0 )
@@ -1033,6 +1037,9 @@ int http_header_recv( struct netbuf *nb )
         {
 			req->flags |= HTTP_REQUEST_COMPLETE;
 			req->flags &= ~HTTP_REQUEST_EXPECT_BODY;
+
+            SHA256_Final(req->http_body_digest, &req->hashctx);
+
             if( !http_body_rewind(req) )
             {
 				req->flags |= HTTP_REQUEST_DELETE;
