@@ -25,7 +25,7 @@ void co_funcp_protector(void);
 
 // Coroutine's global thread local storage variable `co`
 static __thread struct cf_coroutine* co_gtls;
-static __thread cf_cofuncp_t co_gtls_last_word_fp = co_default_protector_last_word;
+static __thread cofuncp_t co_gtls_last_word_fp = co_default_protector_last_word;
 
 #define co_likely(x)       (__builtin_expect(!!(x), 1))
 #define co_unlikely(x)     (__builtin_expect(!!(x), 0))
@@ -219,7 +219,7 @@ void cf_coroutine_runtime_test( void )
     co_assert(sizeof(int) <= sizeof(size_t));
 }
 
-void cf_coroutine_thread_init( cf_cofuncp_t last_word_co_fp )
+void cf_coroutine_thread_init( cofuncp_t last_word_co_fp )
 {
     co_save_fpucw_mxcsr(co_gtls_fpucw_mxcsr);
 
@@ -234,7 +234,7 @@ void cf_coroutine_thread_init( cf_cofuncp_t last_word_co_fp )
 // finish its execution.
 void co_funcp_protector( void )
 {
-    if( (void*)(co_gtls_last_word_fp) != NULL )
+    if( co_gtls_last_word_fp != NULL )
     {
         co_gtls_last_word_fp();
     }
@@ -370,7 +370,7 @@ void cf_coroutine_share_stack_destroy( struct cf_share_stack* sstk )
  *  Coroutine create function
  ****************************************************************/
 struct cf_coroutine* cf_coroutine_create( struct cf_coroutine* main_co, struct cf_share_stack* share_stack,
-                                          size_t save_stack_sz, cf_cofuncp_t fp, void* arg )
+                                          size_t save_stack_sz, cofuncp_t fp, void* arg )
 {
     struct cf_coroutine* p = malloc(sizeof(struct cf_coroutine));
     co_assertalloc_ptr(p);
@@ -393,7 +393,7 @@ struct cf_coroutine* cf_coroutine_create( struct cf_coroutine* main_co, struct c
             p->reg[CF_CO_REG_IDX_FPU + 1] = co_gtls_fpucw_mxcsr[1];
         #endif
 #elif  __x86_64__
-        p->reg[CF_CO_REG_IDX_RETADDR] = (void*)fp;
+        p->reg[CF_CO_REG_IDX_RETADDR] = fp;
         p->reg[CF_CO_REG_IDX_SP] = p->share_stack->align_retptr;
         #ifndef CF_CO_CONFIG_SHARE_FPU_MXCSR_ENV
             p->reg[CF_CO_REG_IDX_FPU] = co_gtls_fpucw_mxcsr[0];

@@ -1,18 +1,16 @@
 // cf_http.c
 
 #include <sys/param.h>
-
-#include <ctype.h>
-#include <inttypes.h>
-#include <stdio.h>
-#include <string.h>
-#include <limits.h>
-#include <float.h>
-#include <fcntl.h>
-#include <float.h>
-#include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+
+#include <ctype.h>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <float.h>
+#include <time.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "zfrog.h"
 #include "cf_http.h"
@@ -48,9 +46,61 @@ static struct {
     { NULL,		NULL },
 };
 
+#define HTTP_MAP_LIMIT		127
 
-static struct http_request* http_request_new(struct connection*, const char*, const char*, char*, const char*);
-static int	http_body_recv(struct netbuf *);
+/*
+ * token      = 1*<any CHAR except CTLs or separators>
+ * separators = "(" | ")" | "<" | ">" | "@"
+ *            | "," | ";" | ":" | "\" | <">
+ *            | "/" | "[" | "]" | "?" | "="
+ *            | "{" | "}" | SP | HT
+ */
+static const char http_token[] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, '!' , 0x00, '#' , '$' , '%' , '&' , '\'',
+    0x00, 0x00, '*' , '+' , 0x00, '-' , '.' , 0x00,
+    '0' , '1' , '2' , '3' , '4' , '5' , '6' , '7' ,
+    '8' , '9' , 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 'A' , 'B' , 'C' , 'D' , 'E' , 'F' , 'G' ,
+    'H' , 'I' , 'J' , 'K' , 'L' , 'M' , 'N' , 'O' ,
+    'P' , 'Q' , 'R' , 'S' , 'T' , 'U' , 'V' , 'W' ,
+    'X' , 'Y' , 'Z' , 0x00, 0x00, 0x00, '^' , '_' ,
+    '`' , 'a' , 'b' , 'c' , 'd' , 'e' , 'f' , 'g' ,
+    'h' , 'i' , 'j' , 'k' , 'l' , 'm' , 'n' , 'o' ,
+    'p' , 'q' , 'r' , 's' , 't' , 'u' , 'v' , 'w' ,
+    'x' , 'y' , 'z' , 0x00, '|' , 0x00, '~' ,
+};
+
+/*
+ * field-content  = <the OCTETs making up the field-value
+ *                   and consisting of either *TEXT or combinations
+ *                   of token, separators, and quoted-string>
+ */
+static const char http_field_content[] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ' ' , '!' , '"' , '#' , '$' , '%' , '&' , '\'',
+    '(' , ')' , '*' , '+' , ',' , '-' , '.' , '/' ,
+    '0' , '1' , '2' , '3' , '4' , '5' , '6' , '7' ,
+    '8' , '9' , ':' , ';' , '<' , '=' , '>' , '?' ,
+    '@' , 'A' , 'B' , 'C' , 'D' , 'E' , 'F' , 'G' ,
+    'H' , 'I' , 'J' , 'K' , 'L' , 'M' , 'N' , 'O' ,
+    'P' , 'Q' , 'R' , 'S' , 'T' , 'U' , 'V' , 'W' ,
+    'X' , 'Y' , 'Z' , '[' , '\\', ']' , '^' , '_' ,
+    '`' , 'a' , 'b' , 'c' , 'd' , 'e' , 'f' , 'g' ,
+    'h' , 'i' , 'j' , 'k' , 'l' , 'm' , 'n' , 'o' ,
+    'p' , 'q' , 'r' , 's' , 't' , 'u' , 'v' , 'w' ,
+    'x' , 'y' , 'z' , '{' , '|' , '}' , '~' ,
+};
+
+
+static char* http_validate_header(char*);
+static int	http_body_recv(struct netbuf*);
 static void	http_error_response(struct connection*, int);
 static void	http_write_response_cookie(struct http_cookie*);
 static void	http_argument_add(struct http_request*, char*, char*, int);
@@ -59,6 +109,8 @@ static void	multipart_add_field(struct http_request*, struct cf_buf*, char*, con
 static void	multipart_file_add(struct http_request*, struct cf_buf*, const char*, const char*, const char*, const int);
 static int	multipart_find_data(struct cf_buf*, struct cf_buf*, size_t*, struct http_request*, const void*, size_t);
 static int	multipart_parse_headers(struct http_request*, struct cf_buf*, struct cf_buf*, const char*, const int);
+
+static struct http_request* http_request_new(struct connection*, const char*, const char*, char*, const char*);
 
 static struct cf_buf    *header_buf;
 static struct cf_buf	*ckhdr_buf;
@@ -157,7 +209,7 @@ static struct http_request* http_request_new( struct connection *c, const char *
 
     if( server.http_request_count >= server.http_request_limit )
     {
-        http_error_response(c, 503);
+        http_error_response(c, HTTP_STATUS_SERVICE_UNAVAILABLE);
         return NULL;
     }
 
@@ -165,19 +217,19 @@ static struct http_request* http_request_new( struct connection *c, const char *
 
     if( (hostlen = strlen(host)) >= CF_DOMAINNAME_LEN - 1)
     {
-        http_error_response(c, 400);
+        http_error_response(c, HTTP_STATUS_BAD_REQUEST);
         return NULL;
     }
 
     if( (pathlen = strlen(path)) >= HTTP_URI_LEN - 1 )
     {
-        http_error_response(c, 414);
+        http_error_response(c, HTTP_STATUS_REQUEST_URI_TOO_LARGE);
         return NULL;
     }
 
     if( strcasecmp(version, "http/1.1") )
     {
-        http_error_response(c, 505);
+        http_error_response(c, HTTP_STATUS_BAD_VERSION);
         return NULL;
     }
 
@@ -197,7 +249,7 @@ static struct http_request* http_request_new( struct connection *c, const char *
         {
             if( (hp = strrchr(host, ']')) == NULL )
             {
-                http_error_response(c, 400);
+                http_error_response(c, HTTP_STATUS_BAD_REQUEST);
                 return NULL;
             }
             hp++;
@@ -215,7 +267,7 @@ static struct http_request* http_request_new( struct connection *c, const char *
 
     if( (hdlr = cf_module_handler_find(host, path)) == NULL )
     {
-		http_error_response(c, 404);
+        http_error_response(c, HTTP_STATUS_NOT_FOUND);
         return NULL;
 	}
 
@@ -262,11 +314,17 @@ static struct http_request* http_request_new( struct connection *c, const char *
     }
     else
     {
-		http_error_response(c, 400);
+        http_error_response(c, HTTP_STATUS_BAD_REQUEST);
         return NULL;
 	}
 
-    req = cf_mem_pool_get(&http_request_pool);
+    if( !(hdlr->methods & m) )
+    {
+        http_error_response(c, HTTP_STATUS_METHOD_NOT_ALLOWED);
+        return NULL;
+    }
+
+    req = cf_mem_pool_get( &http_request_pool );
 	req->end = 0;
 	req->total = 0;
 	req->start = 0;
@@ -417,6 +475,7 @@ void http_process_request( struct http_request *req )
 	default:
         cf_fatal("cf_auth() returned unknown %d", r);
 	}
+
 	req->end = cf_time_ms();
     req->ms = req->end - req->start;
     req->total += req->ms;
@@ -468,8 +527,8 @@ void http_request_free( struct http_request *req )
 #ifdef CF_PGSQL
     struct cf_pgsql	*pgsql;
 #endif
-    struct http_file *f, *fnext;
-    struct http_arg	*q, *qnext;
+    struct http_file   *f, *fnext;
+    struct http_arg	   *q, *qnext;
     struct http_header *hdr, *next;
     struct http_cookie *ck, *cknext;
 
@@ -484,7 +543,7 @@ void http_request_free( struct http_request *req )
             cf_task_destroy(t);
 	}
 
-    if (pending_tasks)
+    if( pending_tasks )
     {
         log_debug("http_request_free %d pending tasks", pending_tasks);
 		return;
@@ -768,8 +827,9 @@ int http_header_recv( struct netbuf *nb )
     uint64_t bytes_left;
     uint8_t *end_headers = NULL;
     int	 h, i, v, skip, l;
-    char *request[4], *host, *hbuf;
-    char *p, *headers[HTTP_REQ_HEADER_MAX];
+    char *request[4], *host, *hbuf, *value;
+    char* headers[HTTP_REQ_HEADER_MAX];
+
     struct connection *c = (struct connection *)nb->owner;
 
     log_debug("http_header_recv(%p)", nb);
@@ -815,13 +875,11 @@ int http_header_recv( struct netbuf *nb )
         if( strncasecmp(headers[i], "host", 4) )
 			continue;
 
-        if( (host = strchr(headers[i], ':')) == NULL )
+        if( (host = http_validate_header(headers[i])) == NULL )
         {
-			http_error_response(c, 400);
+            http_error_response(c, 400);
             return CF_RESULT_OK;
-		}
-
-        *(host)++ = '\0';
+        }
 
         if( *host == '\0' )
         {
@@ -843,23 +901,34 @@ int http_header_recv( struct netbuf *nb )
     if( (req = http_request_new(c, host, request[0], request[1], request[2])) == NULL )
         return CF_RESULT_OK;
 
+    /* take full ownership of the buffer */
+    req->headers = nb->buf;
+    nb->buf = NULL;
+    nb->m_len = 0;
+
     for( i = 1; i < h; i++ )
     {
         if( i == skip )
 			continue;
 
-		p = strchr(headers[i], ':');
-        if( p == NULL ) {
-            log_debug("malformed header: '%s'", headers[i]);
-			continue;
-		}
+        if( (value = http_validate_header(headers[i])) == NULL )
+        {
+            req->flags |= HTTP_REQUEST_DELETE;
+            http_error_response(c, 400);
+            return CF_RESULT_OK;
+        }
 
-		*(p++) = '\0';
-		if (*p == ' ')
-			p++;
+        if( *value == '\0' )
+        {
+            req->flags |= HTTP_REQUEST_DELETE;
+            http_error_response(c, 400);
+            return CF_RESULT_OK;
+        }
+
+
         hdr = cf_mem_pool_get(&http_header_pool);
         hdr->header = headers[i];
-        hdr->value = p;
+        hdr->value = value;
 		TAILQ_INSERT_TAIL(&(req->req_headers), hdr, list);
 
         if( req->agent == NULL && !strcasecmp(hdr->header, "user-agent") )
@@ -1219,11 +1288,11 @@ void http_populate_cookies(struct http_request *req)
     v = cf_split_string(header, ";", cookies, HTTP_MAX_COOKIES);
     for( i = 0; i < v; i++ )
     {
-        for(c = cookies[i]; isspace(*(unsigned char *)c); c++)
+        for( c = cookies[i]; isspace(*(unsigned char *)c); c++ )
             ;
 
         n = cf_split_string(c, "=", pair, 3);
-        if (n != 2)
+        if( n != 2 )
             continue;
 
         ck = cf_mem_pool_get(&http_cookie_pool);
@@ -1232,7 +1301,7 @@ void http_populate_cookies(struct http_request *req)
         TAILQ_INSERT_TAIL(&(req->req_cookies), ck, list);
     }
 
-    mem_free(header);
+    mem_free( header );
 }
 /****************************************************************
  *  Helper function to parse (populate) POST options
@@ -1242,17 +1311,12 @@ void http_populate_post( struct http_request *req )
     ssize_t ret = 0;
     int i, v;
     struct cf_buf* body = NULL;
-    const char* content_type = NULL;
     char data[BUFSIZ];
     char *args[HTTP_MAX_QUERY_ARGS], *val[3];
     char* tstr = NULL;
 
     if( req->method != HTTP_METHOD_POST )
 		return;
-
-    if( !http_request_header(req, "content-type", &content_type ) ||
-            strcasecmp(content_type, "application/x-www-form-urlencoded") )
-        return;
 
     if( req->http_body != NULL )
     {
@@ -1274,6 +1338,7 @@ void http_populate_post( struct http_request *req )
 
             if( ret == 0 )
 				break;
+
             cf_buf_append(body, data, ret);
 		}
 
@@ -1391,7 +1456,7 @@ void http_populate_multipart_form( struct http_request *req )
     mem_free(type);
 }
 
-int http_body_rewind( struct http_request *req )
+int http_body_rewind( struct http_request* req )
 {
     if( req->http_body_fd != -1 )
     {
@@ -1407,6 +1472,31 @@ int http_body_rewind( struct http_request *req )
 
     req->http_body_offset = 0;
     req->http_body_length = req->content_length;
+
+    return CF_RESULT_OK;
+}
+/****************************************************************
+ *  Helper function to return body digest as hex string
+ ****************************************************************/
+int http_body_digest( struct http_request* req, char* out, size_t len )
+{
+    size_t	idx;
+    int		slen;
+
+    if( len != HTTP_BODY_DIGEST_STRLEN )
+    {
+        cf_fatal("http_body_digest: bad len:%zu wanted:%zu", len, HTTP_BODY_DIGEST_STRLEN);
+    }
+
+    if( !(req->flags & HTTP_REQUEST_COMPLETE) )
+        return CF_RESULT_ERROR;
+
+    for( idx = 0; idx < sizeof(req->http_body_digest); idx++ )
+    {
+        slen = snprintf(out + (idx * 2), len - (idx * 2), "%02x", req->http_body_digest[idx]);
+        if( slen == -1 || (size_t)slen >= len )
+            cf_fatal("failed to create hex string");
+    }
 
     return CF_RESULT_OK;
 }
@@ -1461,7 +1551,7 @@ ssize_t http_body_read( struct http_request *req, void *out, size_t len )
 /****************************************************************
  *  Process state machine for current HTTP request
  ****************************************************************/
-int http_state_run( struct http_state *states, uint8_t elm, struct http_request *req )
+int http_state_run( struct http_state *states, u_int8_t elm, struct http_request *req )
 {
     int	r = 0;
     int done = 0;
@@ -1615,6 +1705,7 @@ static int multipart_parse_headers(struct http_request *req, struct cf_buf *in, 
 
     string = cf_buf_stringify(hbuf, NULL);
 	h = cf_split_string(string, "\r\n", headers, 5);
+
     for( i = 0; i < h; i++ )
     {
 		c = cf_split_string(headers[i], ":", args, 5);
@@ -1628,16 +1719,13 @@ static int multipart_parse_headers(struct http_request *req, struct cf_buf *in, 
         for( d = args[1]; isspace(*d); d++ )
 			;
 
-		c = cf_split_string(d, ";", opt, 5);
-        if( c < 2 )
+        if( (c = cf_split_string(d, ";", opt, 5)) < 2 )
 			continue;
 
         if( strcasecmp(opt[0], "form-data") )
 			continue;
 
-        if( (val = strchr(opt[1], '=')) == NULL )
-			continue;
-        if( strlen(val) < 3 )
+        if( (val = strchr(opt[1], '=')) == NULL || strlen(val) < 3 )
 			continue;
 
 		val++;
@@ -1760,11 +1848,13 @@ static void http_argument_add( struct http_request *req, char *name, char *value
 	}
 }
 
-static int http_body_recv(struct netbuf *nb)
+static int http_body_recv( struct netbuf *nb )
 {
     ssize_t ret;
     uint64_t bytes_left;
 	struct http_request	*req = (struct http_request *)nb->extra;
+
+    //SHA256_Update(&req->hashctx, nb->buf, nb->s_off);
 
     if( req->http_body_fd != -1 )
     {
@@ -1804,6 +1894,8 @@ static int http_body_recv(struct netbuf *nb)
             return CF_RESULT_ERROR;
 		}
 
+        //SHA256_Final(req->http_body_digest, &req->hashctx);
+
         net_recv_reset(nb->owner, server.http_header_max, http_header_recv);
     }
     else
@@ -1840,8 +1932,8 @@ static void http_response_normal( struct http_request *req, struct connection *c
 {
     struct http_header *hdr = NULL;
     struct http_cookie *ck = NULL;
-    const char *conn = NULL;
-    int connection_close;
+    const char         *conn = NULL;
+    int                connection_close;
 
     cf_buf_reset(header_buf);
 
@@ -1912,7 +2004,13 @@ static void http_response_normal( struct http_request *req, struct connection *c
 		net_send_queue(c, d, len);
 
     if( !(c->flags & CONN_CLOSE_EMPTY) )
+    {
         net_recv_reset(c, server.http_header_max, http_header_recv);
+        net_recv_flush( c );
+    }
+
+    if( req != NULL )
+        req->content_length = len;
 }
 /***************************************************************
  *  Helper function return response cookies
@@ -2245,4 +2343,47 @@ const char* http_media_type( const char* path )
     }
 
     return NULL;
+}
+/****************************************************************
+ *  Helper function to validate incoming header
+ ****************************************************************/
+static char* http_validate_header( char* header )
+{
+    uint8_t idx;
+    char *p, *value;
+
+    for( p = header; *p != '\0'; p++ )
+    {
+        idx = *p;
+        if( idx > HTTP_MAP_LIMIT )
+            return NULL;
+
+        if( *p == ':' )
+        {
+            *(p)++ = '\0';
+            break;
+        }
+
+        if( http_token[idx] == 0x00 )
+            return NULL;
+    }
+
+    while( isspace(*(unsigned char *)p) )
+        p++;
+
+    if( *p == '\0' )
+        return NULL;
+
+    value = p;
+    while( *p != '\0' )
+    {
+        idx = *p;
+        if( idx > HTTP_MAP_LIMIT )
+            return NULL;
+        if( http_field_content[idx] == 0x00 )
+            return NULL;
+        p++;
+    }
+
+    return value;
 }

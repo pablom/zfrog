@@ -125,6 +125,7 @@ void net_send_stream( struct connection *c, void *data, size_t len, int (*cb)(st
     if( out != NULL )
 		*out = nb;
 }
+
 void net_send_fileref( struct connection* c, struct cf_fileref* ref )
 {
     struct netbuf* nb = NULL;
@@ -170,8 +171,7 @@ void net_recv_reset( struct connection *c, size_t len, int (*cb)(struct netbuf *
     c->rnb->buf = mem_malloc(c->rnb->m_len);
 }
 
-void net_recv_queue( struct connection* c, size_t len, int flags,
-                     int (*cb)(struct netbuf *))
+void net_recv_queue( struct connection* c, size_t len, int flags, int (*cb)(struct netbuf *) )
 {
     log_debug("net_recv_queue(): %p %zu %d", c, len, flags);
 
@@ -274,6 +274,9 @@ int net_recv_flush( struct connection *c )
 
     while( c->flags & CONN_READ_POSSIBLE )
     {
+        if( c->rnb->buf == NULL )
+            return CF_RESULT_OK;
+
         if( !c->read(c, &r) )
             return CF_RESULT_ERROR;
 

@@ -389,6 +389,7 @@ struct cf_module_handle
     struct cf_runtime_call	*rcall;
 #ifndef CF_NO_HTTP
     struct cf_auth	*auth;
+    int				methods;
     TAILQ_HEAD(, cf_handler_params)	params;
 #endif
     TAILQ_ENTRY(cf_module_handle)	list;

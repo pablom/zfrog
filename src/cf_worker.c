@@ -532,8 +532,9 @@ static void worker_entry( struct cf_worker *kw )
  ****************************************************************/
 void cf_worker_wait( int final )
 {
-    uint16_t id;
-    pid_t pid;
+    uint16_t  id;
+    pid_t     pid;
+
     struct cf_worker *kw = NULL;
     int status;
 
@@ -592,12 +593,13 @@ void cf_worker_wait( int final )
             if( kw->pid == accept_lock->current && worker_no_lock == 0 )
 				worker_unlock();
 
+#ifndef CF_NO_HTTP
             if( kw->active_hdlr != NULL )
             {
 				kw->active_hdlr->errors++;
                 cf_log(LOG_NOTICE, "hdlr %s has caused %d error(s)", kw->active_hdlr->func, kw->active_hdlr->errors);
 			}
-
+#endif
             cf_log(LOG_NOTICE, "restarting worker %d", kw->id);
             cf_msg_parent_remove(kw);
             worker_spawn(kw->id, kw->cpu);

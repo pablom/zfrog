@@ -74,6 +74,7 @@ static int configure_socket_backlog(char*);
     static int configure_static_handler(char*);
     static int configure_dynamic_handler(char*);
     static int configure_accesslog(char*);
+    static int configure_restrict(char*);
     static int configure_http_header_max(char*);
     static int configure_http_body_max(char*);
     static int configure_filemap(char*);
@@ -159,6 +160,7 @@ static struct {
     { "static",                     configure_static_handler },
     { "dynamic",                    configure_dynamic_handler },
     { "accesslog",                  configure_accesslog },
+    { "restrict",			        configure_restrict },
     { "http_header_max",            configure_http_header_max },
     { "http_body_max",              configure_http_body_max },
     { "http_hsts_enable",           configure_http_hsts_enable },
@@ -723,6 +725,63 @@ static int configure_accesslog( char *path )
     return CF_RESULT_OK;
 }
 
+static int configure_restrict( char* options )
+{
+    struct cf_module_handle	*hdlr = NULL;
+    int i, cnt;
+    char* argv[10];
+
+    if( current_domain == NULL )
+    {
+        printf("restrict not used in domain context\n");
+        return CF_RESULT_ERROR;
+    }
+
+    if( (cnt = cf_split_string(options, " ", argv, 10)) < 2 )
+    {
+        printf("bad restrict option '%s', missing methods\n", options);
+        return CF_RESULT_ERROR;
+    }
+
+    TAILQ_FOREACH(hdlr, &(current_domain->handlers), list)
+    {
+        if (!strcmp(hdlr->path, argv[0]))
+            break;
+    }
+
+    if( hdlr == NULL )
+    {
+        printf("bad restrict option handler '%s' not found\n", argv[0]);
+        return CF_RESULT_ERROR;
+    }
+
+    hdlr->methods = 0;
+
+    for( i = 1; i < cnt; i++ )
+    {
+        if( !strcasecmp(argv[i], "post") ) {
+            hdlr->methods |= HTTP_METHOD_POST;
+        } else if( !strcasecmp(argv[i], "get") ) {
+            hdlr->methods |= HTTP_METHOD_GET;
+        } else if( !strcasecmp(argv[i], "put") ) {
+            hdlr->methods |= HTTP_METHOD_PUT;
+        } else if( !strcasecmp(argv[i], "delete") ) {
+            hdlr->methods |= HTTP_METHOD_DELETE;
+        } else if( !strcasecmp(argv[i], "head") ) {
+            hdlr->methods |= HTTP_METHOD_HEAD;
+        } else if( !strcasecmp(argv[i], "patch") ) {
+            hdlr->methods |= HTTP_METHOD_PATCH;
+        }
+        else
+        {
+            printf("unknown method: %s in restrict for %s\n", argv[i], argv[0]);
+            return CF_RESULT_ERROR;
+        }
+    }
+
+    return CF_RESULT_OK;
+}
+
 static int configure_filemap( char *options )
 {
     char *argv[3];
@@ -801,7 +860,7 @@ static int configure_http_media_type( char *type )
 /************************************************************************
  *  Read HTTP max header from configuration file
  ************************************************************************/
-static int configure_http_header_max (char *option )
+static int configure_http_header_max( char* option )
 {
     int	err;
 

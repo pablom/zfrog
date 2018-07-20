@@ -228,7 +228,7 @@ endif
 ###########################################################################
 ifeq ($(TARGET), linux)
         S_SRC += src/cf_linux.c
-        CFLAGS += -D_GNU_SOURCE=1 -std=c99
+        CFLAGS += -D_GNU_SOURCE=1 -std=c11
         LDFLAGS += -rdynamic -ldl
 ###########################################################################
 #  MacOS

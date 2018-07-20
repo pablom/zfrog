@@ -31,7 +31,7 @@
 extern "C" {
 #endif
 
-typedef void (*cf_cofuncp_t)(void);
+typedef void (*cofuncp_t)(void);
 
 /* Forward structure declaration */
 struct cf_coroutine;
@@ -90,14 +90,14 @@ struct cf_coroutine
     void*           arg;
     char            is_end;
 
-    cf_cofuncp_t  fp;
+    cofuncp_t   fp;
 
     struct cf_save_stack   save_stack;
     struct cf_share_stack* share_stack;
 };
 
-struct cf_coroutine* cf_coroutine_create( struct cf_coroutine*, struct cf_share_stack*,size_t, cf_cofuncp_t, void*);
-void cf_coroutine_thread_init(cf_cofuncp_t);
+struct cf_coroutine* cf_coroutine_create( struct cf_coroutine*, struct cf_share_stack*,size_t, cofuncp_t, void*);
+void cf_coroutine_thread_init(cofuncp_t);
 void cf_coroutine_resume(struct cf_coroutine*);
 void cf_coroutine_destroy(struct cf_coroutine*);
 struct cf_share_stack* cf_coroutine_share_stack_new(size_t);

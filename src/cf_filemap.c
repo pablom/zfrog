@@ -37,6 +37,7 @@ int cf_filemap_create( struct cf_domain* dom, const char* path, const char* root
     size_t sz = 0;
     int	len = 0;
     struct stat	st;
+    struct cf_module_handle* hdlr = NULL;
     struct filemap_entry* entry = NULL;
     char regex[1024];
     char fpath[PATH_MAX];
@@ -71,11 +72,27 @@ int cf_filemap_create( struct cf_domain* dom, const char* path, const char* root
     if( !cf_module_handler_new(regex, dom->domain,"filemap_resolve", NULL, HANDLER_TYPE_DYNAMIC) )
         return CF_RESULT_ERROR;
 
+    TAILQ_FOREACH(hdlr, &dom->handlers, list)
+    {
+        if( !strcmp(hdlr->path, regex) )
+            break;
+    }
+
+    if( hdlr == NULL )
+        cf_fatal("couldn't find newly created handler for filemap");
+
+    /* Allow HTTP methods */
+    hdlr->methods = HTTP_METHOD_GET | HTTP_METHOD_HEAD;
+
     entry = mem_calloc(1, sizeof(*entry));
 
 	entry->domain = dom;
 	entry->root_len = sz;
     entry->root = mem_strdup(root);
+    /*
+     * Resolve the ondisk component inside the workers to make sure
+     * realpath() resolves the correct path (they maybe chrooted).
+     */
     entry->ondisk_len = strlen(path);
     entry->ondisk = mem_strdup(path);
 
@@ -102,7 +119,7 @@ void cf_filemap_resolve_paths( void )
 
 int filemap_resolve( struct http_request* req )
 {
-	size_t			best_len;
+    size_t best_len;
 	struct filemap_entry	*entry, *best;
 
     if( req->method != HTTP_METHOD_GET && req->method != HTTP_METHOD_HEAD )

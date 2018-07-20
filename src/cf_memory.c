@@ -114,7 +114,7 @@ void* mem_malloc( size_t len )
 		mlen = sizeof(size_t) + len + sizeof(struct meminfo);
 
         if( (ptr = calloc(1, mlen)) == NULL )
-            cf_fatal("mem_malloc(%zd): %d", len, errno);
+            cf_fatal("mem_malloc(%zu): %d", len, errno);
 	}
 
 	plen = (size_t *)ptr;

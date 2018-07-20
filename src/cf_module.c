@@ -13,6 +13,10 @@
     #include "cf_lua.h"
 #endif
 
+#ifndef CF_NO_HTTP
+    #include "cf_http.h"
+#endif
+
 static TAILQ_HEAD(, cf_module)  modules;
 
 static void	native_free(struct cf_module*);
@@ -232,6 +236,7 @@ int cf_module_handler_new(const char *path, const char *domain, const char *func
     hdlr->type = type;
     hdlr->path = mem_strdup(path);
     hdlr->func = mem_strdup(func);
+    hdlr->methods = HTTP_METHOD_ALL;
 
     TAILQ_INIT(&(hdlr->params));
 

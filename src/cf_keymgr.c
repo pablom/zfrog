@@ -107,7 +107,7 @@ void cf_keymgr_run( void )
     RAND_poll();
 
 #if defined(__OpenBSD__)
-    if( pledge("stdio", NULL) == -1 )
+    if( pledge("stdio rpath", NULL) == -1 )
         cf_fatal("failed to pledge keymgr process");
 #endif
 

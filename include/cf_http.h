@@ -13,43 +13,43 @@ extern "C" {
 /* Keep the http_populate_get symbol around */
 #define http_populate_get	http_populate_qs
 
-#define HTTP_KEEPALIVE_TIME     20
-#define HTTP_HSTS_ENABLE        31536000
-#define HTTP_HEADER_MAX_LEN     4096
-#define HTTP_BODY_MAX_LEN       1024000
-#define HTTP_URI_LEN            2000
-#define HTTP_USERAGENT_LEN      256
-#define HTTP_REFERER_LEN        256
-#define HTTP_REQ_HEADER_MAX     25
-#define HTTP_MAX_QUERY_ARGS     20
-#define HTTP_MAX_COOKIES        10
-#define HTTP_MAX_COOKIENAME     255
-#define HTTP_HEADER_BUFSIZE     1024
-#define HTTP_COOKIE_BUFSIZE     1024
-#define HTTP_DATE_MAXSIZE       255
-#define HTTP_REQUEST_MS		    10
-#define HTTP_REQUEST_LIMIT      1000
-#define HTTP_BODY_DISK_PATH     "tmp_files"
-#define HTTP_BODY_DISK_OFFLOAD	0
-#define HTTP_BODY_PATH_MAX      256
-#define HTTP_BOUNDARY_MAX       80
+#define HTTP_KEEPALIVE_TIME         20
+#define HTTP_HSTS_ENABLE            31536000
+#define HTTP_HEADER_MAX_LEN         4096
+#define HTTP_BODY_MAX_LEN           1024000
+#define HTTP_URI_LEN                2000
+#define HTTP_USERAGENT_LEN          256
+#define HTTP_REFERER_LEN            256
+#define HTTP_REQ_HEADER_MAX         25
+#define HTTP_MAX_QUERY_ARGS         20
+#define HTTP_MAX_COOKIES            10
+#define HTTP_MAX_COOKIENAME         255
+#define HTTP_HEADER_BUFSIZE         1024
+#define HTTP_COOKIE_BUFSIZE         1024
+#define HTTP_DATE_MAXSIZE           255
+#define HTTP_REQUEST_MS             10
+#define HTTP_REQUEST_LIMIT          1000
+#define HTTP_BODY_DISK_PATH         "tmp_files"
+#define HTTP_BODY_DISK_OFFLOAD      0
+#define HTTP_BODY_PATH_MAX          256
+#define HTTP_BOUNDARY_MAX           80
 
-#define HTTP_ARG_TYPE_RAW       0
-#define HTTP_ARG_TYPE_BYTE      1
-#define HTTP_ARG_TYPE_INT16     2
-#define HTTP_ARG_TYPE_UINT16	3
-#define HTTP_ARG_TYPE_INT32     4
-#define HTTP_ARG_TYPE_UINT32	5
-#define HTTP_ARG_TYPE_STRING	6
-#define HTTP_ARG_TYPE_INT64     7
-#define HTTP_ARG_TYPE_UINT64	8
-#define HTTP_ARG_TYPE_FLOAT     9
-#define HTTP_ARG_TYPE_DOUBLE	10
+#define HTTP_ARG_TYPE_RAW           0
+#define HTTP_ARG_TYPE_BYTE          1
+#define HTTP_ARG_TYPE_INT16         2
+#define HTTP_ARG_TYPE_UINT16        3
+#define HTTP_ARG_TYPE_INT32         4
+#define HTTP_ARG_TYPE_UINT32        5
+#define HTTP_ARG_TYPE_STRING        6
+#define HTTP_ARG_TYPE_INT64         7
+#define HTTP_ARG_TYPE_UINT64        8
+#define HTTP_ARG_TYPE_FLOAT         9
+#define HTTP_ARG_TYPE_DOUBLE        10
 
-#define HTTP_STATE_ERROR        0
-#define HTTP_STATE_CONTINUE     1
-#define HTTP_STATE_COMPLETE     2
-#define HTTP_STATE_RETRY        3
+#define HTTP_STATE_ERROR            0
+#define HTTP_STATE_CONTINUE         1
+#define HTTP_STATE_COMPLETE         2
+#define HTTP_STATE_RETRY            3
 
 struct http_header
 {
@@ -177,13 +177,18 @@ struct http_file
 	TAILQ_ENTRY(http_file)	list;
 };
 
-#define HTTP_METHOD_GET         0
-#define HTTP_METHOD_POST        1
-#define HTTP_METHOD_PUT         2
-#define HTTP_METHOD_DELETE      3
-#define HTTP_METHOD_HEAD        4
-#define HTTP_METHOD_OPTIONS     5
-#define HTTP_METHOD_PATCH       6
+#define HTTP_METHOD_GET         0x0001
+#define HTTP_METHOD_POST        0x0002
+#define HTTP_METHOD_PUT         0x0004
+#define HTTP_METHOD_DELETE      0x0010
+#define HTTP_METHOD_HEAD        0x0020
+#define HTTP_METHOD_OPTIONS     0x0040
+#define HTTP_METHOD_PATCH       0x0080
+
+#define HTTP_METHOD_ALL		(HTTP_METHOD_GET | HTTP_METHOD_POST |     \
+                             HTTP_METHOD_PUT | HTTP_METHOD_DELETE |   \
+                             HTTP_METHOD_HEAD | HTTP_METHOD_OPTIONS | \
+                             HTTP_METHOD_PATCH)
 
 #define HTTP_REQUEST_COMPLETE           0x0001
 #define HTTP_REQUEST_DELETE             0x0002
@@ -195,6 +200,9 @@ struct http_file
 
 #define HTTP_VALIDATOR_IS_REQUEST       0x8000
 
+#define HTTP_BODY_DIGEST_LEN            32
+#define HTTP_BODY_DIGEST_STRLEN         ((HTTP_BODY_DIGEST_LEN * 2) + 1)
+
 /* Forward structure declaration */
 struct cf_task;
 
@@ -203,19 +211,19 @@ struct cf_task;
  ****************************************************************/
 struct http_request
 {
-    uint8_t			method;
-    uint8_t			fsm_state;
-    uint16_t		flags;
-    uint16_t		status;
-    uint64_t		ms;
-    uint64_t		start;
-    uint64_t		end;
-    uint64_t		total;
+    u_int8_t        method;
+    u_int8_t        fsm_state;
+    u_int16_t		flags;
+    u_int16_t		status;
+    u_int64_t		ms;
+    u_int64_t		start;
+    u_int64_t		end;
+    u_int64_t		total;
 
-    const char*			host;
-    const char*			path;
-    const char*         agent;
-    const char*         referer;
+    const char			*host;
+    const char			*path;
+    const char          *agent;
+    const char          *referer;
     struct connection	*owner;
     u_int8_t			*headers;
     struct cf_buf		*http_body;
@@ -229,6 +237,8 @@ struct http_request
     char                *query_string;
 
     struct cf_module_handle	*hdlr;
+
+    u_int8_t     http_body_digest[HTTP_BODY_DIGEST_LEN];
 
 #ifdef CF_PYTHON
     void  *py_coro;
@@ -280,16 +290,17 @@ void 		http_server_version(const char*);
 void		http_process(void);
 const char *http_status_text(int);
 const char *http_method_text(int);
-time_t		http_date_to_time(char *);
-void		http_request_free(struct http_request *);
-void		http_request_sleep(struct http_request *);
-void		http_request_wakeup(struct http_request *);
-void		http_process_request(struct http_request *);
-int         http_body_rewind(struct http_request *);
-ssize_t		http_body_read(struct http_request *, void *, size_t);
-void		http_response(struct http_request *, int, const void *, size_t);
-void		http_response_stream(struct http_request*, int, void *, size_t, int (*cb)(struct netbuf *), void *);
-int         http_request_header(struct http_request*, const char *, const char **);
+time_t		http_date_to_time(char*);
+void		http_request_free(struct http_request*);
+void		http_request_sleep(struct http_request*);
+void		http_request_wakeup(struct http_request*);
+void		http_process_request(struct http_request*);
+int         http_body_rewind(struct http_request*);
+int		    http_body_digest(struct http_request*, char*, size_t);
+ssize_t		http_body_read(struct http_request*, void *, size_t);
+void		http_response(struct http_request*, int, const void*, size_t);
+void		http_response_stream(struct http_request*, int, void*, size_t, int (*cb)(struct netbuf *), void *);
+int         http_request_header(struct http_request*, const char*, const char **);
 int         http_request_cookie(struct http_request*, const char*, char**);
 void        http_response_header(struct http_request*, const char*, const char*);
 int         http_state_run(struct http_state*, uint8_t, struct http_request*);
@@ -297,7 +308,7 @@ void		http_serveable(struct http_request*, const void*, size_t, const char*, con
 
 void		http_response_cookie(struct http_request*, const char*,
                                  const char*, const char*, time_t, uint32_t,
-                                 struct http_cookie **);
+                                 struct http_cookie**);
 
 void http_response_fileref(struct http_request*, int, struct cf_fileref*);
 int	http_media_register(const char*, const char*);
@@ -307,20 +318,20 @@ int	  http_state_exists(struct http_request*);
 void  http_state_cleanup(struct http_request*);
 void* http_state_create(struct http_request*, size_t);
 
-int  http_argument_urldecode(char *);
-int  http_header_recv(struct netbuf *);
-void http_populate_qs(struct http_request *);
-void http_populate_post(struct http_request *);
-void http_populate_multipart_form(struct http_request *);
-void http_populate_cookies(struct http_request *);
-int  http_argument_get(struct http_request *,const char *, void **, void *, int);
+int  http_argument_urldecode(char*);
+int  http_header_recv(struct netbuf*);
+void http_populate_qs(struct http_request*);
+void http_populate_post(struct http_request*);
+void http_populate_multipart_form(struct http_request*);
+void http_populate_cookies(struct http_request*);
+int  http_argument_get(struct http_request*,const char*, void**, void*, int);
 
-const char* http_remote_addr( struct http_request* );
-const char* http_get_cookie( struct http_request*, const char* );
+const char* http_remote_addr(struct http_request*);
+const char* http_get_cookie(struct http_request*, const char*);
 
-void http_file_rewind(struct http_file *);
-ssize_t http_file_read(struct http_file *, void *, size_t);
-struct http_file *http_file_lookup(struct http_request *, const char *);
+void http_file_rewind(struct http_file*);
+ssize_t http_file_read(struct http_file*, void*, size_t);
+struct http_file *http_file_lookup(struct http_request*, const char*);
 
 enum http_status_code
 {

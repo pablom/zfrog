@@ -129,7 +129,7 @@ int cf_websocket_send_clean(struct netbuf *nb)
     return 0;
 }
 
-void cf_websocket_send(struct connection *c, uint8_t op, const void *data, size_t len)
+void cf_websocket_send( struct connection* c, uint8_t op, const void* data, size_t len )
 {
     struct cf_buf frame;
 
