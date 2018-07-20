@@ -38,28 +38,29 @@
 
 struct key
 {
-    EVP_PKEY *pkey;
-    struct cf_domain *dom;
-    void* p11_key;
-    TAILQ_ENTRY(key) list;
+    EVP_PKEY          *pkey;
+    struct cf_domain  *dom;
+    void              *p11_key;
+    TAILQ_ENTRY(key)  list;
 };
 
 char* rand_file = NULL;
 static TAILQ_HEAD(, key)	keys;
 extern volatile sig_atomic_t sig_recv;
-static int initialized = 0;
 
+/* Forward function declarations */
+static void keymgr_reload(void);
 static void	keymgr_load_randfile(void);
 static void	keymgr_save_randfile(void);
-static void	keymgr_entropy_request(struct cf_msg *, const void *);
-static void keymgr_reload(void);
-static void	keymgr_load_privatekey(struct cf_domain *);
-static void	keymgr_msg_recv(struct cf_msg *, const void *);
-static void	keymgr_rsa_encrypt(struct cf_msg *, const void *, struct key *);
-static void	keymgr_ecdsa_sign(struct cf_msg *, const void *, struct key *);
-static void keymgr_pkcs11_rsa_encrypt(struct cf_msg *, const void *, struct key *);
+static void	keymgr_load_privatekey(struct cf_domain*);
+static void	keymgr_msg_recv(struct cf_msg*, const void*);
+static void	keymgr_entropy_request(struct cf_msg*, const void*);
 static void	keymgr_certificate_request(struct cf_msg*, const void*);
-static void	keymgr_submit_certificates(struct cf_domain*, uint16_t);
+static void	keymgr_submit_certificates(struct cf_domain*, u_int16_t);
+
+static void	keymgr_rsa_encrypt(struct cf_msg*, const void*, struct key*);
+static void	keymgr_ecdsa_sign(struct cf_msg*, const void*, struct key*);
+static void keymgr_pkcs11_rsa_encrypt(struct cf_msg*, const void*, struct key*);
 
 /****************************************************************
  *  Key manager worker main entry function
@@ -67,7 +68,21 @@ static void	keymgr_submit_certificates(struct cf_domain*, uint16_t);
 void cf_keymgr_run( void )
 {
     int quit = 0;  
-    uint64_t now, last_seed = 0;
+    u_int64_t now, last_seed = 0;
+
+    /* Init key's list */
+    TAILQ_INIT(&keys);
+
+    /* Delete all listener objects */
+    cf_listener_cleanup();
+    /* Unload all shared libraries */
+    cf_module_cleanup();
+
+    /* Drop current user */
+    cf_worker_privdrop( server.keymgr_runas_user, server.keymgr_root_path );
+
+    /* Try to load PKCS11 module */
+    cf_init_pkcs11_module();
 
     if( rand_file != NULL )
     {
@@ -77,21 +92,6 @@ void cf_keymgr_run( void )
     else {
         cf_log(LOG_WARNING, "no rand_file location specified");
     }
-
-	initialized = 1;
-    /* Init key's list */
-    TAILQ_INIT( &keys );
-
-    /* Delete all listener objects */
-    cf_listener_cleanup();
-    /* Unload all shared libraries */
-    cf_module_cleanup();
-
-    /* Try to load PKCS11 module */
-    cf_init_pkcs11_module();
-
-    cf_domain_callback( keymgr_load_privatekey );
-    cf_worker_privdrop( server.runas_user, server.root_path );
 
 	net_init();
     cf_connection_init();
@@ -160,9 +160,6 @@ void cf_keymgr_cleanup( int final )
     if( final )
         cf_log(LOG_NOTICE, "cleaning up keys");
 
-    if( initialized == 0 )
-		return;
-
     for( key = TAILQ_FIRST(&keys); key != NULL; key = next )
     {
 		next = TAILQ_NEXT(key, list);
@@ -184,12 +181,12 @@ static void keymgr_reload(void)
 
     cf_log(LOG_INFO, "(re)loading certificates and keys");
 
+    /* Cleanup current loaded keys */
     cf_keymgr_cleanup(0);
-    TAILQ_INIT(&keys);
 
     cf_domain_callback(keymgr_load_privatekey);
 
-    /* can't use kore_domain_callback() due to dst parameter */
+    /* can't use cf_domain_callback() due to dst parameter */
     TAILQ_FOREACH(dom, &server.domains, list)
         keymgr_submit_certificates(dom, CF_MSG_WORKER_ALL);
 }
@@ -225,8 +222,8 @@ static void keymgr_load_privatekey( struct cf_domain *dom )
     else
         key->p11_key = p11_key; /* set PKCS11 private key */
 
-    mem_free( dom->certkey );
-    dom->certkey = NULL;
+    //mem_free( dom->certkey );
+    //dom->certkey = NULL;
 
 	TAILQ_INSERT_TAIL(&keys, key, list);
 }
@@ -467,19 +464,21 @@ static void keymgr_certificate_request( struct cf_msg* msg, const void* data )
         keymgr_submit_certificates(dom, msg->src);
 }
 
-static void keymgr_submit_certificates( struct cf_domain* dom, uint16_t dst)
+static void keymgr_submit_certificates( struct cf_domain* dom, u_int16_t dst)
 {
-    int fd;
-    struct stat st;
-    ssize_t ret;
-    size_t len;
-    struct cf_x509_msg* msg = NULL;
-    uint8_t* payload = NULL;
+    int                 fd;
+    struct stat         st;
+    ssize_t             ret;
+    size_t              len;
+    struct cf_x509_msg  *msg = NULL;
+    u_int8_t            * payload = NULL;
 
     if( (fd = open(dom->certfile, O_RDONLY)) == -1 )
         cf_fatal("open(%s): %s", dom->certfile, errno_s);
+
     if( fstat(fd, &st) == -1 )
         cf_fatal("stat(%s): %s", dom->certfile, errno_s);
+
     if( !S_ISREG(st.st_mode) )
         cf_fatal("%s is not a file", dom->certfile);
 

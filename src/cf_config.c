@@ -279,6 +279,7 @@ static void parse_config_file( FILE *fp )
         {
             if( current_auth->validator == NULL )
             {
+                domain_tls_init();
                 cf_fatal("no authentication validator for %s", current_auth->name);
 			}
 
@@ -289,7 +290,8 @@ static void parse_config_file( FILE *fp )
 #endif
 
         if( !strcmp(p, "}") && current_domain != NULL )
-            domain_tls_init();
+            //domain_tls_init();
+            current_domain = NULL;
 
         if( !strcmp(p, "}") )
         {

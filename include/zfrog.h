@@ -756,8 +756,8 @@ void cf_msg_worker_init(void);
 void cf_msg_parent_init(void);
 void cf_msg_parent_add(struct cf_worker*);
 void cf_msg_parent_remove(struct cf_worker*);
-void cf_msg_send(uint16_t, uint8_t, const void*, size_t);
-int	 cf_msg_register(uint8_t, void (*cb)(struct cf_msg*, const void*));
+void cf_msg_send(u_int16_t, u_int8_t, const void*, size_t);
+int	 cf_msg_register(u_int8_t, void (*cb)(struct cf_msg*, const void*));
 
 void cf_domain_init(void);
 void cf_domain_cleanup(void);

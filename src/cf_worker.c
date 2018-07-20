@@ -353,9 +353,9 @@ static void worker_entry( struct cf_worker *kw )
     cf_timer_init();
     cf_fileref_init();
     cf_connection_init();
-    cf_domain_load_crl();
 
 #ifndef CF_NO_TLS
+    cf_domain_load_crl();
     cf_domain_keymgr_init();
 #endif
 

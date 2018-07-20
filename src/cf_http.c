@@ -887,7 +887,6 @@ int http_header_recv( struct netbuf *nb )
             return CF_RESULT_OK;
 		}
 
-        host++;
 		skip = i;
 		break;
 	}

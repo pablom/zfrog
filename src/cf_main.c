@@ -486,7 +486,7 @@ static void server_sslstart( void )
  ****************************************************************/
 static void server_start( void )
 {
-    uint32_t tmp;
+    u_int32_t  tmp;
     int	quit;
     struct cf_runtime_call *rcall = NULL;
 
@@ -502,6 +502,7 @@ static void server_start( void )
 
     cf_log(LOG_NOTICE, "%s is starting up (%d)", __progname, server.pid);
 
+    /* Log out builtin options */
     builtin_report();
 
 #ifndef CF_SINGLE_BINARY
@@ -544,6 +545,8 @@ static void server_start( void )
 				quit = 1;
                 cf_worker_dispatch_signal(sig_recv);
 				continue;
+            case SIGUSR1:
+                cf_worker_dispatch_signal(sig_recv);
 			default:
                 cf_log(LOG_NOTICE, "no action taken for signal %d", sig_recv);
 				break;
@@ -679,8 +682,10 @@ int main( int argc, char *argv[] )
 #endif
 
 #ifndef CF_NO_HTTP
+    //http_parent_init();
     cf_auth_init();
     cf_validator_init();
+    cf_filemap_init();
 #endif    
 
     cf_domain_init();
@@ -727,5 +732,10 @@ int main( int argc, char *argv[] )
     cf_listener_cleanup();
     cf_log(LOG_NOTICE, "goodbye cruel world");
 
+#ifdef CF_PYTHON
+    cf_python_cleanup();
+#endif
+
+    mem_cleanup();
     return 0;
 }

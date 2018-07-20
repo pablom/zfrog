@@ -178,7 +178,11 @@ int cf_domain_new( char *domain )
     dom->x509_verify_depth = 1;
 #endif
     dom->domain = mem_strdup(domain);
-	TAILQ_INIT(&(dom->handlers));
+
+#ifndef CF_NO_HTTP
+    TAILQ_INIT(&(dom->handlers));
+#endif
+
     TAILQ_INSERT_TAIL(&server.domains, dom, list);
 
     if( server.primary_dom == NULL )
@@ -272,6 +276,7 @@ void cf_domain_closelogs( void )
             close( dom->accesslog );
 	}
 }
+#ifndef CF_NO_TLS
 /****************************************************************
  *  Load certificates for all domains
  ****************************************************************/
@@ -280,9 +285,8 @@ void cf_domain_load_crl( void )
     struct cf_domain *dom = NULL;
 
     TAILQ_FOREACH(dom, &server.domains, list)
-		domain_load_crl(dom);
+        domain_load_crl(dom);
 }
-#ifndef CF_NO_TLS
 /****************************************************************
  *  Init key manager function
  ****************************************************************/
@@ -296,7 +300,6 @@ void cf_domain_keymgr_init( void )
  ****************************************************************/
 void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
 {
-    BIO* in = NULL;
     RSA* rsa = NULL;
     X509* x509 = NULL;
     EVP_PKEY *pkey = NULL;
@@ -375,27 +378,8 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     }
 #endif
 
-
-    if( !SSL_CTX_use_certificate_chain_file(dom->ssl_ctx, dom->certfile) )
-    {
-        cf_fatal("SSL_CTX_use_certificate_chain_file(%s): %s", dom->certfile, ssl_errno_s);
-    }
-
-    if( (in = BIO_new(BIO_s_file())) == NULL )
-        cf_fatal("BIO_new: %s", ssl_errno_s);
-
-    if( BIO_read_filename(in, dom->certfile) <= 0 )
-        cf_fatal("BIO_read_filename: %s", ssl_errno_s);
-
-    if( (x509 = PEM_read_bio_X509(in, NULL, NULL, NULL)) == NULL ) {
-        cf_fatal("PEM_read_bio_X509: %s", ssl_errno_s);
-    }
-
-    BIO_free(in);
-
-    /* */
-    x509 = domain_load_certificate_chain(dom->ssl_ctx, NULL, 0);
-
+    /* Load certificate chain */
+    x509 = domain_load_certificate_chain(dom->ssl_ctx, pem, pemlen);
 
     if( (pkey = X509_get_pubkey(x509)) == NULL )
         cf_fatal("certificate has no public key");
@@ -482,8 +466,10 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     SSL_CTX_set_info_callback(dom->ssl_ctx, cf_tls_info_callback);
     SSL_CTX_set_tlsext_servername_callback(dom->ssl_ctx, cf_tls_sni_cb);
 
-    mem_free(dom->certfile);
-    dom->certfile = NULL;
+    X509_free( x509 );
+
+    //mem_free(dom->certfile);
+    //dom->certfile = NULL;
 }
 
 static void keymgr_init(void)

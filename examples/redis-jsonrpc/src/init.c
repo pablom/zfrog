@@ -13,7 +13,7 @@ int init( int state )
 {
     /* Register our database */
     //cf_redis_register("db", "127.0.0.1", 0);
-    cf_redis_register("db", "unix@/tmp/redisserv", 0);
+    cf_redis_register("db", "unix@/tmp/redisserv", 0, 0);
 
     return CF_RESULT_OK;
 }
