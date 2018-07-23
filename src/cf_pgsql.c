@@ -22,21 +22,21 @@ struct pgsql_wait
 	TAILQ_ENTRY(pgsql_wait)		list;
 };
 
-#define PGSQL_CONN_MAX          2
 #define PGSQL_CONN_FREE         0x01
 #define PGSQL_LIST_INSERTED     0x0100
 
 static void	pgsql_queue_wakeup(void);
-static void	pgsql_cancel(struct cf_pgsql *);
-static void	pgsql_set_error(struct cf_pgsql *, const char *);
-static void	pgsql_queue_add(cf_pgsql *);
-static void	pgsql_conn_release(struct cf_pgsql *);
-static void	pgsql_conn_cleanup(struct pgsql_conn *);
-static void	pgsql_read_result(struct cf_pgsql *);
-static void	pgsql_schedule(struct cf_pgsql *);
+static void	pgsql_cancel(struct cf_pgsql*);
+static void	pgsql_set_error(struct cf_pgsql*, const char*);
+static void	pgsql_queue_add(cf_pgsql*);
+static void	pgsql_conn_release(struct cf_pgsql*);
+static void	pgsql_conn_cleanup(struct pgsql_conn*);
+static void	pgsql_read_result(struct cf_pgsql*);
+static void	pgsql_schedule(struct cf_pgsql*);
+static void	pgsql_rollback_state(struct cf_pgsql*, void*);
 
-static struct pgsql_conn *pgsql_conn_create(struct cf_pgsql *, struct pgsql_db *);
-static struct pgsql_conn *pgsql_conn_next(struct cf_pgsql *, struct pgsql_db *);
+static struct pgsql_conn *pgsql_conn_create(struct cf_pgsql*, struct pgsql_db*);
+static struct pgsql_conn *pgsql_conn_next(struct cf_pgsql*, struct pgsql_db*);
 
 static struct cf_mem_pool           pgsql_job_pool;
 static struct cf_mem_pool           pgsql_wait_pool;
@@ -380,6 +380,7 @@ void cf_pgsql_continue( struct cf_pgsql *pgsql )
         break;
     case CF_PGSQL_STATE_ERROR:
     case CF_PGSQL_STATE_RESULT:
+    case CF_PGSQL_STATE_NOTIFY:
         cf_pgsql_handle(pgsql->conn, 0);
         break;
     default:
@@ -453,9 +454,9 @@ static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_
 {
     PGTransactionStatusType	state;
     struct pgsql_conn *conn = NULL;
-    struct cf_pgsql	*rollback = NULL;
+    struct cf_pgsql	  *rollback = NULL;
 
-    while( true )
+    while( 1 )
     {
         conn = NULL;
 
@@ -480,7 +481,7 @@ static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_
                 rollback->flags |= CF_PGSQL_ASYNC;
 
                 rollback->conn = conn;
-                rollback->conn->job = cf_mem_pool_get(&pgsql_job_pool);
+                rollback->conn->job = cf_mem_pool_get( &pgsql_job_pool );
                 rollback->conn->job->pgsql = rollback;
 
                 if( !cf_pgsql_query(rollback, "ROLLBACK") )
@@ -502,8 +503,9 @@ static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_
     {
         if( db->conn_max != 0 && db->conn_count >= db->conn_max )
         {
-            if( pgsql->flags & CF_PGSQL_ASYNC )
-                pgsql_queue_add(pgsql);
+            if( (pgsql->flags & CF_PGSQL_ASYNC) &&
+                    server.pgsql_queue_count < server.pgsql_queue_limit )
+                pgsql_queue_add( pgsql );
             else
                 pgsql_set_error(pgsql,"no available connection");
 
@@ -567,6 +569,7 @@ static void pgsql_queue_add( struct cf_pgsql *pgsql )
     pgw = cf_mem_pool_get(&pgsql_wait_pool);
     pgw->pgsql = pgsql;
 
+    server.pgsql_queue_count++;
 	TAILQ_INSERT_TAIL(&pgsql_wait_queue, pgw, list);
 }
 /************************************************************************
@@ -582,6 +585,7 @@ static void pgsql_queue_remove( struct cf_pgsql *pgsql )
 		if( pgw->pgsql != pgsql )
 			continue;
 
+        server.pgsql_queue_count--;
         TAILQ_REMOVE( &pgsql_wait_queue, pgw, list );
         cf_mem_pool_put( &pgsql_wait_pool, pgw );
 		return;
@@ -604,6 +608,7 @@ static void pgsql_queue_wakeup( void )
         {
             if( pgw->pgsql->req->flags & HTTP_REQUEST_DELETE )
             {
+                server.pgsql_queue_count--;
                 TAILQ_REMOVE(&pgsql_wait_queue, pgw, list);
                 cf_mem_pool_put( &pgsql_wait_pool, pgw );
                 continue;
@@ -616,6 +621,7 @@ static void pgsql_queue_wakeup( void )
         if( pgw->pgsql->cb != NULL )
             pgw->pgsql->cb(pgw->pgsql, pgw->pgsql->arg);
 
+        server.pgsql_queue_count--;
 		TAILQ_REMOVE(&pgsql_wait_queue, pgw, list);
         cf_mem_pool_put( &pgsql_wait_pool, pgw );
 		return;
@@ -660,6 +666,7 @@ static struct pgsql_conn* pgsql_conn_create( struct cf_pgsql *pgsql, struct pgsq
 static void pgsql_conn_release( struct cf_pgsql *pgsql )
 {
     int	fd;
+    PGresult* result = NULL;
 
     if( pgsql->conn == NULL )
 		return;
@@ -680,8 +687,8 @@ static void pgsql_conn_release( struct cf_pgsql *pgsql )
 	}
 
     /* Drain just in case */
-    while( PQgetResult(pgsql->conn->db) != NULL )
-		;
+    while( (result = PQgetResult(pgsql->conn->db)) != NULL )
+        PQclear( result );
 
 	pgsql->conn->job = NULL;
 	pgsql->conn->flags |= PGSQL_CONN_FREE;
@@ -744,40 +751,56 @@ static void pgsql_conn_cleanup( struct pgsql_conn *conn )
  ************************************************************************/
 static void pgsql_read_result( struct cf_pgsql *pgsql )
 {
+    PGnotify *notify = NULL;
+
     if( PQisBusy(pgsql->conn->db) )
     {
         pgsql->state = CF_PGSQL_STATE_WAIT;
 		return;
 	}
 
-    if( (pgsql->result = PQgetResult(pgsql->conn->db)) == NULL )
+    while( (notify = PQnotifies(pgsql->conn->db)) != NULL )
+    {
+        pgsql->state = KORE_PGSQL_STATE_NOTIFY;
+        pgsql->notify.extra = notify->extra;
+        pgsql->notify.channel = notify->relname;
+
+        if( pgsql->cb != NULL )
+            pgsql->cb(pgsql, pgsql->arg);
+
+        PQfreemem(notify);
+    }
+
+    pgsql->result = PQgetResult(pgsql->conn->db);
+
+    if( pgsql->result == NULL )
     {
         pgsql->state = CF_PGSQL_STATE_DONE;
-		return;
-	}
+        return;
+    }
 
     switch( PQresultStatus(pgsql->result) )
     {
-	case PGRES_COPY_OUT:
-	case PGRES_COPY_IN:
-	case PGRES_NONFATAL_ERROR:
-	case PGRES_COPY_BOTH:
-		break;
-	case PGRES_COMMAND_OK:
+    case PGRES_COPY_OUT:
+    case PGRES_COPY_IN:
+    case PGRES_NONFATAL_ERROR:
+    case PGRES_COPY_BOTH:
+        break;
+    case PGRES_COMMAND_OK:
         pgsql->state = CF_PGSQL_STATE_DONE;
-		break;
-	case PGRES_TUPLES_OK:
+        break;
+    case PGRES_TUPLES_OK:
 #if PG_VERSION_NUM >= 90200
-	case PGRES_SINGLE_TUPLE:
+    case PGRES_SINGLE_TUPLE:
 #endif
         pgsql->state = CF_PGSQL_STATE_RESULT;
-		break;
-	case PGRES_EMPTY_QUERY:
-	case PGRES_BAD_RESPONSE:
-	case PGRES_FATAL_ERROR:
-		pgsql_set_error(pgsql, PQresultErrorMessage(pgsql->result));
-		break;
-	}
+        break;
+    case PGRES_EMPTY_QUERY:
+    case PGRES_BAD_RESPONSE:
+    case PGRES_FATAL_ERROR:
+        pgsql_set_error(pgsql, PQresultErrorMessage(pgsql->result));
+        break;
+    }
 }
 /************************************************************************
  *  Helper function to cancel PGSQL query
@@ -794,3 +817,25 @@ static void pgsql_cancel( cf_pgsql *pgsql )
         PQfreeCancel(cancel);
     }
 }
+
+static void pgsql_rollback_state( struct cf_pgsql *pgsql, void *arg )
+{
+    struct pgsql_conn *conn = NULL;
+
+    switch( pgsql->state )
+    {
+    case CF_PGSQL_STATE_ERROR:
+        conn = pgsql->conn;
+        cf_pgsql_logerror(pgsql);
+        cf_pgsql_cleanup(pgsql);
+        pgsql_conn_cleanup(conn);
+        break;
+    case CF_PGSQL_STATE_COMPLETE:
+        cf_pgsql_cleanup(pgsql);
+        break;
+    default:
+        cf_pgsql_continue(pgsql);
+        break;
+    }
+}
+

@@ -242,7 +242,8 @@ static void init_server_config( void )
 #endif
 
 #ifdef CF_PGSQL
-    server.pgsql_conn_max = PGSQL_CONN_MAX;
+    server.pgsql_conn_max = CF_PGSQL_CONN_MAX;
+    server.pgsql_queue_limit = CF_PGSQL_QUEUE_LIMIT;
 #endif
 
 #ifdef CF_MYSQL

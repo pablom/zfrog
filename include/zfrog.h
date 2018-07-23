@@ -601,7 +601,9 @@ struct zfrogServer
 #endif
 
 #ifdef CF_PGSQL
-    uint16_t    pgsql_conn_max;
+    uint32_t   pgsql_queue_count;
+    uint16_t   pgsql_conn_max;
+    uint32_t   pgsql_queue_limit;
 #endif
 
 #ifdef CF_MYSQL

@@ -101,6 +101,7 @@ static int configure_socket_backlog(char*);
 
 #ifdef CF_PGSQL
     static int configure_pgsql_conn_max(char*);
+    static int configure_pgsql_queue_limit(char*);
 #endif
 
 #ifdef CF_TASKS
@@ -184,6 +185,7 @@ static struct {
 
 #ifdef CF_PGSQL
     { "pgsql_conn_max",             configure_pgsql_conn_max },
+    { "pgsql_queue_limit",		    configure_pgsql_queue_limit },
 #endif
 
 #ifdef CF_TASKS
@@ -1425,6 +1427,22 @@ static int configure_pgsql_conn_max(char *option)
 		printf("bad value for pgsql_conn_max: %s\n", option);
         return CF_RESULT_ERROR;
 	}
+
+    return CF_RESULT_OK;
+}
+/****************************************************************
+ *  Read PGSQL queue limit configuration
+ ****************************************************************/
+static int configure_pgsql_queue_limit(char *option)
+{
+    int err;
+
+    server.pgsql_queue_limit = cf_strtonum(option, 10, 0, UINT_MAX, &err);
+    if( err != CF_RESULT_OK )
+    {
+        printf("bad value for pgsql_queue_limit: %s\n", option);
+        return CF_RESULT_ERROR;
+    }
 
     return CF_RESULT_OK;
 }
