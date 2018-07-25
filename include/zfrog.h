@@ -4,7 +4,10 @@
 #define __ZFROG_H__
 
 #if defined(__APPLE__)
+    #undef daemon
+    extern int daemon(int, int);
     #define daemon portability_is_king
+    #define st_mtim		st_mtimespec
 #endif
 
 #if defined( __sun )
@@ -123,8 +126,9 @@ struct cf_fileref
     int			flags;
     off_t		size;
     char		*path;
-    time_t		mtime;
-    uint64_t	expiration;
+    u_int64_t	mtime;
+    time_t		mtime_sec;
+    u_int64_t	expiration;
 #ifndef CF_NO_SENDFILE
     int         fd;
 #else
@@ -743,7 +747,7 @@ int	cf_snprintf(char*, size_t, int*, const char*, ...);
 long long cf_strtonum(const char*, int, long long, long long, int*);
 int cf_base64_encode(const void*, size_t, char**);
 int cf_base64_decode(const char*, size_t, uint8_t**, size_t*);
-void* cf_mem_find(void*, size_t, void*, size_t);
+void* cf_mem_find(void*, size_t, const void*, size_t);
 char* cf_text_trim(char*, size_t);
 char* cf_fread_line(FILE*, char*, size_t);
 char* cf_uppercase(char*);
@@ -787,14 +791,20 @@ void cf_runtime_connect(struct cf_runtime_call*, struct connection*);
 void cf_runtime_configure(struct cf_runtime_call*, int, char**);
 
 #ifndef CF_NO_HTTP
+    /* Authentication function list */
     int	cf_auth_run(struct http_request*, struct cf_auth*);
     void cf_auth_init(void);
     int cf_auth_new(const char*);
+    int cf_auth_cookie(struct http_request*, struct cf_auth*);
+    int cf_auth_header(struct http_request*, struct cf_auth*);
+    int cf_auth_request(struct http_request*, struct cf_auth*);
     struct cf_auth* cf_auth_lookup(const char*);
+    /* Web sockets function's list */
     void cf_websocket_handshake(struct http_request*, const char*, const char*, const char*);
     int	cf_websocket_send_clean(struct netbuf*);
     void cf_websocket_send(struct connection*, uint8_t, const void*, size_t);
     void cf_websocket_broadcast(struct connection*, uint8_t, const void*, size_t, int);
+
     int cf_runtime_http_request(struct cf_runtime_call*, struct http_request*);
     int cf_runtime_validator(struct cf_runtime_call*, struct http_request*, const void*);
     void cf_runtime_wsconnect(struct cf_runtime_call*, struct connection*);
@@ -812,7 +822,7 @@ void cf_runtime_configure(struct cf_runtime_call*, int, char**);
     void cf_filemap_resolve_paths(void);
     void cf_fileref_init(void);
     struct cf_fileref* cf_fileref_get(const char*);
-    struct cf_fileref* cf_fileref_create(const char*, int, off_t, time_t);
+    struct cf_fileref* cf_fileref_create(const char*, int, off_t,struct timespec*);
     void cf_fileref_release(struct cf_fileref*);
     void cf_fileref_init(void);
 #endif
@@ -859,7 +869,7 @@ void cf_buf_cleanup(struct cf_buf*);
 char* cf_buf_stringify(struct cf_buf*, size_t*);
 void cf_buf_appendf(struct cf_buf*, const char*, ...);
 void cf_buf_appendv(struct cf_buf*, const char*, va_list);
-void cf_buf_replace_string(struct cf_buf*, char*, void*, size_t);
+void cf_buf_replace_string(struct cf_buf*, char*, const void*, size_t);
 void cf_buf_replace_position_string(struct cf_buf*, char*, size_t, void*, size_t);
 void cf_buf_replace_first_string(struct cf_buf*, char*, void*, size_t);
 

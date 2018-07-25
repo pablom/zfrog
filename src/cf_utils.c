@@ -681,20 +681,20 @@ int cf_base64_decode( const char *in, size_t ilen, uint8_t **out, size_t *olen )
 /****************************************************************
  *  Helper function to find bytes in 'src' memory buffer
  ****************************************************************/
-void* cf_mem_find( void *src, size_t slen, void *needle, size_t len )
+void* cf_mem_find( void *src, size_t slen, const void *needle, size_t len )
 {
     size_t pos = 0;
 
     for( pos = 0; pos < slen; pos++ )
     {
-        if( *((uint8_t *)src + pos) != *(uint8_t *)needle )
+        if( *((u_int8_t *)src + pos) != *(const u_int8_t *)needle )
 			continue;
 
         if( (slen - pos) < len )
             return NULL;
 
-        if( !memcmp((uint8_t *)src + pos, needle, len) )
-            return ((uint8_t *)src + pos);
+        if( !memcmp((u_int8_t *)src + pos, needle, len) )
+            return ((u_int8_t *)src + pos);
 	}
 
     return NULL;

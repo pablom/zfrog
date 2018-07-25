@@ -8,9 +8,6 @@
 
 TAILQ_HEAD(, cf_auth)   auth_list;
 
-static int cf_auth_cookie( struct http_request *, struct cf_auth * );
-static int cf_auth_header( struct http_request *, struct cf_auth * );
-static int cf_auth_request( struct http_request *, struct cf_auth * );
 
 void cf_auth_init()
 {
@@ -88,7 +85,7 @@ int cf_auth_run( struct http_request *req, struct cf_auth *auth )
     return CF_RESULT_ERROR;
 }
 
-static int cf_auth_cookie( struct http_request *req, struct cf_auth *auth )
+int cf_auth_cookie( struct http_request *req, struct cf_auth *auth )
 {
     int i, v;
     size_t len, slen;
@@ -132,7 +129,7 @@ static int cf_auth_cookie( struct http_request *req, struct cf_auth *auth )
     return i;
 }
 
-static int cf_auth_header( struct http_request *req, struct cf_auth *auth )
+int cf_auth_header( struct http_request *req, struct cf_auth *auth )
 {
     const char *header = NULL;
 
@@ -142,7 +139,7 @@ static int cf_auth_header( struct http_request *req, struct cf_auth *auth )
     return cf_validator_check(req, auth->validator, header);
 }
 
-static int cf_auth_request( struct http_request *req, struct cf_auth *auth )
+int cf_auth_request( struct http_request *req, struct cf_auth *auth )
 {    
     int	ret;
 

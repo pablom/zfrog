@@ -746,7 +746,7 @@ void http_response_fileref( struct http_request* req, int status, struct cf_file
     {
         mtime = cf_date_to_time(modified);
 
-        if( mtime == ref->mtime )
+        if( mtime == ref->mtime_sec )
         {
             cf_fileref_release(ref);
             http_response(req, HTTP_STATUS_NOT_MODIFIED, NULL, 0);
@@ -754,7 +754,7 @@ void http_response_fileref( struct http_request* req, int status, struct cf_file
         }
     }
 
-    if( (tm = gmtime(&ref->mtime)) != NULL )
+    if( (tm = gmtime(&ref->mtime_sec)) != NULL )
     {
         if( strftime(tbuf, sizeof(tbuf),"%a, %d %b %Y %H:%M:%S GMT", tm) > 0 )
             http_response_header(req, "last-modified", tbuf);

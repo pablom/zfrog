@@ -141,7 +141,7 @@ uint8_t* cf_buf_release( struct cf_buf *buf, size_t *len )
 /****************************************************************
  *  Helper function to replace string in buffer
  ****************************************************************/
-void cf_buf_replace_string( struct cf_buf *b, char *src, void *dst, size_t len )
+void cf_buf_replace_string( struct cf_buf *b, char *src, const void *dst, size_t len )
 {
     char *key, *end, *tmp, *p;
     size_t blen, off2, nlen;

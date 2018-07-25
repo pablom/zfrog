@@ -28,7 +28,7 @@ void cf_fileref_init(void)
     cf_timer_add(fileref_expiration_check, 10000, NULL, 0);
 }
 
-struct cf_fileref* cf_fileref_create(const char *path, int fd, off_t size, time_t mtime)
+struct cf_fileref* cf_fileref_create( const char* path, int fd, off_t size, struct timespec* ts )
 {
     struct cf_fileref* ref = NULL;
 
@@ -40,11 +40,14 @@ struct cf_fileref* cf_fileref_create(const char *path, int fd, off_t size, time_
 	ref->cnt = 1;
 	ref->flags = 0;
 	ref->size = size;
-	ref->mtime = mtime;
     ref->path = mem_strdup(path);
+    ref->mtime_sec = ts->tv_sec;
+    ref->mtime = ((u_int64_t)(ts->tv_sec * 1000 + (ts->tv_nsec / 1000000)));
 
 #ifdef CF_NO_SENDFILE
-    if( (uintmax_t)size > SIZE_MAX ) {
+    if( (uintmax_t)size> SIZE_MAX )
+    {
+        mem_pool_put(&ref_pool, ref);
         return NULL;
     }
 
@@ -67,10 +70,11 @@ struct cf_fileref* cf_fileref_create(const char *path, int fd, off_t size, time_
  * Caller must call cf_fileref_release() after cf_fileref_get() even
  * if they don't end up using the ref.
  */
-struct cf_fileref* cf_fileref_get(const char *path)
+struct cf_fileref* cf_fileref_get( const char* path )
 {
 	struct stat		st;
     struct cf_fileref* ref = NULL;
+    u_int64_t		mtime;
 
     TAILQ_FOREACH(ref, &refs, list)
     {
@@ -83,7 +87,9 @@ struct cf_fileref* cf_fileref_get(const char *path)
                 return NULL;
 			}
 
-            if( st.st_mtime != ref->mtime )
+            mtime = ((u_int64_t)(st.st_mtim.tv_sec * 1000 + (st.st_mtim.tv_nsec / 1000000)));
+
+            if( ref->mtime != mtime )
             {
 				fileref_soft_remove(ref);
                 return NULL;
