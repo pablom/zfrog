@@ -33,7 +33,7 @@
 #endif
 
 
-#if !defined(CF_SINGLE_BINARY)
+#ifndef CF_SINGLE_BINARY
     static int configure_load(char*);
 #else
     static FILE* config_file_write( void );

@@ -192,16 +192,16 @@ static void	file_create_src(void);
 static void	file_create_config(void);
 
 static struct cmd cmds[] = {
-    { "help",	"this help text",                       cli_help },
-	{ "run",	"run an application (-fnr implied)",	cli_run },
-    { "reload",	"reload the application (SIGHUP)",      cli_reload },
-    { "info",	"show info on zfrog on this system",	cli_info },
-    { "build",	"build an application",                 cli_build },
-    { "clean",	"cleanup the objects files",            cli_clean },
-    { "distclean",	"cleanup the build files",          cli_distclean },
-	{ "create",	"create a new application skeleton",	cli_create },
-    { "flavor",	"switch between build flavors",         cli_flavor },
-	{ NULL,		NULL,					NULL }
+    { "help",       "this help text",                       cli_help },
+    { "run",        "run an application (-fnr implied)",	cli_run },
+    { "reload",     "reload the application (SIGHUP)",      cli_reload },
+    { "info",       "show info on zfrog on this system",	cli_info },
+    { "build",      "build an application",                 cli_build },
+    { "clean",      "cleanup the objects files",            cli_clean },
+    { "distclean",  "cleanup the build files",              cli_distclean },
+    { "create",     "create a new application skeleton",	cli_create },
+    { "flavor",     "switch between build flavors",         cli_flavor },
+    { NULL,         NULL,                                   NULL }
 };
 
 static struct filegen gen_files[] =
@@ -305,9 +305,9 @@ static const char *dh2048_data =
 static int			s_fd = -1;
 static char			*appl = NULL;
 static int			run_after = 0;
-static char			*compiler_c = "gcc";
-static char			*compiler_cpp = "g++";
-static char			*compiler_ld = "gcc";
+static char			*compiler_c     = "gcc";
+static char			*compiler_cpp   = "g++";
+static char			*compiler_ld    = "gcc";
 static struct mime_list	mime_types;
 static struct cfile_list source_files;
 static struct buildopt_list	build_options;
