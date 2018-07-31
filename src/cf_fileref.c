@@ -82,7 +82,9 @@ struct cf_fileref* cf_fileref_get( const char* path )
         {
             if( stat(ref->path, &st) == -1 )
             {
-                cf_log(LOG_ERR, "stat(%s): %s",ref->path, errno_s);
+                if( errno != ENOENT )
+                    cf_log(LOG_ERR, "stat(%s): %s",ref->path, errno_s);
+
 				fileref_soft_remove(ref);
                 return NULL;
 			}

@@ -7,8 +7,11 @@
 #include <pg_config.h>
 
 #include "zfrog.h"
-#include "cf_http.h"
 #include "cf_pgsql.h"
+
+#ifndef CF_NO_HTTP
+#include "cf_http.h"
+#endif
 
 struct pgsql_job
 {
@@ -28,12 +31,12 @@ struct pgsql_wait
 static void	pgsql_queue_wakeup(void);
 static void	pgsql_cancel(struct cf_pgsql*);
 static void	pgsql_set_error(struct cf_pgsql*, const char*);
-static void	pgsql_queue_add(cf_pgsql*);
+static void	pgsql_queue_add(struct cf_pgsql*);
+static void	pgsql_queue_remove(struct cf_pgsql*);
 static void	pgsql_conn_release(struct cf_pgsql*);
 static void	pgsql_conn_cleanup(struct pgsql_conn*);
 static void	pgsql_read_result(struct cf_pgsql*);
 static void	pgsql_schedule(struct cf_pgsql*);
-static void	pgsql_rollback_state(struct cf_pgsql*, void*);
 
 static struct pgsql_conn *pgsql_conn_create(struct cf_pgsql*, struct pgsql_db*);
 static struct pgsql_conn *pgsql_conn_next(struct cf_pgsql*, struct pgsql_db*);
@@ -297,7 +300,7 @@ int cf_pgsql_register( const char *dbname, const char *connstring )
     pgsqldb = mem_malloc(sizeof(*pgsqldb));
     pgsqldb->name = mem_strdup(dbname);
     pgsqldb->conn_count = 0;
-    pgsqldb->conn_max = pgsql_conn_max;
+    pgsqldb->conn_max = server.pgsql_conn_max;
     pgsqldb->conn_string = mem_strdup(connstring);
 	LIST_INSERT_HEAD(&pgsql_db_conn_strings, pgsqldb, rlist);
 
@@ -318,7 +321,6 @@ void cf_pgsql_handle( void *c, int err )
 	}
 
 	pgsql = conn->job->pgsql;
-    log_debug("cf_pgsql_handle: %p (%d)", req, pgsql->state);
 
     if( !PQconsumeInput(conn->db) )
     {
@@ -454,7 +456,7 @@ static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_
 {
     PGTransactionStatusType	state;
     struct pgsql_conn *conn = NULL;
-    struct cf_pgsql	  *rollback = NULL;
+    struct cf_pgsql	rollback;
 
     while( 1 )
     {
@@ -475,22 +477,18 @@ static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_
                 conn->flags &= ~PGSQL_CONN_FREE;
                 TAILQ_REMOVE( &pgsql_conn_free, conn, list );
 
-                rollback = mem_malloc(sizeof(*rollback));
-                cf_pgsql_init(rollback);
-                cf_pgsql_bind_callback(rollback, pgsql_rollback_state, NULL);
-                rollback->flags |= CF_PGSQL_ASYNC;
+                cf_pgsql_init( &rollback );
+                rollback.conn = conn;
+                rollback.flags = CF_PGSQL_SYNC;
 
-                rollback->conn = conn;
-                rollback->conn->job = cf_mem_pool_get( &pgsql_job_pool );
-                rollback->conn->job->pgsql = rollback;
-
-                if( !cf_pgsql_query(rollback, "ROLLBACK") )
+                if( !cf_pgsql_query(&rollback, "ROLLBACK") )
                 {
-                    cf_pgsql_logerror(rollback);
-                    cf_pgsql_cleanup(rollback);
-                    mem_free( rollback );
+                    cf_pgsql_logerror( &rollback );
+                    cf_pgsql_cleanup( &rollback );
                     pgsql_conn_cleanup(conn);
                 }
+                else
+                    cf_pgsql_cleanup( &rollback );
 
                 continue;
             }
@@ -687,8 +685,9 @@ static void pgsql_conn_release( struct cf_pgsql *pgsql )
 	}
 
     /* Drain just in case */
-    while( (result = PQgetResult(pgsql->conn->db)) != NULL )
+    while( (result = PQgetResult(pgsql->conn->db)) != NULL ) {
         PQclear( result );
+    }
 
 	pgsql->conn->job = NULL;
 	pgsql->conn->flags |= PGSQL_CONN_FREE;
@@ -697,8 +696,9 @@ static void pgsql_conn_release( struct cf_pgsql *pgsql )
 	pgsql->conn = NULL;
     pgsql->state = CF_PGSQL_STATE_COMPLETE;
 
-    if( pgsql->cb != NULL )
+    if( pgsql->cb != NULL ) {
         pgsql->cb(pgsql, pgsql->arg);
+    }
 
 	pgsql_queue_wakeup();
 }
@@ -761,7 +761,7 @@ static void pgsql_read_result( struct cf_pgsql *pgsql )
 
     while( (notify = PQnotifies(pgsql->conn->db)) != NULL )
     {
-        pgsql->state = KORE_PGSQL_STATE_NOTIFY;
+        pgsql->state = CF_PGSQL_STATE_NOTIFY;
         pgsql->notify.extra = notify->extra;
         pgsql->notify.channel = notify->relname;
 
@@ -805,7 +805,7 @@ static void pgsql_read_result( struct cf_pgsql *pgsql )
 /************************************************************************
  *  Helper function to cancel PGSQL query
  ************************************************************************/
-static void pgsql_cancel( cf_pgsql *pgsql )
+static void pgsql_cancel( struct cf_pgsql *pgsql )
 {
     PGcancel *cancel = NULL;
     char buf[256];
@@ -818,24 +818,4 @@ static void pgsql_cancel( cf_pgsql *pgsql )
     }
 }
 
-static void pgsql_rollback_state( struct cf_pgsql *pgsql, void *arg )
-{
-    struct pgsql_conn *conn = NULL;
-
-    switch( pgsql->state )
-    {
-    case CF_PGSQL_STATE_ERROR:
-        conn = pgsql->conn;
-        cf_pgsql_logerror(pgsql);
-        cf_pgsql_cleanup(pgsql);
-        pgsql_conn_cleanup(conn);
-        break;
-    case CF_PGSQL_STATE_COMPLETE:
-        cf_pgsql_cleanup(pgsql);
-        break;
-    default:
-        cf_pgsql_continue(pgsql);
-        break;
-    }
-}
 

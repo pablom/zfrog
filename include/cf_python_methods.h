@@ -197,9 +197,10 @@ static PyTypeObject pyhttp_file_type = {
 
 #ifdef CF_PGSQL
 
-#define PYCF_PGSQL_INITIALIZE	1
-#define PYCF_PGSQL_QUERY		2
-#define PYCF_PGSQL_WAIT         3
+#define PYCF_PGSQL_PREINIT	    1
+#define PYCF_PGSQL_INITIALIZE	2
+#define PYCF_PGSQL_QUERY		3
+#define PYCF_PGSQL_WAIT         4
 
 struct py_pgsql
 {

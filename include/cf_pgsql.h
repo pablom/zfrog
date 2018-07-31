@@ -62,7 +62,7 @@ struct cf_pgsql
 
 void cf_pgsql_sys_init(void);
 void cf_pgsql_sys_cleanup(void);
-int	 cf_pgsql_init(struct cf_pgsql*);
+void cf_pgsql_init(struct cf_pgsql*);
 #ifndef CF_NO_HTTP
 void cf_pgsql_bind_request(struct cf_pgsql*, struct http_request*);
 #endif

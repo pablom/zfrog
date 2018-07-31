@@ -261,7 +261,7 @@ void cf_platform_disable_accept()
  ****************************************************************/
 void cf_platform_schedule_read(int fd, void *data)
 {
-    cf_platform_event_schedule(fd, EVFILT_READ, EV_ADD, data);
+    cf_platform_event_schedule(fd, EVFILT_READ, EV_ADD | EV_CLEAR, data);
 }
 /****************************************************************
  *  Helper function add file descriptor to catch
@@ -269,7 +269,7 @@ void cf_platform_schedule_read(int fd, void *data)
  ****************************************************************/
 void cf_platform_schedule_write(int fd, void *data)
 {
-    cf_platform_event_schedule(fd, EVFILT_WRITE, EV_ADD, data);
+    cf_platform_event_schedule(fd, EVFILT_WRITE, EV_ADD | EV_CLEAR, data);
 }
 /****************************************************************
  *  Helper function add file descriptor to disable

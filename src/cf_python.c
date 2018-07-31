@@ -10,7 +10,7 @@
 #endif
 
 #ifdef CF_PGSQL
-    #include "pgsql.h"
+    #include "cf_pgsql.h"
 #endif
 
 #include "cf_python.h"
@@ -305,11 +305,7 @@ static void python_runtime_connect(void *addr, struct connection *c)
     PyObject *callable = (PyObject *)addr;
 
     if( (pyc = pyconnection_alloc(c)) == NULL )
-    {
-        cf_log(LOG_ERR, "cannot create new pyconnection");
-        cf_connection_disconnect(c);
-        return;
-    }
+        cf_fatal("python_runtime_connect: pyc alloc failed");
 
     if( (args = PyTuple_New(1)) == NULL ) {
         cf_fatal("python_runtime_connect: PyTuple_New failed");
@@ -524,7 +520,7 @@ static PyObject* pyconnection_disconnect( struct pyconnection *pyc, PyObject *ar
     Py_RETURN_TRUE;
 }
 
-static PyObject * pyconnection_get_fd(struct pyconnection *pyc, void *closure)
+static PyObject* pyconnection_get_fd(struct pyconnection *pyc, void *closure)
 {
     PyObject *fd = NULL;
 
@@ -1113,7 +1109,7 @@ static PyObject* pyhttp_file_get_name(struct pyhttp_file *pyfile, void *closure)
     return name;
 }
 
-static PyObject *pyhttp_file_get_filename(struct pyhttp_file *pyfile, void *closure)
+static PyObject* pyhttp_file_get_filename(struct pyhttp_file *pyfile, void *closure)
 {
     PyObject *name = NULL;
 
@@ -1266,7 +1262,7 @@ static PyObject* python_pgsql_iternext( struct py_pgsql *pysql )
 {
     switch( pysql->state )
     {
-    case PYKORE_PGSQL_PREINIT:
+    case PYCF_PGSQL_PREINIT:
         cf_pgsql_init(&pysql->sql);
         cf_pgsql_bind_request(&pysql->sql, pysql->req);
         pysql->state = PYCF_PGSQL_INITIALIZE;
