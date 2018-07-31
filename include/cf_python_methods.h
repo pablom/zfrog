@@ -1,15 +1,17 @@
 // cf_python_methods.h
 
-static PyObject	*python_log(PyObject *, PyObject *);
-static PyObject	*python_fatal(PyObject *, PyObject *);
-static PyObject	*python_listen(PyObject *, PyObject *);
+
+/* Forward function declaration */
+static PyObject* python_log(PyObject*, PyObject*);
+static PyObject* python_fatal(PyObject*, PyObject*);
+static PyObject* python_listen(PyObject*, PyObject*);
 
 #ifndef CF_NO_HTTP
-    static PyObject	*python_websocket_broadcast(PyObject*, PyObject*);
+    static PyObject* python_websocket_broadcast(PyObject*, PyObject*);
 #endif
 
 #ifdef CF_PGSQL
-    static PyObject	*python_pgsql_register(PyObject*, PyObject*);
+    static PyObject* python_pgsql_register(PyObject*, PyObject*);
 #endif
 
 #define METHOD(n, c, a)		{ n, (PyCFunction)c, a, NULL }
@@ -39,13 +41,13 @@ static struct PyModuleDef pycf_module =
 struct pyconnection
 {
 	PyObject_HEAD
-	struct connection	*c;
+    struct connection  *c;
 };
 
-static PyObject *pyconnection_disconnect(struct pyconnection *, PyObject *);
+static PyObject* pyconnection_disconnect(struct pyconnection*, PyObject*);
 
 #ifndef CF_NO_HTTP
-    static PyObject *pyconnection_websocket_send(struct pyconnection *, PyObject *);
+    static PyObject* pyconnection_websocket_send(struct pyconnection*, PyObject*);
 #endif
 
 static PyMethodDef pyconnection_methods[] = {
@@ -56,8 +58,8 @@ static PyMethodDef pyconnection_methods[] = {
 	METHOD(NULL, NULL, -1),
 };
 
-static PyObject	*pyconnection_get_fd(struct pyconnection *, void *);
-static PyObject	*pyconnection_get_addr(struct pyconnection *, void *);
+static PyObject* pyconnection_get_fd(struct pyconnection*, void*);
+static PyObject* pyconnection_get_addr(struct pyconnection*, void*);
 
 static PyGetSetDef pyconnection_getset[] = {
     GETTER("fd", pyconnection_get_fd),
@@ -84,7 +86,7 @@ struct pyhttp_request
 {
 	PyObject_HEAD
 	struct http_request	*req;
-    PyObject		*data;
+    PyObject		    *data;
 };
 
 struct pyhttp_file
@@ -93,21 +95,21 @@ struct pyhttp_file
     struct http_file *file;
 };
 
-static void	pyhttp_dealloc(struct pyhttp_request *);
-static void	pyhttp_file_dealloc(struct pyhttp_file *);
+static void	pyhttp_dealloc(struct pyhttp_request*);
+static void	pyhttp_file_dealloc(struct pyhttp_file*);
 
-static PyObject *pyhttp_cookie(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_response(struct pyhttp_request *, PyObject *);
-static PyObject *pyhttp_argument(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_body_read(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_file_lookup(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_populate_get(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_populate_post(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_populate_multi(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_populate_cookies(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_request_header(struct pyhttp_request *, PyObject *);
-static PyObject	*pyhttp_response_header(struct pyhttp_request *, PyObject *);
-static PyObject *pyhttp_websocket_handshake(struct pyhttp_request *, PyObject *);
+static PyObject* pyhttp_cookie(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_response(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_argument(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_body_read(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_file_lookup(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_populate_get(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_populate_post(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_populate_multi(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_populate_cookies(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_request_header(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_response_header(struct pyhttp_request*, PyObject*);
+static PyObject* pyhttp_websocket_handshake(struct pyhttp_request*, PyObject*);
 
 
 static PyMethodDef pyhttp_request_methods[] =
@@ -130,13 +132,13 @@ static PyMethodDef pyhttp_request_methods[] =
 	METHOD(NULL, NULL, -1)
 };
 
-static PyObject	*pyhttp_get_host(struct pyhttp_request *, void *);
-static PyObject	*pyhttp_get_path(struct pyhttp_request *, void *);
-static PyObject	*pyhttp_get_body(struct pyhttp_request *, void *);
-static PyObject	*pyhttp_get_agent(struct pyhttp_request *, void *);
-static PyObject	*pyhttp_get_method(struct pyhttp_request *, void *);
-static PyObject	*pyhttp_get_body_path(struct pyhttp_request *, void *);
-static PyObject	*pyhttp_get_connection(struct pyhttp_request *, void *);
+static PyObject* pyhttp_get_host(struct pyhttp_request*, void*);
+static PyObject* pyhttp_get_path(struct pyhttp_request*, void*);
+static PyObject* pyhttp_get_body(struct pyhttp_request*, void*);
+static PyObject* pyhttp_get_agent(struct pyhttp_request*, void*);
+static PyObject* pyhttp_get_method(struct pyhttp_request*, void*);
+static PyObject* pyhttp_get_body_path(struct pyhttp_request*, void*);
+static PyObject* pyhttp_get_connection(struct pyhttp_request*, void*);
 
 
 static PyGetSetDef pyhttp_request_getset[] =
@@ -163,7 +165,7 @@ static PyTypeObject pyhttp_request_type =
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
 
-static PyObject	*pyhttp_file_read(struct pyhttp_file *, PyObject *);
+static PyObject* pyhttp_file_read(struct pyhttp_file*, PyObject*);
 
 static PyMethodDef pyhttp_file_methods[] =
 {
@@ -171,8 +173,8 @@ static PyMethodDef pyhttp_file_methods[] =
     METHOD(NULL, NULL, -1)
 };
 
-static PyObject	*pyhttp_file_get_name(struct pyhttp_file *, void *);
-static PyObject	*pyhttp_file_get_filename(struct pyhttp_file *, void *);
+static PyObject* pyhttp_file_get_name(struct pyhttp_file*, void*);
+static PyObject* pyhttp_file_get_filename(struct pyhttp_file*, void*);
 
 static PyGetSetDef pyhttp_file_getset[] =
 {
@@ -214,14 +216,14 @@ struct py_pgsql
 };
 
 #ifndef CF_NO_HTTP
-static PyObject	*pyhttp_pgsql(struct pyhttp_request*, PyObject*);
+    static PyObject* pyhttp_pgsql(struct pyhttp_request*, PyObject*);
 #endif
 
 static void	python_pgsql_dealloc(struct py_pgsql *);
 int	python_pgsql_result(struct py_pgsql *);
 
-static PyObject	*python_pgsql_await(PyObject *);
-static PyObject	*python_pgsql_iternext(struct py_pgsql *);
+static PyObject* python_pgsql_await(PyObject*);
+static PyObject* python_pgsql_iternext(struct py_pgsql*);
 
 static PyAsyncMethods python_pgsql_async =
 {
