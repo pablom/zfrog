@@ -47,54 +47,6 @@ static struct {
 
 static char b64table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-#if (__sun && __SVR4)
-
-static char *strsep (char **stringp, const char *delim)
-{
-  char *begin, *end;
-
-  begin = *stringp;
-  if( begin == NULL )
-      return NULL;
-
-  /* A frequent case is when the delimiter string contains only one
-     character.  Here we don't need to call the expensive `strpbrk'
-     function and instead work using `strchr'.  */
-  if (delim[0] == '\0' || delim[1] == '\0')
-    {
-      char ch = delim[0];
-
-      if (ch == '\0')
-    end = NULL;
-      else
-    {
-      if (*begin == ch)
-        end = begin;
-      else if (*begin == '\0')
-        end = NULL;
-      else
-        end = strchr (begin + 1, ch);
-    }
-    }
-  else
-    /* Find the end of the token.  */
-    end = strpbrk (begin, delim);
-
-  if (end)
-    {
-      /* Terminate the token and set *STRINGP past NUL character.  */
-      *end++ = '\0';
-      *stringp = end;
-    }
-  else
-    /* No more delimiters; this is the last token.  */
-    *stringp = NULL;
-
-  return begin;
-}
-
-#endif
-
 #ifdef CF_DEBUG
 void log_debug_internal(char *file, int line, const char *fmt, ...)
 {
@@ -687,14 +639,14 @@ void* cf_mem_find( void *src, size_t slen, const void *needle, size_t len )
 
     for( pos = 0; pos < slen; pos++ )
     {
-        if( *((u_int8_t *)src + pos) != *(const u_int8_t *)needle )
+        if( *((uint8_t *)src + pos) != *(const uint8_t *)needle )
 			continue;
 
         if( (slen - pos) < len )
             return NULL;
 
-        if( !memcmp((u_int8_t *)src + pos, needle, len) )
-            return ((u_int8_t *)src + pos);
+        if( !memcmp((uint8_t *)src + pos, needle, len) )
+            return ((uint8_t *)src + pos);
 	}
 
     return NULL;

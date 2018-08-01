@@ -1,7 +1,6 @@
 // cf_accesslog.c
 
 #include <sys/socket.h>
-
 #include <poll.h>
 #include <time.h>
 

@@ -18,7 +18,7 @@ typedef struct
     int has_header;
 } CF_FILE;
 
-CF_FILE *cf_fopen(const char *path, const char *mode);
+CF_FILE* cf_fopen(const char *path, const char *mode);
 void cf_fkey(unsigned char key[], CF_FILE *fp);
 size_t cf_fread(void *ptr, size_t size, size_t nmemb, CF_FILE *fp);
 size_t cf_fwrite(const void *ptr, size_t size, size_t nmemb, CF_FILE *fp);

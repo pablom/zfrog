@@ -56,7 +56,7 @@ void websocket_connect( struct connection *c )
 }
 
 /* Called whenever we receive a websocket message from a client */
-void websocket_message(struct connection *c, u_int8_t op, void *data, size_t len)
+void websocket_message(struct connection *c, uint8_t op, void *data, size_t len)
 {
 	/* Not doing anything with this. */
 }

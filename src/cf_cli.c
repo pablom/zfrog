@@ -1023,13 +1023,14 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
 
     /* Start generating the file */
 	cli_file_writef(out, "/* Auto generated */\n");
+    cli_file_writef(out, "#include <stdint.h>\n\n");
 	cli_file_writef(out, "#include <sys/types.h>\n\n");
     cli_file_writef(out, "#include <zfrog.h>\n");
     cli_file_writef(out, "#include <cf_http.h>\n\n");
 	cli_file_writef(out, "#include \"assets.h\"\n\n");
 
     /* Write the file data as a byte array */
-	cli_file_writef(out, "const u_int8_t asset_%s_%s[] = {\n", name, ext);
+    cli_file_writef(out, "const uint8_t asset_%s_%s[] = {\n", name, ext);
 	d = base;
     for( off = 0; off < st.st_size; off++ )
 		cli_file_writef(out, "0x%02x,", *d++);
@@ -1067,7 +1068,7 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
 
     /* Add the meta data */
 	cli_file_writef(out, "};\n\n");
-    cli_file_writef(out, "const u_int32_t asset_len_%s_%s = %" PRIu32 ";\n", name, ext, (u_int32_t)st.st_size );
+    cli_file_writef(out, "const uint32_t asset_len_%s_%s = %" PRIu32 ";\n", name, ext, (uint32_t)st.st_size );
     cli_file_writef(out, "const time_t asset_mtime_%s_%s = %" PRI_TIME_T ";\n", name, ext, st.st_mtime );
 
     if( bopt->flavor_nohttp == 0 )

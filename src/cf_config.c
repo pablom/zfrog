@@ -2,7 +2,6 @@
 
 #include <sys/param.h>
 #include <sys/stat.h>
-
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -813,10 +812,10 @@ static int configure_filemap( char *options )
     return CF_RESULT_OK;
 }
 
-static int configure_filemap_index( char *index )
+static int configure_filemap_index( char* fmap_index )
 {
     mem_free( server.filemap_index );
-    server.filemap_index = mem_strdup(index);
+    server.filemap_index = mem_strdup(fmap_index);
     return CF_RESULT_OK;
 }
 

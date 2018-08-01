@@ -1,6 +1,5 @@
 // cf_tasks.h
 
-
 #ifndef __CF_TASKS_H__
 #define __CF_TASKS_H__
 
@@ -9,6 +8,10 @@
 #include <stdint.h>
 #include <pthread.h>
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 #define CF_TASK_STATE_CREATED		1
 #define CF_TASK_STATE_RUNNING		2
 #define CF_TASK_STATE_FINISHED      3
@@ -16,9 +19,6 @@
 
 #define CF_MAX_TASK_THREADS         2
 
-#if defined(__cplusplus)
-extern "C" {
-#endif
 
 #ifndef CF_NO_HTTP
     struct http_request;
@@ -26,18 +26,18 @@ extern "C" {
 
 struct cf_task
 {
-    uint8_t type;
-    int	state;
-    int	result;
-    pthread_rwlock_t lock;
+    uint8_t           type;
+    int	              state;
+    int	              result;
+    pthread_rwlock_t  lock;
 
 #ifndef CF_NO_HTTP
 	struct http_request	*req;
 #endif
 
     int	fds[2];
-    int	(*entry)(struct cf_task *);
-    void (*cb)(struct cf_task *);
+    int	(*entry)(struct cf_task*);
+    void (*cb)(struct cf_task*);
 
     struct cf_task_thread *thread;
 
@@ -47,7 +47,7 @@ struct cf_task
 
 struct cf_task_thread
 {
-    uint8_t            idx;
+    uint8_t             idx;
     pthread_t           tid;
 	pthread_mutex_t		lock;
 	pthread_cond_t		cond;

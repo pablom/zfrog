@@ -25,6 +25,8 @@ static int kfd = -1;
 static struct kevent *events = NULL;
 static uint32_t event_count = 0;
 
+static char	pledges[256] = { "stdio rpath inet error" };
+
 /****************************************************************
  *  Init platform function
  ****************************************************************/
@@ -333,3 +335,23 @@ int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
     return CF_RESULT_OK;
 }
 #endif
+
+
+void cf_platform_pledge(void)
+{
+    if( pledge(pledges, NULL) == -1 )
+        cf_fatal("failed to pledge process");
+}
+
+void cf_platform_add_pledge(const char* pledge)
+{
+    size_t len;
+
+    len = strlcat(pledges, " ", sizeof(pledges));
+    if( len >= sizeof(pledges) )
+        cf_fatal("truncation on pledges");
+
+    len = strlcat(pledges, pledge, sizeof(pledges));
+    if( len >= sizeof(pledges) )
+        cf_fatal("truncation on pledges (%s)", pledge);
+ }

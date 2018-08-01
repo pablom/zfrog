@@ -64,7 +64,7 @@ int serve_b64test( struct http_request *req )
 
 	res = cf_buf_alloc(1024);
 	for( i = 0; b64tests[i] != NULL; i++ )
-		test_base64((u_int8_t *)b64tests[i], strlen(b64tests[i]), res);
+        test_base64((uint8_t *)b64tests[i], strlen(b64tests[i]), res);
 
 	data = cf_buf_release(res, &len);
 

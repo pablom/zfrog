@@ -3,7 +3,10 @@
 #ifndef __CF_PGSQL_H_
 #define __CF_PGSQL_H_
 
+#include <stdint.h>
+#include <sys/types.h>
 #include <libpq-fe.h>
+
 
 #define CF_PGSQL_FORMAT_TEXT		0
 #define CF_PGSQL_FORMAT_BINARY      1
@@ -21,8 +24,8 @@ extern "C" {
 
 struct pgsql_conn
 {
-    u_int8_t   type;
-    u_int8_t   flags;
+    uint8_t   type;
+    uint8_t   flags;
     char	   *name;
 
     PGconn             *db;
@@ -34,8 +37,8 @@ struct pgsql_db
 {
     char        *name;
     char        *conn_string;
-    u_int16_t	conn_max;
-    u_int16_t	conn_count;
+    uint16_t	conn_max;
+    uint16_t	conn_count;
 
     LIST_ENTRY(pgsql_db) rlist;
 };

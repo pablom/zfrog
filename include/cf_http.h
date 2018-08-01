@@ -3,6 +3,7 @@
 #ifndef __CF_HTTP__H_
 #define __CF_HTTP__H_
 
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/queue.h>
 
@@ -70,7 +71,7 @@ struct http_cookie
     char        *domain;
     uint32_t    maxage;
     time_t      expires;
-    u_int16_t   flags;
+    uint16_t    flags;
 
     TAILQ_ENTRY(http_cookie) list;
 };
@@ -211,21 +212,21 @@ struct cf_task;
  ****************************************************************/
 struct http_request
 {
-    u_int8_t        method;
-    u_int8_t        fsm_state;
-    u_int16_t		flags;
-    u_int16_t		status;
-    u_int64_t		ms;
-    u_int64_t		start;
-    u_int64_t		end;
-    u_int64_t		total;
+    uint8_t        method;
+    uint8_t        fsm_state;
+    uint16_t	   flags;
+    uint16_t       status;
+    uint64_t       ms;
+    uint64_t       start;
+    uint64_t       end;
+    uint64_t       total;
 
     const char			*host;
     const char			*path;
     const char          *agent;
     const char          *referer;
     struct connection	*owner;
-    u_int8_t			*headers;
+    uint8_t             *headers;
     struct cf_buf		*http_body;
     int                 http_body_fd;
     char                *http_body_path;
@@ -238,8 +239,8 @@ struct http_request
 
     struct cf_module_handle	*hdlr;
 
-    u_int8_t     http_body_digest[HTTP_BODY_DIGEST_LEN];
-    SHA256_CTX			hashctx;
+    uint8_t         http_body_digest[HTTP_BODY_DIGEST_LEN];
+    SHA256_CTX		hashctx;
 
 #ifdef CF_PYTHON
     void  *py_coro;

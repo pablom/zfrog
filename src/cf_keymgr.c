@@ -56,7 +56,7 @@ static void	keymgr_load_privatekey(struct cf_domain*);
 static void	keymgr_msg_recv(struct cf_msg*, const void*);
 static void	keymgr_entropy_request(struct cf_msg*, const void*);
 static void	keymgr_certificate_request(struct cf_msg*, const void*);
-static void	keymgr_submit_certificates(struct cf_domain*, u_int16_t);
+static void	keymgr_submit_certificates(struct cf_domain*, uint16_t);
 
 static void	keymgr_rsa_encrypt(struct cf_msg*, const void*, struct key*);
 static void	keymgr_ecdsa_sign(struct cf_msg*, const void*, struct key*);
@@ -68,7 +68,7 @@ static void keymgr_pkcs11_rsa_encrypt(struct cf_msg*, const void*, struct key*);
 void cf_keymgr_run( void )
 {
     int quit = 0;  
-    u_int64_t now, last_seed = 0;
+    uint64_t now, last_seed = 0;
 
     /* Init key's list */
     TAILQ_INIT(&keys);
@@ -464,14 +464,14 @@ static void keymgr_certificate_request( struct cf_msg* msg, const void* data )
         keymgr_submit_certificates(dom, msg->src);
 }
 
-static void keymgr_submit_certificates( struct cf_domain* dom, u_int16_t dst)
+static void keymgr_submit_certificates( struct cf_domain* dom, uint16_t dst)
 {
     int                 fd;
     struct stat         st;
     ssize_t             ret;
     size_t              len;
     struct cf_x509_msg  *msg = NULL;
-    u_int8_t            * payload = NULL;
+    uint8_t             *payload = NULL;
 
     if( (fd = open(dom->certfile, O_RDONLY)) == -1 )
         cf_fatal("open(%s): %s", dom->certfile, errno_s);

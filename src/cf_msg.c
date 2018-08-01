@@ -117,7 +117,7 @@ int cf_msg_register( uint8_t id, void (*cb)(struct cf_msg *, const void *) )
 /****************************************************************
  *  Helper function to send message
  ****************************************************************/
-void cf_msg_send( u_int16_t dst, u_int8_t id, const void *data, size_t len )
+void cf_msg_send( uint16_t dst, uint8_t id, const void *data, size_t len )
 {
     struct cf_msg m;
 

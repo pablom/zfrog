@@ -3,6 +3,8 @@
 #ifndef __CF_MYSQL_H_
 #define __CF_MYSQL_H_
 
+#include <stdint.h>
+#include <sys/types.h>
 #include <my_config.h>
 #include <mysql.h>
 
@@ -20,9 +22,9 @@ extern "C" {
 
 struct mysql_conn
 {
-    uint8_t type;
-    uint8_t	flags;
-    char	*name;
+    uint8_t   type;
+    uint8_t   flags;
+    char      *name;
 	
     MYSQL *mysql;
 
@@ -45,10 +47,11 @@ struct mysql_db
 
 struct cf_mysql
 {
-    uint8_t state;
-	int flags;
-	char *error;
-	MYSQL_RES *result;
+    uint8_t      state;
+    int          flags;
+    char         *error;
+    MYSQL_RES    *result;
+
 	struct mysql_conn *conn;
 
     LIST_ENTRY(cf_mysql) rlist;

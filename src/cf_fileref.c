@@ -16,7 +16,7 @@
 
 static void	fileref_drop(struct cf_fileref*);
 static void	fileref_soft_remove(struct cf_fileref*);
-static void	fileref_expiration_check(void *, u_int64_t);
+static void	fileref_expiration_check(void *, uint64_t);
 
 static TAILQ_HEAD(, cf_fileref)	refs;
 static struct cf_mem_pool       ref_pool;
@@ -42,7 +42,7 @@ struct cf_fileref* cf_fileref_create( const char* path, int fd, off_t size, stru
 	ref->size = size;
     ref->path = mem_strdup(path);
     ref->mtime_sec = ts->tv_sec;
-    ref->mtime = ((u_int64_t)(ts->tv_sec * 1000 + (ts->tv_nsec / 1000000)));
+    ref->mtime = ((uint64_t)(ts->tv_sec * 1000 + (ts->tv_nsec / 1000000)));
 
 #ifdef CF_NO_SENDFILE
     if( (uintmax_t)size> SIZE_MAX )
@@ -74,7 +74,7 @@ struct cf_fileref* cf_fileref_get( const char* path )
 {
 	struct stat		st;
     struct cf_fileref* ref = NULL;
-    u_int64_t		mtime;
+    uint64_t		mtime;
 
     TAILQ_FOREACH(ref, &refs, list)
     {
@@ -89,7 +89,7 @@ struct cf_fileref* cf_fileref_get( const char* path )
                 return NULL;
 			}
 
-            mtime = ((u_int64_t)(st.st_mtim.tv_sec * 1000 + (st.st_mtim.tv_nsec / 1000000)));
+            mtime = ((uint64_t)(st.st_mtim.tv_sec * 1000 + (st.st_mtim.tv_nsec / 1000000)));
 
             if( ref->mtime != mtime )
             {
@@ -138,7 +138,7 @@ static void fileref_soft_remove( struct cf_fileref* ref )
 		fileref_drop(ref);
 }
 
-static void fileref_expiration_check(void *arg, u_int64_t now)
+static void fileref_expiration_check(void *arg, uint64_t now)
 {
     struct cf_fileref	*ref, *next;
 

@@ -31,13 +31,13 @@ int page(struct http_request *req)
 	 * parameters in different data types native to C.
 	 *
 	 * In this scenario, lets grab it both as an actual string and
-	 * as an u_int16_t (unsigned short).
+     * as an uint16_t (unsigned short).
 	 *
 	 * When trying to obtain a parameter as something else then
 	 * a string, zfrog will automatically check if the value fits
 	 * in said data type.
 	 *
-	 * For example if id is 65536 it won't fit in an u_int16_t
+     * For example if id is 65536 it won't fit in an uint16_t
 	 * and zfrog will return an error when trying to read it as such.
 	 */
 
@@ -47,7 +47,7 @@ int page(struct http_request *req)
 	if( http_argument_get_string(req, "id", &sid) )
 		cf_buf_appendf(buf, "id as a string: '%s'\n", sid);
 
-	/* Grab it as an actual u_int16_t. */
+    /* Grab it as an actual uint16_t */
 	if (http_argument_get_uint16(req, "id", &id))
 		cf_buf_appendf(buf, "id as an uint16_t: %d\n", id);
 

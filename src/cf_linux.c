@@ -5,7 +5,6 @@
 #include <sys/prctl.h>
 #include <sys/sendfile.h>
 #include <sched.h>
-
 #include "zfrog.h"
 
 #ifdef CF_PGSQL

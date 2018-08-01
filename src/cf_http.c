@@ -3,7 +3,6 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
 #include <ctype.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -1557,7 +1556,7 @@ ssize_t http_body_read( struct http_request *req, void *out, size_t len )
 /****************************************************************
  *  Process state machine for current HTTP request
  ****************************************************************/
-int http_state_run( struct http_state *states, u_int8_t elm, struct http_request *req )
+int http_state_run( struct http_state *states, uint8_t elm, struct http_request *req )
 {
     int	r = 0;
     int done = 0;

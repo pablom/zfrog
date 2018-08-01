@@ -9,6 +9,7 @@
 #include <fcntl.h>
 
 #include <sys/devpoll.h>
+#include <sys/types.h>
 #include <sys/processor.h>
 #include <sys/procset.h>
 #include <sys/sendfile.h>
@@ -16,6 +17,7 @@
 
 #include <sys/port.h>
 #include <port.h>
+
 
 #include "zfrog.h"
 #include "cf_common.h"
@@ -326,7 +328,7 @@ void cf_platform_enable_accept()
 
     log_debug("cf_platform_enable_accept()");
 
-    LIST_FOREACH(l, &listeners, list)
+    LIST_FOREACH(l, &server.listeners, list)
         cf_platform_event_schedule(l->fd, POLLIN /*| POLLOUT*/, 0, l);
 }
 /****************************************************************
@@ -338,7 +340,7 @@ void cf_platform_disable_accept()
 
     log_debug("cf_platform_disable_accept()");
 
-    LIST_FOREACH(l, &listeners, list)
+    LIST_FOREACH(l, &server.listeners, list)
     {
         if( port_dissociate(evp, PORT_SOURCE_FD, l->fd) != 0 )
             cf_fatal("cf_platform_disable_accept: %s", errno_s);
@@ -419,3 +421,65 @@ int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
     return CF_RESULT_OK;
 }
 #endif
+
+
+/* Not implemented by default */
+char* strsep( char** stringp, const char* delim )
+{
+    char *begin, *end;
+
+    begin = *stringp;
+
+    if( begin == NULL )
+      return NULL;
+
+    /* A frequent case is when the delimiter string contains only one
+       character.  Here we don't need to call the expensive `strpbrk'
+       function and instead work using `strchr'.  */
+    if( delim[0] == '\0' || delim[1] == '\0' )
+    {
+        char ch = delim[0];
+
+        if( ch == '\0' )
+            end = NULL;
+        else
+        {
+            if( *begin == ch )
+                end = begin;
+            else if( *begin == '\0' )
+                end = NULL;
+            else
+                end = strchr (begin + 1, ch);
+        }
+    }
+    else
+        /* Find the end of the token.  */
+        end = strpbrk (begin, delim);
+
+    if( end )
+    {
+        /* Terminate the token and set *STRINGP past NUL character.  */
+        *end++ = '\0';
+        *stringp = end;
+    }
+    else
+        /* No more delimiters; this is the last token.  */
+        *stringp = NULL;
+
+    return begin;
+}
+
+int vasprintf( char **ptr, const char *format, va_list ap )
+{
+    int ret;
+
+    ret = vsnprintf(0, 0, format, ap);
+    if (ret <= 0) return ret;
+
+    (*ptr) = (char *)malloc(ret+1);
+    if (!*ptr) return -1;
+    ret = vsnprintf(*ptr, ret+1, format, ap);
+
+    return ret;
+}
+

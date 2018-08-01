@@ -31,9 +31,9 @@ struct memblock {
 };
 
 struct tag {
-    void                *ptr;
-    u_int32_t           id;
-    TAILQ_ENTRY(tag)	list;
+    void               *ptr;
+    uint32_t           id;
+    TAILQ_ENTRY(tag)   list;
 };
 
 /* Forward function declaration */

@@ -3,25 +3,12 @@
 #ifndef __ZFROG_H__
 #define __ZFROG_H__
 
-#if defined(__APPLE__)
-    #undef daemon
-    extern int daemon(int, int);
-    #define daemon portability_is_king
-    #define st_mtim		st_mtimespec
-#endif
+#if defined( __APPLE__ )
+    #include "cfos/darwin.h"
+#endif /* __APPLE__ */
 
 #if defined( __sun )
-    #include <inttypes.h>
-    #include <sys/port.h>
-    #include <port.h>
-    #include <atomic.h>
-
-    /* Macros for min/max  */
-    #define MIN(a,b) (((a)<(b))?(a):(b))
-    #define MAX(a,b) (((a)>(b))?(a):(b))
-
-    #define __sync_bool_compare_and_swap(p, o, n) atomic_cas_uint((volatile uint_t *)p, o, n)
-
+    #include "cfos/sunos.h"
 #endif /* __sun */
 
 
@@ -126,9 +113,9 @@ struct cf_fileref
     int			flags;
     off_t		size;
     char		*path;
-    u_int64_t	mtime;
+    uint64_t	mtime;
     time_t		mtime_sec;
-    u_int64_t	expiration;
+    uint64_t	expiration;
 #ifndef CF_NO_SENDFILE
     int         fd;
 #else
@@ -762,8 +749,8 @@ void cf_msg_worker_init(void);
 void cf_msg_parent_init(void);
 void cf_msg_parent_add(struct cf_worker*);
 void cf_msg_parent_remove(struct cf_worker*);
-void cf_msg_send(u_int16_t, u_int8_t, const void*, size_t);
-int	 cf_msg_register(u_int8_t, void (*cb)(struct cf_msg*, const void*));
+void cf_msg_send(uint16_t, uint8_t, const void*, size_t);
+int	 cf_msg_register(uint8_t, void (*cb)(struct cf_msg*, const void*));
 
 void cf_domain_init(void);
 void cf_domain_cleanup(void);

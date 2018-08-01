@@ -487,7 +487,7 @@ static void server_sslstart( void )
  ****************************************************************/
 static void server_start( void )
 {
-    u_int32_t  tmp;
+    uint32_t  tmp;
     int	quit;
     struct cf_runtime_call *rcall = NULL;
 

@@ -41,19 +41,19 @@ struct jsonrpc_request
 
 enum jsonrpc_error_code
 {
-#define JSONRPC_PARSE_ERROR_MSG		"Parse error"
-	JSONRPC_PARSE_ERROR		= -32700,
-#define JSONRPC_INVALID_REQUEST_MSG	"Invalid Request"
+#define JSONRPC_PARSE_ERROR_MSG		    "Parse error"
+    JSONRPC_PARSE_ERROR		    = -32700,
+#define JSONRPC_INVALID_REQUEST_MSG	    "Invalid Request"
 	JSONRPC_INVALID_REQUEST		= -32600,
 #define JSONRPC_METHOD_NOT_FOUND_MSG	"Method not found"
 	JSONRPC_METHOD_NOT_FOUND	= -32601,
-#define JSONRPC_INVALID_PARAMS_MSG	"Invalid params"
+#define JSONRPC_INVALID_PARAMS_MSG	    "Invalid params"
 	JSONRPC_INVALID_PARAMS		= -32602,
-#define JSONRPC_INTERNAL_ERROR_MSG	"Internal error"
+#define JSONRPC_INTERNAL_ERROR_MSG	    "Internal error"
 	JSONRPC_INTERNAL_ERROR		= -32603,
-#define JSONRPC_SERVER_ERROR_MSG	"Server error"
+#define JSONRPC_SERVER_ERROR_MSG	    "Server error"
 	JSONRPC_SERVER_ERROR		= -32000,
-#define JSONRPC_LIMIT_REACHED_MSG	"Limit reached"
+#define JSONRPC_LIMIT_REACHED_MSG	    "Limit reached"
 	JSONRPC_LIMIT_REACHED		= -31997
 };
 

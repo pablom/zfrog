@@ -5,22 +5,21 @@
 #include <sys/socket.h>
 
 #include "zfrog.h"
+#include "cf_tasks.h"
 
 #ifndef CF_NO_HTTP
     #include "cf_http.h"
 #endif
-
-#include "cf_tasks.h"
 
 /* Static (local) global variables */
 static uint8_t threads;                             /* Current count of working threads */
 static TAILQ_HEAD(, cf_task_thread)	task_threads;   /* List with thread tasks */
 
 /* Forward function declaration */
-static void	*task_thread(void *arg);
-static void	task_channel_read(int fd, void *out, uint32_t len);
-static void	task_channel_write(int fd, void *data, uint32_t len);
-static void	task_thread_spawn(struct cf_task_thread **out);
+static void	*task_thread(void*);
+static void	task_channel_read(int, void*, uint32_t);
+static void	task_channel_write(int, void*, uint32_t);
+static void	task_thread_spawn(struct cf_task_thread**);
 
 /* Helper macros */
 #define THREAD_FD_ASSIGN(t, f, i, o) \
@@ -190,7 +189,7 @@ void cf_task_channel_write( struct cf_task *t, void *data, uint32_t len )
 uint32_t cf_task_channel_read( struct cf_task *t, void *out, uint32_t len )
 {
     int	fd;
-    uint32_t	dlen, bytes;
+    uint32_t dlen, bytes;
 
     log_debug("cf_task_channel_read: %p -> %p (%ld)", t, out, len);
 
