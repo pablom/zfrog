@@ -13,6 +13,10 @@
 
 #include "zfrog.h"
 
+#if defined(__OpenBSD__)
+    #include <unistd.h>
+#endif
+
 #ifdef CF_PGSQL
     #include "cf_pgsql.h"
 #endif
@@ -25,7 +29,9 @@ static int kfd = -1;
 static struct kevent *events = NULL;
 static uint32_t event_count = 0;
 
-static char	pledges[256] = { "stdio rpath inet error" };
+#if defined(__OpenBSD__)
+    static char	pledges[256] = { "stdio rpath inet error" };
+#endif
 
 /****************************************************************
  *  Init platform function
@@ -336,7 +342,7 @@ int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
 }
 #endif
 
-
+#if defined(__OpenBSD__)
 void cf_platform_pledge(void)
 {
     if( pledge(pledges, NULL) == -1 )
@@ -355,3 +361,4 @@ void cf_platform_add_pledge(const char* pledge)
     if( len >= sizeof(pledges) )
         cf_fatal("truncation on pledges (%s)", pledge);
  }
+#endif

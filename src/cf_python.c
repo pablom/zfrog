@@ -1214,7 +1214,6 @@ static PyObject* pyhttp_cookie( struct pyhttp_request *pyreq, PyObject *args )
 
 #endif  /* CF_NO_HTTP */
 
-
 #ifdef CF_PGSQL
 static PyObject* python_pgsql_register( PyObject *self, PyObject *args )
 {
@@ -1312,7 +1311,7 @@ wait_again:
                 return NULL;
             goto wait_again;
         default:
-            cf_pgsql_continue(pysql->req, &pysql->sql);
+            cf_pgsql_continue( &pysql->sql );
             goto wait_again;
         }
         break;
@@ -1395,7 +1394,7 @@ int python_pgsql_result(struct py_pgsql *pysql)
     }
 
     pysql->result = list;
-    cf_pgsql_continue(pysql->req, &pysql->sql);
+    cf_pgsql_continue( &pysql->sql );
 
     return CF_RESULT_OK;
 }

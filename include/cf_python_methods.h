@@ -110,7 +110,9 @@ static PyObject* pyhttp_populate_cookies(struct pyhttp_request*, PyObject*);
 static PyObject* pyhttp_request_header(struct pyhttp_request*, PyObject*);
 static PyObject* pyhttp_response_header(struct pyhttp_request*, PyObject*);
 static PyObject* pyhttp_websocket_handshake(struct pyhttp_request*, PyObject*);
-
+#ifdef CF_PGSQL
+    static PyObject* pyhttp_pgsql(struct pyhttp_request*, PyObject*);
+#endif
 
 static PyMethodDef pyhttp_request_methods[] =
 {
@@ -214,10 +216,6 @@ struct py_pgsql
     PyObject *result;
     struct cf_pgsql	sql;
 };
-
-#ifndef CF_NO_HTTP
-    static PyObject* pyhttp_pgsql(struct pyhttp_request*, PyObject*);
-#endif
 
 static void	python_pgsql_dealloc(struct py_pgsql *);
 int	python_pgsql_result(struct py_pgsql *);
