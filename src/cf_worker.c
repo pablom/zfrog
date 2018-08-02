@@ -11,11 +11,6 @@
 #include <pwd.h>
 #include <signal.h>
 
-#if defined( __sun )
-    #define __EXTENSIONS__
-    #include <unistd.h>
-#endif
-
 #ifndef CF_NO_TLS
     #include <openssl/rand.h>
 #endif

@@ -469,17 +469,16 @@ char* strsep( char** stringp, const char* delim )
     return begin;
 }
 
-int vasprintf( char **ptr, const char *format, va_list ap )
+int vasprintf( char** ret, const char* format, va_list ap )
 {
-    int ret;
+    size_t size;
+    int len;
+    va_list aq;
 
-    ret = vsnprintf(0, 0, format, ap);
-    if (ret <= 0) return ret;
-
-    (*ptr) = (char *)malloc(ret+1);
-    if (!*ptr) return -1;
-    ret = vsnprintf(*ptr, ret+1, format, ap);
-
-    return ret;
+    va_copy(aq, ap);
+    len = vsnprintf(NULL, 0, format, aq);
+    va_end(aq);
+    if( len < 0 || (*ret = malloc(size = len + 1)) == NULL )
+        return -1;
+    return vsnprintf(*ret, size, format, ap);
 }
-

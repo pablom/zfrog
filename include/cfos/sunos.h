@@ -9,6 +9,9 @@
 #include <atomic.h>
 #include <strings.h>
 
+#define __EXTENSIONS__
+#include <unistd.h>
+
 
 #define __sync_bool_compare_and_swap(p, o, n) atomic_cas_uint((volatile uint_t *)p, o, n)
 
