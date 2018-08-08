@@ -240,7 +240,7 @@ void cf_platform_event_schedule( int fd, int type, int flags, void *udata )
  ****************************************************************/
 void cf_platform_schedule_read( int fd, void *data )
 {
-    cf_platform_event_schedule(fd, EPOLLIN, 0, data);
+    cf_platform_event_schedule(fd, EPOLLIN | EPOLLET, 0, data);
 }
 /****************************************************************
  *  Helper function add file descriptor to catch
@@ -248,7 +248,7 @@ void cf_platform_schedule_read( int fd, void *data )
  ****************************************************************/
 void cf_platform_schedule_write( int fd, void *data )
 {
-    cf_platform_event_schedule(fd, EPOLLOUT, 0, data);
+    cf_platform_event_schedule(fd, EPOLLOUT | EPOLLET, 0, data);
 }
 /****************************************************************
  *  Helper function add file descriptor to disable
