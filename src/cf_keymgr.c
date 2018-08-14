@@ -78,6 +78,15 @@ void cf_keymgr_run( void )
     /* Unload all shared libraries */
     cf_module_cleanup();
 
+    /* Network init */
+    net_init();
+    cf_connection_init();
+    cf_platform_event_init();
+    cf_msg_worker_init();
+    cf_msg_register(CF_MSG_KEYMGR_REQ, keymgr_msg_recv);
+    cf_msg_register(CF_MSG_ENTROPY_REQ, keymgr_entropy_request);
+    cf_msg_register(CF_MSG_CERTIFICATE_REQ, keymgr_certificate_request);
+
     /* Drop current user */
     cf_worker_privdrop( server.keymgr_runas_user, server.keymgr_root_path );
 
@@ -93,17 +102,8 @@ void cf_keymgr_run( void )
         cf_log(LOG_WARNING, "no rand_file location specified");
     }
 
-	net_init();
-    cf_connection_init();
-    cf_platform_event_init();
-
-    cf_msg_worker_init();
-    cf_msg_register(CF_MSG_KEYMGR_REQ, keymgr_msg_recv);
-    cf_msg_register(CF_MSG_ENTROPY_REQ, keymgr_entropy_request);
-    cf_msg_register(CF_MSG_CERTIFICATE_REQ, keymgr_certificate_request);
-
     keymgr_reload();
-
+    /* Initialize random pool */
     RAND_poll();
 
 #if defined(__OpenBSD__)

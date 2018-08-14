@@ -165,7 +165,9 @@ static void worker_spawn( uint16_t id, uint16_t cpu )
         !cf_socket_nonblock(kw->pipe[1], 0))
 		cf_fatal("could not set pipe fds to nonblocking: %s", errno_s);
 
+    /* Create a child process */
 	kw->pid = fork();
+
     if( kw->pid == -1 )
 		cf_fatal("could not spawn worker child: %s", errno_s);
 
@@ -240,23 +242,34 @@ void cf_worker_privdrop( const char *runas, const char *root_path )
     struct rlimit rl;
     struct passwd *pw = NULL;
 
+    if( root_path == NULL )
+        cf_fatalx("no root directory for cf_worker_privdrop");
+
     /* Must happen before chroot */
     if( server.skip_runas == 0 )
     {
+        if( runas == NULL )
+            cf_fatalx("no runas user given and -r not specified");
+
         if( (pw = getpwnam(runas)) == NULL )
         {
-            cf_fatal("cannot getpwnam(\"%s\") runas user: %s", runas, errno_s);
+            cf_fatalx("cannot getpwnam(\"%s\") runas user: %s", runas, errno_s);
 		}
 	}
 
     if( server.skip_chroot == 0 )
     {
         if( chroot(root_path) == -1 )
-            cf_fatal("cannot chroot(\"%s\"): %s", root_path, errno_s);
+            cf_fatalx("cannot chroot(\"%s\"): %s", root_path, errno_s);
 
         if( chdir("/") == -1 )
-			cf_fatal("cannot chdir(\"/\"): %s", errno_s);
-	}
+            cf_fatalx("cannot chdir(\"%s\"): %s", root_path, errno_s);
+    }
+    else
+    {
+        if( chdir(root_path) == -1 )
+            cf_fatalx("cannot chdir(\"%s\"): %s", root_path, errno_s);
+    }
 
     if( getrlimit(RLIMIT_NOFILE, &rl) == -1 ) {
         cf_log(LOG_WARNING, "getrlimit(RLIMIT_NOFILE): %s", errno_s);
@@ -272,6 +285,7 @@ void cf_worker_privdrop( const char *runas, const char *root_path )
 
     rl.rlim_cur = server.worker_rlimit_nofiles;
     rl.rlim_max = server.worker_rlimit_nofiles;
+
     if( setrlimit(RLIMIT_NOFILE, &rl) == -1 )
     {
         cf_log(LOG_ERR, "setrlimit(RLIMIT_NOFILE, %d): %s", server.worker_rlimit_nofiles, errno_s);
@@ -287,8 +301,13 @@ void cf_worker_privdrop( const char *runas, const char *root_path )
 		    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 #endif
-			cf_fatal("cannot drop privileges");
+            cf_fatalx("cannot drop privileges");
 	}
+
+#if defined(__OpenBSD__)
+    cf_platform_pledge();
+#endif
+
 }
 /****************************************************************
  *  Worker main entry function
@@ -324,9 +343,6 @@ static void worker_entry( struct cf_worker *kw )
     if( server.worker_set_affinity == 1 )
         cf_platform_worker_setcpu( kw );
 
-    /* Redefine server pid with current worker pid */
-    //server.pid = kw->pid;
-
     /* Set signals catch function */
     cf_signal_setup();
 
@@ -338,10 +354,15 @@ static void worker_entry( struct cf_worker *kw )
 	}
 #endif
 
+    /* Network initialisation */
+    net_init();
+    cf_connection_init();
+    cf_platform_event_init();
+    cf_msg_worker_init();
+
     /* Drop privileges */
     cf_worker_privdrop( server.runas_user, server.root_path );
-    /* Network initialisation */
-	net_init();
+
 
 #ifndef CF_NO_HTTP
 	http_init();
@@ -351,15 +372,11 @@ static void worker_entry( struct cf_worker *kw )
 
     cf_timer_init();
     cf_fileref_init();
-    cf_connection_init();
 
 #ifndef CF_NO_TLS
     cf_domain_load_crl();
     cf_domain_keymgr_init();
 #endif
-
-    cf_platform_event_init();
-    cf_msg_worker_init();
 
 #ifdef CF_PGSQL
     cf_pgsql_sys_init();

@@ -11,6 +11,7 @@ void cf_validator_init(void)
 
 int cf_validator_add(const char *name, uint8_t type, const char *arg)
 {
+    int ret;
     struct cf_validator *val = mem_malloc(sizeof(*val));
 
 	val->type = type;
@@ -18,10 +19,10 @@ int cf_validator_add(const char *name, uint8_t type, const char *arg)
     switch( val->type )
     {
     case CF_VALIDATOR_TYPE_REGEX:
-        if( regcomp(&(val->rctx), arg, REG_EXTENDED | REG_NOSUB) )
+        if( (ret = regcomp(&(val->rctx), arg, REG_EXTENDED | REG_NOSUB)) )
         {
             mem_free(val);
-            cf_log(LOG_NOTICE, "validator %s has bad regex %s", name, arg);
+            cf_log(LOG_NOTICE, "validator %s has bad regex %s (%d)", name, arg, ret);
             return CF_RESULT_ERROR;
 		}
 		break;

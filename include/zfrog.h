@@ -818,6 +818,7 @@ struct cf_domain* cf_domain_lookup(const char*);
 struct cf_module_handle* cf_module_handler_find(const char*, const char*);
 
 void cf_fatal(const char*, ...) __attribute__((noreturn));
+void cf_fatalx(const char*, ...) __attribute__((noreturn));
 void log_debug_internal(char*, int, const char*, ...);
 
 uint16_t net_read16(uint8_t*);

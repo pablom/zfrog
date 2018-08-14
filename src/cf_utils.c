@@ -16,6 +16,10 @@
 
 #include "zfrog.h"
 
+/* Static function forward declaration */
+static void	fatal_log(const char*, va_list);
+
+
 #ifdef __linux__
 const char *sys_signame[NSIG] = {
     "zero",  "HUP",  "INT",   "QUIT", "ILL",   "TRAP", "ABRT", "UNUSED",
@@ -722,12 +726,39 @@ char* cf_fread_line( FILE *fp, char *in, size_t len )
 void cf_fatal( const char *fmt, ... )
 {
     va_list	args;
-    char buf[2048];
-    extern const char *__progname;
 
 	va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
+    fatal_log(fmt, args);
 	va_end(args);
+
+	exit(1);
+}
+/****************************************************************
+ *  Helper function to log and exit from application with
+ *  negative response code
+ ****************************************************************/
+void cf_fatalx(const char *fmt, ...)
+{
+    va_list		args;
+
+    cf_msg_send(CF_MSG_PARENT, CF_MSG_SHUTDOWN, NULL, 0);
+
+    va_start(args, fmt);
+    fatal_log(fmt, args);
+    va_end(args);
+
+    exit(1);
+}
+/****************************************************************
+ *  Helper function to log and exit from application with
+ *  negative response code
+ ****************************************************************/
+static void fatal_log(const char *fmt, va_list args )
+{
+    char buf[2048];
+    extern const char* __progname;
+
+    vsnprintf(buf, sizeof(buf), fmt, args);
 
     if( !server.foreground )
         cf_log(LOG_ERR, "%s", buf);
@@ -737,8 +768,7 @@ void cf_fatal( const char *fmt, ... )
         cf_keymgr_cleanup(1);
 #endif
 
-	printf("%s: %s\n", __progname, buf);
-	exit(1);
+    printf("%s: %s\n", __progname, buf);
 }
 /****************************************************************
  *  Helper function to get proc pid path
@@ -1038,7 +1068,9 @@ int cf_tcp_socket( const char *hostname, int type /*SOCK_STREAM*/ )
 
     return fd;
 }
-
+/************************************************************************
+ *  Helper function to convert string buffer characters to upper
+ ************************************************************************/
 char* cf_uppercase( char* str )
 {
     int i = 0;
