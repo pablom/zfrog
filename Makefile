@@ -5,7 +5,7 @@ AR?=ar
 
 PREFIX?=/usr/share/zfrog/
 OBJDIR?=obj
-OBJDIR_CSTL?=obj/cstl
+OBJDIR_CSTL?=$(OBJDIR)/cstl
 LIBDIR?=$(OBJDIR)/lib
 
 ZFROG=zfrog

@@ -58,10 +58,42 @@ static void	server_start(void);
 static void	server_sslstart(void);
 static void	write_pid(void);
 
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <inttypes.h>
+
+#define MAX_OF(type) \
+    (((type)(~0LLU) > (type)((1LLU<<((sizeof(type)<<3)-1))-1LLU)) ? (long long unsigned int)(type)(~0LLU) : (long long unsigned int)(type)((1LLU<<((sizeof(type)<<3)-1))-1LLU))
+#define MIN_OF(type) \
+    (((type)(1LLU<<((sizeof(type)<<3)-1)) < (type)1) ? (long long int)((~0LLU)-((1LLU<<((sizeof(type)<<3)-1))-1LLU)) : 0LL)
+
+static void print_min_max( void )
+{
+    printf("uint32_t = %lld..%llu\n", MIN_OF(uint32_t), MAX_OF(uint32_t));
+    printf("int32_t = %lld..%llu\n", MIN_OF(int32_t), MAX_OF(int32_t));
+    printf("uint64_t = %lld..%llu\n", MIN_OF(uint64_t), MAX_OF(uint64_t));
+    printf("int64_t = %lld..%llu\n", MIN_OF(int64_t), MAX_OF(int64_t));
+    printf("size_t = %lld..%llu\n", MIN_OF(size_t), MAX_OF(size_t));
+    printf("ssize_t = %lld..%llu\n", MIN_OF(ssize_t), MAX_OF(ssize_t));
+    printf("pid_t = %lld..%llu\n", MIN_OF(pid_t), MAX_OF(pid_t));
+    printf("time_t = %lld..%llu\n", MIN_OF(time_t), MAX_OF(time_t));
+    printf("intptr_t = %lld..%llu\n", MIN_OF(intptr_t), MAX_OF(intptr_t));
+    printf("unsigned char = %lld..%llu\n", MIN_OF(unsigned char), MAX_OF(unsigned char));
+    printf("char = %lld..%llu\n", MIN_OF(char), MAX_OF(char));
+    printf("uint8_t = %lld..%llu\n", MIN_OF(uint8_t), MAX_OF(uint8_t));
+    printf("int8_t = %lld..%llu\n", MIN_OF(int8_t), MAX_OF(int8_t));
+    printf("uint16_t = %lld..%llu\n", MIN_OF(uint16_t), MAX_OF(uint16_t));
+    printf("int16_t = %lld..%llu\n", MIN_OF(int16_t), MAX_OF(int16_t));
+    printf("int = %lld..%llu\n", MIN_OF(int), MAX_OF(int));
+    printf("long int = %lld..%llu\n", MIN_OF(long int), MAX_OF(long int));
+    printf("long long int = %lld..%llu\n", MIN_OF(long long int), MAX_OF(long long int));
+    printf("off_t = %lld..%llu\n", MIN_OF(off_t), MAX_OF(off_t));
+}
 /****************************************************************
  *  Print out builtin information
  ****************************************************************/
-static void builtin_report(void)
+static void builtin_report( void )
 {
 #ifdef CF_PGSQL
     cf_log(LOG_NOTICE, "pgsql built-in enabled");
@@ -111,6 +143,8 @@ static void usage( void )
 	fprintf(stderr, "\t-n\tdo not chroot\n");
 	fprintf(stderr, "\t-r\tdo not drop privileges\n");
     fprintf(stderr, "\t-v\tdisplay zfrog build information\n");
+
+    print_min_max();
 
 	exit(1);
 }

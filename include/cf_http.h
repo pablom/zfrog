@@ -265,6 +265,7 @@ struct http_request
 	TAILQ_HEAD(, http_header)	resp_headers;
 	TAILQ_HEAD(, http_arg)		arguments;
 	TAILQ_HEAD(, http_file)		files;
+
 	TAILQ_ENTRY(http_request)	list;
 	TAILQ_ENTRY(http_request)	olist;
 };
