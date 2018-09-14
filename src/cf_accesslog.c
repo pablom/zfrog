@@ -35,7 +35,7 @@ void cf_accesslog_worker_init( void )
 	cf_domain_closelogs();
 }
 
-int cf_accesslog_write(const void *data, uint32_t len)
+int cf_accesslog_write( const void *data, uint32_t len )
 {
     int	l;
     time_t now;
@@ -127,7 +127,9 @@ int cf_accesslog_write(const void *data, uint32_t len)
     free( buf );
     return CF_RESULT_OK;
 }
-
+/****************************************************************
+ *  Add to access log HTTP request information
+ ****************************************************************/
 void cf_accesslog( struct http_request *req )
 {
     struct cf_log_packet logpacket;

@@ -2,6 +2,7 @@
 Lightweight, high performance Web application framework.
 
 [![Build Status](https://travis-ci.org/pablom/zfrog.svg?branch=master)](https://travis-ci.org/pablom/zfrog)
+[![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/github/pablom/zfrog?svg=true)](https://ci.appveyor.com/project/pablom/zfrog)
 [![Coverity Status](https://img.shields.io/coverity/scan/12489.svg)](https://scan.coverity.com/projects/pablom-zfrog)
 
 
@@ -20,7 +21,7 @@ Building zFrog
 -------------
 
 Requirements
-* openssl (1.0.2k or 1.1.0g)
+* openssl (1.1.1)
   (note: this requirement drops away when building with CF_NOTLS=1 CF_NOHTTP=1)
   (note: libressl should work as a replacement)
 

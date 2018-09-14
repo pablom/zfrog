@@ -682,7 +682,7 @@ static inline int worker_acceptlock_release( uint64_t now )
  ****************************************************************/
 static inline int worker_acceptlock_obtain( uint64_t now )
 {
-    int	rc;
+    int	rc = 0;
 
     if( server.worker->has_lock == 1 )
         return 1;
@@ -701,7 +701,6 @@ static inline int worker_acceptlock_obtain( uint64_t now )
         return 0;
 #endif
 
-    rc = 0;
     if( worker_trylock() )
     {
         rc = 1;

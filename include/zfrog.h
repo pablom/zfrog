@@ -467,8 +467,12 @@ struct cf_mem_pool
 	size_t			slen;
 	size_t			elms;
 	size_t			inuse;
+
+#ifdef CF_TASKS
     volatile int	lock;
-	char			*name;
+#endif
+
+    char			*name;
 
     LIST_HEAD(, cf_mem_pool_region)	regions;
     LIST_HEAD(, cf_mem_pool_entry)	freelist;

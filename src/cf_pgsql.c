@@ -501,8 +501,7 @@ static struct pgsql_conn* pgsql_conn_next( struct cf_pgsql *pgsql, struct pgsql_
     {
         if( db->conn_max != 0 && db->conn_count >= db->conn_max )
         {
-            if( (pgsql->flags & CF_PGSQL_ASYNC) &&
-                    server.pgsql_queue_count < server.pgsql_queue_limit )
+            if( (pgsql->flags & CF_PGSQL_ASYNC) && server.pgsql_queue_count < server.pgsql_queue_limit )
                 pgsql_queue_add( pgsql );
             else
                 pgsql_set_error(pgsql,"no available connection");

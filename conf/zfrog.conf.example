@@ -10,7 +10,7 @@
 #socket_backlog			5000
 
 # Server configuration.
-bind		127.0.0.1 443
+bind		127.0.0.1 7443
 
 # The path worker processes will chroot into after starting.
 chroot		/var/www/zfrog
@@ -135,7 +135,7 @@ workers		4
 # Websocket specific settings.
 #	websocket_maxframe	Specifies the maximum frame size we can receive
 #	websocket_timeout	Specifies the time in seconds before a websocket
-#	connection would be closed due to inactivity.
+#	                        connection would be closed due to inactivity.
 #websocket_maxframe	16384
 #websocket_timeout	120
 
@@ -234,6 +234,7 @@ authentication auth_example {
 #	client_verify [CA] [optional CRL]
 #		- Turns on client verification, requiring the client to
 #		  send a certificate that will be verified by the given CA.
+#
 #	client_verify_depth [depth]
 #		- Configure the depth for x509 chain validation.
 #		  By default 1.

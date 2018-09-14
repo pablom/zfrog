@@ -19,7 +19,6 @@
 /* Static function forward declaration */
 static void	fatal_log(const char*, va_list);
 
-
 #ifdef __linux__
 const char *sys_signame[NSIG] = {
     "zero",  "HUP",  "INT",   "QUIT", "ILL",   "TRAP", "ABRT", "UNUSED",
@@ -28,7 +27,6 @@ const char *sys_signame[NSIG] = {
     "XCPU",  "XFSZ", "VTALRM","PROF", "WINCH", "IO",   "PWR",  "SYS", NULL
 };
 #endif
-
 
 static struct {
     char	*name;

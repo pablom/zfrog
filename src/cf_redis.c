@@ -56,7 +56,7 @@ struct redis_job
 struct redis_wait
 {
     struct cf_redis	*redis;
-    struct redis_db *db;        /* Link to Redis db host */
+    struct redis_db *db;           /* Link to Redis db host */
     TAILQ_ENTRY(redis_wait)	list;
 };
 

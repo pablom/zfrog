@@ -1054,7 +1054,7 @@ int http_header_recv( struct netbuf *nb )
     return CF_RESULT_OK;
 }
 
-int http_argument_get(struct http_request *req, const char *name, void **out, void *nout, int type)
+int http_argument_get(struct http_request* req, const char* name, void** out, void* nout, int type)
 {
     struct http_arg	*q = NULL;
 
@@ -1069,7 +1069,7 @@ int http_argument_get(struct http_request *req, const char *name, void **out, vo
 			*out = q->s_value;
             return CF_RESULT_OK;
 		case HTTP_ARG_TYPE_BYTE:
-            COPY_ARG_TYPE(*(uint8_t *)q->s_value, uint8_t);
+            COPY_ARG_TYPE(*(uint8_t*)q->s_value, uint8_t);
             return CF_RESULT_OK;
 		case HTTP_ARG_TYPE_INT16:
 			COPY_AS_INTTYPE(SHRT_MIN, SHRT_MAX, int16_t);

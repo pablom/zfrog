@@ -1,0 +1,5 @@
+image: ubuntu
+
+build_script:
+  - make deps
+  - make CF_TASKS=1 CF_JSONRPC=1 all
