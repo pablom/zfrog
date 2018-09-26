@@ -735,7 +735,7 @@ static void pgsql_conn_cleanup( struct pgsql_conn *conn )
 
     LIST_FOREACH(pgsqldb, &pgsql_db_conn_strings, rlist)
     {
-        if( strcmp(pgsqldb->name, conn->name) )
+        if( !strcmp(pgsqldb->name, conn->name) )
         {
             pgsqldb->conn_count--;
             break;
