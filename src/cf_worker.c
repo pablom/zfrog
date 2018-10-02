@@ -363,7 +363,6 @@ static void worker_entry( struct cf_worker *kw )
     /* Drop privileges */
     cf_worker_privdrop( server.runas_user, server.root_path );
 
-
 #ifndef CF_NO_HTTP
 	http_init();
     cf_filemap_resolve_paths();

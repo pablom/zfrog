@@ -108,6 +108,7 @@ void cf_domain_init(void)
 {
     TAILQ_INIT(&server.domains);
 
+#ifndef CF_NO_TLS
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     if( keymgr_rsa_meth == NULL )
     {
@@ -127,6 +128,7 @@ void cf_domain_init(void)
 
     EC_KEY_METHOD_set_sign(keymgr_ec_meth, NULL, NULL, keymgr_ecdsa_sign);
 #endif
+#endif /* !CF_NO_TLS */
 }
 /****************************************************************
  *  Cleanup, delete all domain structures
@@ -141,6 +143,7 @@ void cf_domain_cleanup(void)
         cf_domain_free(dom);
 	}
 
+#ifndef CF_NO_TLS
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     if( keymgr_rsa_meth != NULL )
     {
@@ -154,6 +157,7 @@ void cf_domain_cleanup(void)
         keymgr_ec_meth = NULL;
     }
 #endif
+#endif /* !CF_NO_TLS */
 }
 /****************************************************************
  *  Allocate (create) new domain structure

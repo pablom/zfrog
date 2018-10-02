@@ -4,11 +4,11 @@
 #include <sys/queue.h>
 #include "zfrog.h"
 
-TAILQ_HEAD(timerlist, cf_timer)	cf_timers;
+TAILQ_HEAD(timerlist, cf_timer)	timers;
 
 void cf_timer_init(void)
 {
-    TAILQ_INIT( &cf_timers );
+    TAILQ_INIT( &timers );
 }
 
 struct cf_timer* cf_timer_add( void (*cb)(void *, uint64_t), uint64_t interval, void* arg, int flags)
@@ -23,22 +23,22 @@ struct cf_timer* cf_timer_add( void (*cb)(void *, uint64_t), uint64_t interval, 
 	timer->interval = interval;
 	timer->nextrun = cf_time_ms() + timer->interval;
 
-    TAILQ_FOREACH(t, &cf_timers, list)
+    TAILQ_FOREACH(t, &timers, list)
     {
         if(t->nextrun > timer->nextrun)
         {
 			TAILQ_INSERT_BEFORE(t, timer, list);
-			return (timer);
+            return timer;
 		}
 	}
 
-    TAILQ_INSERT_TAIL(&cf_timers, timer, list);
+    TAILQ_INSERT_TAIL(&timers, timer, list);
     return timer;
 }
 
 void cf_timer_remove(struct cf_timer *timer)
 {
-    TAILQ_REMOVE(&cf_timers, timer, list);
+    TAILQ_REMOVE(&timers, timer, list);
     mem_free(timer);
 }
 
@@ -47,14 +47,14 @@ uint64_t cf_timer_run( uint64_t now )
     struct cf_timer	*timer, *t;
     uint64_t next_timer = 1000;
 
-    while( (timer = TAILQ_FIRST(&cf_timers)) != NULL )
+    while( (timer = TAILQ_FIRST(&timers)) != NULL )
     {
         if( timer->nextrun > now ) {
 			next_timer = timer->nextrun - now;
 			break;
 		}
 
-        TAILQ_REMOVE(&cf_timers, timer, list);
+        TAILQ_REMOVE(&timers, timer, list);
 		timer->cb(timer->arg, now);
 
         if( timer->flags & CF_TIMER_ONESHOT )
@@ -64,7 +64,7 @@ uint64_t cf_timer_run( uint64_t now )
         else
         {
 			timer->nextrun = now + timer->interval;
-            TAILQ_FOREACH(t, &cf_timers, list)
+            TAILQ_FOREACH(t, &timers, list)
             {
                 if( t->nextrun > timer->nextrun )
                 {
@@ -74,7 +74,7 @@ uint64_t cf_timer_run( uint64_t now )
 			}
 
 			if (t == NULL)
-                TAILQ_INSERT_TAIL(&cf_timers, timer, list);
+                TAILQ_INSERT_TAIL(&timers, timer, list);
 		}
 	}
 
