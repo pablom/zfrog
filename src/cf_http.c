@@ -241,7 +241,7 @@ static struct http_request* http_request_new( struct connection *c, const char *
         qsoff = 0;
     }
 
-    switch( c->addrtype )
+    switch( c->family )
     {
     case AF_INET6:
         if( *host == '[' )
@@ -2253,7 +2253,7 @@ const char* http_remote_addr( struct http_request *request )
     if( hdr )
         return hdr;
 
-    switch( request->owner->addrtype )
+    switch( request->owner->family )
     {
         case AF_INET:
             inet_ntop(AF_INET, &(request->owner->addr.ipv4.sin_addr), astr, INET_ADDRSTRLEN);

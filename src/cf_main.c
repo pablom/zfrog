@@ -334,13 +334,87 @@ void cf_tls_info_callback( const SSL *ssl, int flags, int ret )
 }
 #endif
 /****************************************************************
+ *  Helper function to cleanup listener structure
+ ****************************************************************/
+static void listener_free( struct listener *l )
+{
+    LIST_REMOVE(l, list);
+
+    if( l->fd != -1 )
+        close( l->fd );
+
+    mem_free(l);
+}
+/****************************************************************
+ *  Helper function to create listener structure
+ ****************************************************************/
+static struct listener* listener_alloc( int family, const char *ccb )
+{
+    struct listener* l = NULL;
+
+    switch( family )
+    {
+    case AF_INET:
+    case AF_INET6:
+    case AF_UNIX:
+        break;
+    default:
+        cf_fatal("unknown address family %d", family);
+    }
+
+    l = mem_calloc(1, sizeof(struct listener));
+
+    server.nlisteners++;
+    LIST_INSERT_HEAD(&server.listeners, l, list);
+
+    l->fd = -1;
+    l->family = family;
+    l->type = CF_TYPE_LISTENER;
+
+    /* Create socket */
+    if( (l->fd = socket(family, SOCK_STREAM, 0)) == -1 )
+    {
+        listener_free(l);
+        cf_log(LOG_ERR, "socket(): %s", errno_s);
+        return NULL;
+    }
+
+    if( !cf_socket_nonblock(l->fd, family != AF_UNIX) )
+    {
+        listener_free(l);
+        cf_log(LOG_ERR, "kore_connection_nonblock(): %s", errno_s);
+        return NULL;
+    }
+
+#ifdef SO_REUSEPORT
+    if( !cf_socket_opt(l->fd, SOL_SOCKET, SO_REUSEADDR) )
+    {
+        listener_free(l);
+        return NULL;
+    }
+#endif
+
+    if( ccb != NULL )
+    {
+        if( (l->connect = cf_runtime_getcall(ccb)) == NULL )
+        {
+            cf_log(LOG_ERR, "no such callback: '%s'", ccb);
+            listener_free(l);
+            return NULL;
+        }
+    }
+    else
+        l->connect = NULL;
+
+    return l;
+}
+/****************************************************************
  *  Bind server listener socket to specific address
  ****************************************************************/
 int cf_server_bind( const char *ip, const char *port, const char *ccb )
 {
-    struct listener	*l = NULL;
-    int on = 1;
     int	rc;
+    struct listener	*l = NULL;
     struct addrinfo	hints, *results;
 
     log_debug("cf_server_bind(%s, %s)", ip, port);
@@ -355,55 +429,18 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
         cf_fatal("getaddrinfo(%s): %s", ip, gai_strerror(rc));
     }
 
-	l = mem_malloc(sizeof(struct listener));
-    l->type = CF_TYPE_LISTENER;
-	l->addrtype = results->ai_family;
-
-    if( l->addrtype != AF_INET && l->addrtype != AF_INET6 )
-        cf_fatal("getaddrinfo(): unknown address family %d", l->addrtype);
-
-    if( (l->fd = socket(results->ai_family, SOCK_STREAM, 0)) == -1 )
+    /* Create listener structure */
+    if( (l = listener_alloc(results->ai_family, ccb)) == NULL )
     {
-		mem_free(l);
         freeaddrinfo( results );
-        cf_log(LOG_ERR, "socket(): %s", errno_s);
-        return CF_RESULT_ERROR;
-	}
-
-    if( !cf_socket_nonblock(l->fd, 1) )
-    {
-		mem_free(l);
-        freeaddrinfo( results );
-        cf_log(LOG_ERR, "cf_socket_nonblock(): %s", errno_s);
-        return CF_RESULT_ERROR;
-	}
-
-    if( setsockopt( l->fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&on, sizeof(on)) == -1 )
-    {
-        close( l->fd );
-		mem_free(l);
-        freeaddrinfo( results );
-        cf_log(LOG_ERR, "setsockopt(SO_REUSEADDR): %s", errno_s);
-        return CF_RESULT_ERROR;
-	}
-
-#ifdef SO_REUSEPORT
-    if( setsockopt( l->fd, SOL_SOCKET, SO_REUSEPORT, (const char *)&on, sizeof(on)) == -1 )
-    {
-        close( l->fd );
-        mem_free(l);
-        freeaddrinfo( results );
-        cf_log(LOG_ERR, "setsockopt(SO_REUSEPORT): %s", errno_s);
         return CF_RESULT_ERROR;
     }
-#endif
 
     if( bind(l->fd, results->ai_addr, results->ai_addrlen) == -1 )
     {
-		close(l->fd);
-		mem_free(l);
+        listener_free(l);
         freeaddrinfo( results );
-        cf_log(LOG_ERR, "bind(): %s to %s port %s", errno_s, ip, port);
+        cf_log(LOG_ERR, "bind(): %s", errno_s);
         return CF_RESULT_ERROR;
 	}
 
@@ -411,28 +448,10 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
 
     if( listen(l->fd, server.socket_backlog) == -1 )
     {
-		close(l->fd);
-        mem_free( l );
+        listener_free( l );
         cf_log(LOG_ERR, "listen(): %s", errno_s);
         return CF_RESULT_ERROR;
 	}
-
-    if( ccb != NULL )
-    {
-        if( (l->connect = cf_runtime_getcall(ccb)) == NULL )
-        {
-            cf_log(LOG_ERR, "no such callback: '%s'", ccb);
-			close(l->fd);
-			mem_free(l);
-            return CF_RESULT_ERROR;
-		}
-    }
-    else {
-		l->connect = NULL;
-	}
-
-    server.nlisteners++;
-    LIST_INSERT_HEAD(&server.listeners, l, list);
 
     if( server.foreground )
     {
@@ -450,6 +469,45 @@ int cf_server_bind( const char *ip, const char *port, const char *ccb )
     #endif
 #endif
 	}
+
+    return CF_RESULT_OK;
+}
+/****************************************************************
+ *  Bind server listener socket to UNIX local socket address
+ ****************************************************************/
+int cf_server_bind_unix( const char *path, const char *ccb )
+{
+    struct listener		*l = NULL;
+    struct sockaddr_un	sun;
+
+    memset(&sun, 0, sizeof(sun));
+    sun.sun_family = AF_UNIX;
+
+    if( cf_strlcpy(sun.sun_path, path, sizeof(sun.sun_path) ) >= sizeof(sun.sun_path) )
+    {
+        cf_log(LOG_ERR, "unix socket path '%s' too long", path);
+        return CF_RESULT_ERROR;
+    }
+
+    if( (l = listener_alloc(AF_UNIX, ccb)) == NULL )
+        return CF_RESULT_ERROR;
+
+    if( bind(l->fd, (struct sockaddr *)&sun, sizeof(sun)) == -1 )
+    {
+        cf_log(LOG_ERR, "bind: %s", errno_s);
+        listener_free(l);
+        return CF_RESULT_ERROR;
+    }
+
+    if( listen(l->fd, server.socket_backlog) == -1 )
+    {
+        cf_log(LOG_ERR, "listen(): %s", errno_s);
+        listener_free(l);
+        return CF_RESULT_ERROR;
+    }
+
+    if( server.foreground )
+        cf_log(LOG_NOTICE, "running on %s", path);
 
     return CF_RESULT_OK;
 }

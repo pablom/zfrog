@@ -98,19 +98,26 @@ int cf_connection_accept( struct listener *listener, struct connection **out )
     /* Init out parameter */
 	*out = NULL;
     c = cf_connection_new( listener, CF_TYPE_CLIENT );
+    /* Set connection family */
+    c->family = listener->family;
 
-	c->addrtype = listener->addrtype;
-
-    if( c->addrtype == AF_INET )
+    switch( c->family )
     {
-		len = sizeof(struct sockaddr_in);
-        addr = (struct sockaddr *)&(c->addr.ipv4);
+    case AF_INET:
+        len = sizeof(struct sockaddr_in);
+        addr = (struct sockaddr*)&(c->addr.ipv4);
+        break;
+    case AF_INET6:
+        len = sizeof(struct sockaddr_in6);
+        addr = (struct sockaddr*)&(c->addr.ipv6);
+        break;
+    case AF_UNIX:
+        len = sizeof(struct sockaddr_un);
+        addr = (struct sockaddr*)&(c->addr.un);
+        break;
+    default:
+        cf_fatal("unknown family type %d", c->family);
     }
-    else
-    {
-		len = sizeof(struct sockaddr_in6);
-        addr = (struct sockaddr *)&(c->addr.ipv6);
-	}
 
     if( (c->fd = accept(listener->fd, addr, &len)) == -1 )
     {
@@ -529,11 +536,11 @@ void cf_connection_stop_idletimer( struct connection *c )
 int cf_connection_backend_connect( struct connection *c )
 {
     /* Attempt connecting */
-    if( c->addrtype == AF_INET )
+    if( c->family == AF_INET )
         return connect(c->fd, (struct sockaddr *)&c->addr.ipv4, sizeof(c->addr.ipv4));
-    else if( c->addrtype == AF_INET6 )
+    else if( c->family == AF_INET6 )
         return connect(c->fd, (struct sockaddr *)&c->addr.ipv6, sizeof(c->addr.ipv6));
-    else if( c->addrtype == AF_UNIX )
+    else if( c->family == AF_UNIX )
         return connect(c->fd, (struct sockaddr *)&c->addr.un, sizeof(c->addr.un));
 
     return -1;
@@ -566,24 +573,24 @@ int cf_connection_address_init( struct connection *c, const char *host, uint16_t
         }
 
         /* Set connection address */
-        c->addrtype = results->ai_family;
+        c->family = results->ai_family;
 
         /* Delete temporary structure */
         freeaddrinfo( results );
 
-        if( c->addrtype != AF_INET && c->addrtype != AF_INET6 )
+        if( c->family != AF_INET && c->family != AF_INET6 )
         {
-            cf_log(LOG_ERR, "getaddrinfo(): unknown address family %d", c->addrtype);
+            cf_log(LOG_ERR, "getaddrinfo(): unknown address family %d", c->family);
             return CF_RESULT_ERROR;
         }
 
-        if( c->addrtype == AF_INET )
+        if( c->family == AF_INET )
         {
             c->addr.ipv4.sin_family = AF_INET;
             c->addr.ipv4.sin_port = htons( port );
             c->addr.ipv4.sin_addr.s_addr = inet_addr( host );
         }
-        else if( c->addrtype == AF_INET6 )
+        else if( c->family == AF_INET6 )
         {
             c->addr.ipv6.sin6_family = AF_INET6;
             c->addr.ipv6.sin6_port = htons( port );
@@ -603,7 +610,7 @@ int cf_connection_address_init( struct connection *c, const char *host, uint16_t
     }
 
     /* AF_UNIX connection type */
-    c->addrtype = AF_UNIX;
+    c->family = AF_UNIX;
     c->addr.un.sun_family = AF_UNIX;
     snprintf( c->addr.un.sun_path, sizeof(c->addr.un.sun_path), "%s", host );
 
@@ -622,7 +629,7 @@ struct connection* cf_connection_backend_new( void *owner, const char *host, uin
     cf_connection_address_init(c, host, port);
 
     /* Try to create socket */
-    if( (c->fd = socket(c->addrtype, SOCK_STREAM, 0)) < 0 )
+    if( (c->fd = socket(c->family, SOCK_STREAM, 0)) < 0 )
     {
         cf_mem_pool_put( &connection_mem_pool, c );
         cf_log(LOG_ERR, "socket(): %s", errno_s);

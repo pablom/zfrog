@@ -15,14 +15,14 @@ struct cf_log_packet
     uint16_t	time_req;
     uint16_t	worker_id;
     uint16_t	worker_cpu;
-    uint8_t     addrtype;
+    int		    family;
     uint8_t     addr[sizeof(struct in6_addr)];
     char		host[CF_DOMAINNAME_LEN];
 	char		path[HTTP_URI_LEN];
 	char		agent[HTTP_USERAGENT_LEN];
     char		referer[HTTP_REFERER_LEN];
 #ifndef CF_NO_TLS
-    char cn[X509_CN_LENGTH];
+    char        cn[X509_CN_LENGTH];
 #endif
 };
 
@@ -93,8 +93,14 @@ int cf_accesslog_write( const void *data, uint32_t len )
 		cn = logpacket.cn;
 #endif
 
-    if( inet_ntop(logpacket.addrtype, &(logpacket.addr), addr, sizeof(addr)) == NULL ) {
-        cf_strlcpy(addr, "-", sizeof(addr));
+    if( logpacket.family != AF_UNIX )
+    {
+        if( inet_ntop(logpacket.family, &(logpacket.addr), addr, sizeof(addr)) == NULL ) {
+            cf_strlcpy(addr, "-", sizeof(addr));
+        }
+    }
+    else {
+        cf_strlcpy(addr, "unix-socket", sizeof(addr));
     }
 
     time( &now );
@@ -112,11 +118,9 @@ int cf_accesslog_write( const void *data, uint32_t len )
         return CF_RESULT_ERROR;
 	}
 
-	sent = write(dom->accesslog, buf, l);
-
-    if( sent == -1 )
+    if( (sent = write(dom->accesslog, buf, l)) == -1 )
     {
-		free(buf);
+        free( buf );
         cf_log(LOG_WARNING, "cf_accesslog_write(): write(): %s", errno_s);
         return CF_RESULT_ERROR;
 	}
@@ -134,23 +138,22 @@ void cf_accesslog( struct http_request *req )
 {
     struct cf_log_packet logpacket;
 
-	logpacket.addrtype = req->owner->addrtype;
+    logpacket.family = req->owner->family;
 
-    if( logpacket.addrtype == AF_INET ) {
+    if( logpacket.family == AF_INET ) {
         memcpy( logpacket.addr, &(req->owner->addr.ipv4.sin_addr), sizeof(req->owner->addr.ipv4.sin_addr));
     }
-    else {
+    else if( logpacket.family == AF_INET6 ) {
         memcpy( logpacket.addr, &(req->owner->addr.ipv6.sin6_addr), sizeof(req->owner->addr.ipv6.sin6_addr));
     }
 
 	logpacket.status = req->status;
 	logpacket.method = req->method;
     logpacket.length = req->content_length;
-    logpacket.time_req = req->total; /* Total request time */
+    logpacket.time_req = req->total;         /* Total request time */
 
     logpacket.worker_id = server.worker->id;
     logpacket.worker_cpu = server.worker->cpu;
-
 
     if( cf_strlcpy(logpacket.host, req->host, sizeof(logpacket.host)) >= sizeof(logpacket.host) )
         cf_log(LOG_NOTICE, "cf_accesslog: host truncated");

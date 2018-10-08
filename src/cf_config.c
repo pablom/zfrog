@@ -44,6 +44,7 @@ static void	parse_config_file(FILE*);
 static void	domain_tls_init(void);
 static int configure_include(char*);
 static int configure_bind(char*);
+static int configure_bind_unix(char*);
 static int configure_domain(char*);
 static int configure_root(char*);
 static int configure_runas(char*);
@@ -121,6 +122,7 @@ static struct {
 } config_names[] = {
     { "include",                    configure_include },
     { "bind",                       configure_bind },
+    { "bind_unix",                  configure_bind_unix },
 #if !defined(CF_SINGLE_BINARY)
     { "load",                       configure_load },
 #endif
@@ -361,6 +363,19 @@ static int configure_bind( char *options )
 
     return cf_server_bind(argv[0], argv[1], argv[2]);
 }
+
+static int configure_bind_unix( char *options )
+{
+    char *argv[3];
+
+    cf_split_string(options, " ", argv, 3);
+    if( argv[0] == NULL )
+        return CF_RESULT_ERROR;
+
+    return cf_server_bind_unix(argv[0], argv[1]);
+}
+
+
 
 #ifndef CF_SINGLE_BINARY
 static int configure_load( char *options )

@@ -221,7 +221,8 @@ struct connection
     int	   (*read)(struct connection *, size_t *);
     int	   (*write)(struct connection *, size_t , size_t *);
 
-    uint8_t addrtype;
+    uint8_t family;
+
 	union {
 		struct sockaddr_in	ipv4;
 		struct sockaddr_in6	ipv6;
@@ -284,15 +285,10 @@ extern struct cf_runtime cf_native_runtime;
 struct listener
 {
     uint8_t  type;
-    uint8_t  addrtype;
+    uint8_t  family;
     int		 fd;
 
     struct cf_runtime_call	*connect;
-
-	union {
-		struct sockaddr_in	ipv4;
-		struct sockaddr_in6	ipv6;
-	} addr;
 
 	LIST_ENTRY(listener)	list;
 };
@@ -667,6 +663,7 @@ struct cf_timer* cf_timer_add(void (*cb)(void*, uint64_t), uint64_t, void*, int)
 
 void cf_listener_cleanup(void);
 int	cf_server_bind(const char*,const char*,const char*);
+int cf_server_bind_unix( const char*, const char*);
 
 #ifndef CF_NO_TLS
     int	cf_tls_sni_cb(SSL*,int*,void*);
