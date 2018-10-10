@@ -99,7 +99,8 @@ extern volatile sig_atomic_t sig_recv;
 void cf_worker_init(void)
 {
     size_t len;
-    uint16_t i, cpu;
+    uint16_t i = 0;
+    uint16_t cpu = 0;
 
     /* Init no lock workers */
     worker_no_lock = 0;
@@ -135,8 +136,6 @@ void cf_worker_init(void)
     if( server.worker_count > server.cpu_count ) {
         log_debug("cf_worker_init(): more workers than cpu's");
 	}
-
-	cpu = 0;
 
     for( i = 0; i < server.worker_count; i++ )
     {
@@ -242,9 +241,6 @@ void cf_worker_privdrop( const char *runas, const char *root_path )
     struct rlimit rl;
     struct passwd *pw = NULL;
 
-    if( root_path == NULL )
-        cf_fatalx("no root directory for cf_worker_privdrop");
-
     /* Must happen before chroot */
     if( server.skip_runas == 0 )
     {
@@ -259,13 +255,16 @@ void cf_worker_privdrop( const char *runas, const char *root_path )
 
     if( server.skip_chroot == 0 )
     {
+        if( root_path == NULL )
+            cf_fatalx("no root directory for cf_worker_privdrop");
+
         if( chroot(root_path) == -1 )
             cf_fatalx("cannot chroot(\"%s\"): %s", root_path, errno_s);
 
         if( chdir("/") == -1 )
-            cf_fatalx("cannot chdir(\"%s\"): %s", root_path, errno_s);
+            cf_fatalx("cannot chdir(\"/\"): %s", errno_s);
     }
-    else
+    else if( root_path )
     {
         if( chdir(root_path) == -1 )
             cf_fatalx("cannot chdir(\"%s\"): %s", root_path, errno_s);

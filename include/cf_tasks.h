@@ -26,7 +26,7 @@ extern "C" {
 
 struct cf_task
 {
-    uint8_t           type;
+    struct cf_event   evt;
     int	              state;
     int	              result;
     pthread_rwlock_t  lock;
@@ -57,11 +57,11 @@ struct cf_task_thread
 };
 
 void cf_task_init(void);
+void cf_task_handle(void*, int);
 void cf_task_run(struct cf_task*);
 void cf_task_finish(struct cf_task*);
 void cf_task_destroy(struct cf_task*);
 int	cf_task_finished(struct cf_task*);
-void cf_task_handle(struct cf_task*, int);
 
 #ifndef CF_NO_HTTP
     void cf_task_bind_request(struct cf_task*, struct http_request*);

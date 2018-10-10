@@ -152,16 +152,17 @@ struct netbuf
 TAILQ_HEAD(netbuf_head, netbuf);
 
 /* Connection type definition */
-#define CF_TYPE_LISTENER            1
-#define CF_TYPE_CLIENT              2
-#define CF_TYPE_BACKEND             3
-#define CF_TYPE_TASK                4
-#define CF_TYPE_PGSQL_CONN          5
-#define CF_TYPE_REDIS               6
+#define CF_TYPE_CONNECTION          1
+#define CF_TYPE_LISTENER            2
+#define CF_TYPE_CLIENT              3
+#define CF_TYPE_BACKEND             4
+#define CF_TYPE_TASK                5
+#define CF_TYPE_PGSQL_CONN          6
+#define CF_TYPE_REDIS               7
 
 /* Connection state definition */
 #define CONN_STATE_UNKNOWN          0
-#define CONN_STATE_SSL_IN_SHAKE	    1
+#define CONN_STATE_TLS_SHAKE	    1
 #define CONN_STATE_ESTABLISHED		2
 #define CONN_STATE_CONNECTING       3
 #define CONN_STATE_DISCONNECTING	4
@@ -174,9 +175,13 @@ TAILQ_HEAD(netbuf_head, netbuf);
 #define CONN_PROTO_MSG              3
 #define CONN_PROTO_REDIS            4
 
-#define CONN_READ_POSSIBLE          0x01
-#define CONN_WRITE_POSSIBLE         0x02
-#define CONN_WRITE_BLOCK            0x04
+#define CF_EVENT_READ               0x01
+#define CF_EVENT_WRITE              0x02
+#define CF_EVENT_ERROR              0x04
+
+
+#define CONN_WRITE_BLOCK            0x04 // ?????
+
 #define CONN_IDLE_TIMER_ACT         0x10
 #define CONN_READ_BLOCK             0x20
 #define CONN_CLOSE_EMPTY            0x40
@@ -199,22 +204,28 @@ TAILQ_HEAD(netbuf_head, netbuf);
 #define CF_CONNECTION_PRUNE_DISCONNECT      0
 #define CF_CONNECTION_PRUNE_ALL             1
 
+struct cf_event {
+    int		type;
+    int		flags;
+    void	(*handle)(void *, int);
+} __attribute__((packed));
+
 struct connection
 {
-    uint8_t  type;
-    int      fd;
-    uint8_t  state;
-    uint8_t  proto;
-    void     *owner;
+    struct cf_event evt;
+    int             fd;
+    uint8_t         state;
+    uint8_t         proto;
+    void            *owner;
 
 #ifndef CF_NO_TLS
-    X509     *cert;
-    SSL      *ssl;
-    int	     tls_reneg;
+    X509            *cert;
+    SSL             *ssl;
+    int             tls_reneg;
 #endif
 
-    uint8_t	 flags;
-    void*    hdlr_extra;
+    uint8_t         flags;
+    void*           hdlr_extra;
 
     int	   (*handle)(struct connection *);
     void   (*disconnect)(struct connection *, int);
@@ -284,10 +295,9 @@ extern struct cf_runtime cf_native_runtime;
 
 struct listener
 {
-    uint8_t  type;
-    uint8_t  family;
-    int		 fd;
-
+    struct cf_event         evt;
+    int                     fd;
+    int                     family;
     struct cf_runtime_call	*connect;
 
 	LIST_ENTRY(listener)	list;
@@ -315,10 +325,10 @@ struct cf_handler_params
 
 struct cf_auth
 {
-    uint8_t	 type;
-    char	 *name;
-    char	 *value;
-    char	 *redirect;
+    uint8_t             type;
+    char                *name;
+    char                *value;
+    char                *redirect;
     struct cf_validator	*validator;
 
     TAILQ_ENTRY(cf_auth)	list;
@@ -329,12 +339,12 @@ struct cf_auth
 
 #endif /* CF_NO_HTTP */
 
-#define CF_MODULE_LOAD      1
-#define CF_MODULE_UNLOAD	2
+#define CF_MODULE_LOAD          1
+#define CF_MODULE_UNLOAD        2
 
-#define CF_MODULE_NATIVE	0
-#define CF_MODULE_PYTHON	1
-#define CF_MODULE_LUA       2
+#define CF_MODULE_NATIVE        0
+#define CF_MODULE_PYTHON        1
+#define CF_MODULE_LUA           2
 
 struct cf_module
 {
@@ -354,7 +364,6 @@ struct cf_module
     TAILQ_ENTRY(cf_module)	list;
 };
 
-
 struct cf_module_functions
 {
     void (*free)(struct cf_module *);
@@ -366,17 +375,16 @@ struct cf_module_functions
 
 struct cf_module_handle
 {
-    char             *path;
-    char             *func;
-    void             *addr;
-    int              type;
-    int              errors;
-    regex_t          rctx;
-    struct cf_domain *dom;
+    char                    *path;
+    char                    *func;
+    int                     type;
+    int                     errors;
+    regex_t                 rctx;
+    struct cf_domain        *dom;
     struct cf_runtime_call	*rcall;
 #ifndef CF_NO_HTTP
-    struct cf_auth	*auth;
-    int				methods;
+    struct cf_auth          *auth;
+    int                     methods;
     TAILQ_HEAD(, cf_handler_params)	params;
 #endif
     TAILQ_ENTRY(cf_module_handle)	list;
@@ -621,22 +629,25 @@ struct zfrogServer
  *----------------------------------------------------------------------------*/
 extern struct zfrogServer server;
 
+/* Signal functions */
 void cf_signal_setup(void);
 void cf_signal(int);
+/* Worker functions */
 void cf_worker_wait(int);
 void cf_worker_init(void);
-void cf_worker_shutdown(void);
-void cf_worker_privdrop(const char*, const char*);
-void cf_worker_dispatch_signal(int);
 void cf_worker_make_busy(void);
+void cf_worker_shutdown(void);
+void cf_worker_dispatch_signal(int);
+void cf_worker_privdrop(const char*, const char*);
 
-struct cf_worker *cf_worker_data(uint8_t);
+struct cf_worker* cf_worker_data(uint8_t);
 
+/* Platform depended functions */
 void cf_platform_init(void);
 void cf_platform_event_init(void);
 void cf_platform_event_cleanup(void);
 void cf_platform_proctitle(char*);
-void cf_platform_disable_events(int);
+void cf_platform_disable_read(int);
 void cf_platform_enable_accept(void);
 void cf_platform_disable_accept(void);
 int	 cf_platform_event_wait(uint64_t);
@@ -655,13 +666,16 @@ void cf_accesslog_init(void);
 void cf_accesslog_worker_init(void);
 int  cf_accesslog_write(const void*, uint32_t);
 
-
+/* Timer functions */
 void cf_timer_init(void);
 uint64_t cf_timer_run(uint64_t);
 void cf_timer_remove(struct cf_timer*);
 struct cf_timer* cf_timer_add(void (*cb)(void*, uint64_t), uint64_t, void*, int);
 
+/* Listener functions list */
 void cf_listener_cleanup(void);
+
+/* Server address bind function */
 int	cf_server_bind(const char*,const char*,const char*);
 int cf_server_bind_unix( const char*, const char*);
 
@@ -678,6 +692,7 @@ void cf_connection_init(void);
 void cf_connection_cleanup(void);
 void cf_connection_prune(int);
 struct connection* cf_connection_new(void*, uint8_t);
+void cf_connection_event(void*, int);
 void cf_connection_check_timeout(uint64_t);
 int	cf_connection_handle(struct connection*);
 void cf_connection_remove(struct connection*);
@@ -694,9 +709,6 @@ int cf_connection_backend_connect(struct connection*);
 int cf_connection_address_init(struct connection*,const char*, uint16_t);
 struct connection* cf_connection_backend_new(void*, const char*, uint16_t);
 
-uint64_t cf_time_ms(void);
-uint64_t cf_time_us(void);
-void cf_ms2ts(struct timespec*, uint64_t);
 
 void cf_log_init(void);
 
@@ -716,9 +728,9 @@ void* mem_malloc_tagged(size_t, uint32_t);
 
 /* Memory pool utility functions */
 void* cf_mem_pool_get(struct cf_mem_pool*);
-void cf_mem_pool_put(struct cf_mem_pool*, void*);
-void cf_mem_pool_init(struct cf_mem_pool*, const char*, size_t, size_t);
-void cf_mem_pool_cleanup(struct cf_mem_pool*);
+void  cf_mem_pool_put(struct cf_mem_pool*, void*);
+void  cf_mem_pool_init(struct cf_mem_pool*, const char*, size_t, size_t);
+void  cf_mem_pool_cleanup(struct cf_mem_pool*);
 
 /* Utility functions */
 time_t cf_date_to_time(const char*);
@@ -740,6 +752,9 @@ char* cf_text_trim(char*, size_t);
 char* cf_fread_line(FILE*, char*, size_t);
 char* cf_uppercase(char*);
 int cf_endswith(const char*, const char*);
+uint64_t cf_time_ms(void);
+uint64_t cf_time_us(void);
+void cf_ms2ts(struct timespec*, uint64_t);
 #ifdef __linux__
     int cf_get_sig_name(int, char*, size_t);
 #endif
@@ -806,7 +821,7 @@ void cf_runtime_configure(struct cf_runtime_call*, int, char**);
     struct cf_validator* cf_validator_lookup(const char*);
 
     void cf_filemap_init(void);
-    int	cf_filemap_create(struct cf_domain*, const char*, const char*);
+    int	 cf_filemap_create(struct cf_domain*, const char*, const char*);
     void cf_filemap_resolve_paths(void);
     void cf_fileref_init(void);
     struct cf_fileref* cf_fileref_get(const char*);
@@ -829,6 +844,7 @@ void	 net_write16(uint8_t*, uint16_t);
 void	 net_write32(uint8_t*, uint32_t);
 void	 net_write64(uint8_t*, uint64_t);
 
+/* Network functions list */
 void net_init(void);
 void net_cleanup(void);
 int  net_send(struct connection*);
@@ -847,6 +863,7 @@ void net_send_stream(struct connection*, void*, size_t, int (*cb)(struct netbuf*
 struct netbuf* net_netbuf_get(void);
 void net_send_fileref(struct connection*, struct cf_fileref*);
 
+/* Buffer functions list */
 void cf_buf_free(struct cf_buf*);
 struct cf_buf* cf_buf_alloc(size_t);
 void cf_buf_init(struct cf_buf*, size_t);

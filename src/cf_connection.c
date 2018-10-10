@@ -69,9 +69,10 @@ struct connection* cf_connection_new( void *owner, uint8_t type )
 	c->disconnect = NULL;
 	c->hdlr_extra = NULL;
 	c->proto = CONN_PROTO_UNKNOWN;
-    c->type = type;
 	c->idle_timer.start = 0;
     c->idle_timer.length = CF_IDLE_TIMER_MAX;
+    c->evt.type = CF_TYPE_CONNECTION;
+    c->evt.handle = cf_connection_event;
 
 #ifndef CF_NO_HTTP
     c->ws_connect = NULL;
@@ -137,7 +138,7 @@ int cf_connection_accept( struct listener *listener, struct connection **out )
 	TAILQ_INSERT_TAIL(&connections, c, list);
 
 #ifndef CF_NO_TLS
-    c->state = CONN_STATE_SSL_IN_SHAKE;
+    c->state = CONN_STATE_TLS_SHAKE;
     c->write = net_write_tls;
     c->read = net_read_tls;
 #else
@@ -242,6 +243,19 @@ void cf_connection_disconnect( struct connection *c )
 		TAILQ_INSERT_TAIL(&disconnected, c, list);
 	}
 }
+void cf_connection_event( void *arg, int error )
+{
+    struct connection *c = arg;
+
+    if( error )
+    {
+        cf_connection_disconnect(c);
+        return;
+    }
+
+    if( !c->handle(c) )
+        cf_connection_disconnect(c);
+}
 /****************************************************************
  *  Disconnect connection client helper function
  ****************************************************************/
@@ -276,7 +290,13 @@ int cf_connection_handle( struct connection *c )
     switch( c->state )
     {
 #ifndef CF_NO_TLS
-    case CONN_STATE_SSL_IN_SHAKE:
+    case CONN_STATE_TLS_SHAKE:
+        if( server.primary_dom->ssl_ctx == NULL )
+        {
+            cf_log(LOG_NOTICE,"TLS configuration for %s not yet complete",server.primary_dom->domain);
+            return CF_RESULT_ERROR;
+        }
+
         if( c->ssl == NULL )
         {
             c->ssl = SSL_new( server.primary_dom->ssl_ctx );
@@ -331,7 +351,7 @@ int cf_connection_handle( struct connection *c )
 			c->cert = NULL;
 		}
 
-		r = SSL_get_verify_result(c->ssl);
+        r = SSL_get_verify_result( c->ssl );
 
         if( r != X509_V_OK )
         {
@@ -364,13 +384,13 @@ int cf_connection_handle( struct connection *c )
 		/* FALLTHROUGH */
 #endif /* CF_NO_TLS */
 	case CONN_STATE_ESTABLISHED:
-        if( c->flags & CONN_READ_POSSIBLE )
+        if( c->evt.flags & CF_EVENT_READ )
         {
             if( !net_recv_flush(c) )
                 return CF_RESULT_ERROR;
 		}
 
-        if( c->flags & CONN_WRITE_POSSIBLE )
+        if( c->evt.flags & CF_EVENT_WRITE )
         {
             if( !net_send_flush(c) )
                 return CF_RESULT_ERROR;
@@ -380,7 +400,7 @@ int cf_connection_handle( struct connection *c )
     /* connecting to backend server */
     case CONN_STATE_CONNECTING:
         /* We will get a write notification when we can progress */
-        if( c->flags & CONN_WRITE_POSSIBLE )
+        if( c->evt.flags & CF_EVENT_WRITE )
         {
             /* Try to server connect, if we failed check why, we are non blocking */
             if( cf_connection_backend_connect( c ) == -1 )
@@ -395,7 +415,7 @@ int cf_connection_handle( struct connection *c )
                 /* Clean the write flag, we'll be called later */
                 if( errno != EISCONN )
                 {
-                    c->flags &= ~CONN_WRITE_POSSIBLE;
+                    c->evt.flags &= ~CF_EVENT_WRITE;
                     break;
                 }
             }
@@ -473,14 +493,8 @@ void cf_connection_remove( struct connection *c )
     for( nb = TAILQ_FIRST(&(c->send_queue)); nb != NULL; nb = next )
     {
 		next = TAILQ_NEXT(nb, list);
-		TAILQ_REMOVE(&(c->send_queue), nb, list);
-
-        if( !(nb->flags & NETBUF_IS_STREAM) )
-			mem_free(nb->buf);
-        else if( nb->cb != NULL )
-            nb->cb(nb);
-
-        cf_mem_pool_put(&server.nb_pool, nb);
+        nb->flags &= ~NETBUF_MUST_RESEND;
+        net_remove_netbuf(&(c->send_queue), nb);
 	}
 
     if( c->rnb != NULL )

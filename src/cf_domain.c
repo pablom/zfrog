@@ -16,11 +16,18 @@
 #include <fnmatch.h>
 #include "zfrog.h"
 
+#if (__sun && __SVR4)
+    #ifndef FNM_CASEFOLD
+        #define FNM_CASEFOLD    0
+    #endif
+#endif
+
+
 #ifndef CF_NO_HTTP
     #include "cf_http.h"
 #endif
 
-#define SSL_SESSION_ID	"cf_ssl_sessionid"
+#define SSL_SESSION_ID	"zfrog_ssl_sessionid"
 
 #ifndef CF_NO_TLS
     static uint8_t	keymgr_buf[2048];
@@ -257,11 +264,7 @@ struct cf_domain* cf_domain_lookup( const char *domain )
         if( !strcmp(dom->domain, domain) )
             return dom;
 
-#if (__sun && __SVR4)
-        if( !fnmatch(dom->domain, domain, 0) )
-#else
         if( !fnmatch(dom->domain, domain, FNM_CASEFOLD) )
-#endif
             return dom;
 	}
 
@@ -309,7 +312,6 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     EVP_PKEY *pkey = NULL;
     STACK_OF(X509_NAME)	*certs = NULL;
     EC_KEY* eckey = NULL;
-    //X509_STORE *store = NULL;
     const SSL_METHOD* method = NULL;
 
 #if !defined(OPENSSL_NO_EC)
@@ -447,11 +449,6 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
         SSL_CTX_set_verify_depth(dom->ssl_ctx, dom->x509_verify_depth);
         SSL_CTX_set_client_CA_list(dom->ssl_ctx, certs);
         SSL_CTX_set_verify(dom->ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, domain_x509_verify);
-
-        //if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
-        //    cf_fatal("SSL_CTX_get_cert_store(): %s", ssl_errno_s);
-
-        //X509_STORE_set_verify_cb(store, domain_x509_verify);
     }
 
     SSL_CTX_set_session_id_context(dom->ssl_ctx,(unsigned char *)SSL_SESSION_ID, strlen(SSL_SESSION_ID));
@@ -471,9 +468,6 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     SSL_CTX_set_tlsext_servername_callback(dom->ssl_ctx, cf_tls_sni_cb);
 
     X509_free( x509 );
-
-    //mem_free(dom->certfile);
-    //dom->certfile = NULL;
 }
 
 static void keymgr_init(void)
@@ -632,13 +626,18 @@ static void keymgr_await_data( void )
 	 * This means other internal messages can still be delivered by
 	 * this worker process to the appropriate callbacks but we do not
 	 * drop out until we've either received an answer from the keymgr
-	 * or until the timeout has been reached.
+     * or until the timeout has been reached (1 second currently).
 	 *
-	 * It will however block any other I/O and request handling on
-	 * this worker until either of the above criteria is met.
-	 */
+     * If we end up waiting for the keymgr process we will call
+     * http_process (if not built with CF_NO_HTTP=1) to further existing
+     * requests so those do not block too much.
+     *
+     * This means that all incoming data will stop being processed
+     * while existing requests will get processed until we return
+     * from this call.
+     */
     start = cf_time_ms();
-    cf_platform_disable_events( server.worker->msg[1]->fd );
+    cf_platform_disable_read( server.worker->msg[1]->fd );
 
 	keymgr_response = 0;
 	memset(keymgr_buf, 0, sizeof(keymgr_buf));
@@ -686,7 +685,7 @@ static void keymgr_await_data( void )
         if( !(pfd[0].revents & POLLIN) )
 			break;
 
-        server.worker->msg[1]->flags |= CONN_READ_POSSIBLE;
+        server.worker->msg[1]->evt.flags |= CF_EVENT_READ;
 
         if( !net_recv_flush(server.worker->msg[1]) )
 			break;
@@ -717,12 +716,12 @@ static void keymgr_msg_response( struct cf_msg *msg, const void *data )
  ****************************************************************/
 static int domain_x509_verify(int ok, X509_STORE_CTX *ctx)
 {
-    X509 *cert = NULL;
+    X509        *cert = NULL;
     const char	*text = NULL;
     int	error, depth;
 
 	error = X509_STORE_CTX_get_error(ctx);
-	cert = X509_STORE_CTX_get_current_cert(ctx);
+    cert  = X509_STORE_CTX_get_current_cert(ctx);
 
     if( ok == 0 && cert != NULL )
     {
@@ -732,7 +731,7 @@ static int domain_x509_verify(int ok, X509_STORE_CTX *ctx)
         cf_log(LOG_WARNING, "X509 verification error depth:%d - %s", depth, text);
 
         /* Continue on CRL validity errors */
-        switch (error)
+        switch( error )
         {
 		case X509_V_ERR_CRL_HAS_EXPIRED:
 		case X509_V_ERR_CRL_NOT_YET_VALID:

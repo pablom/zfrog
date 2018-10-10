@@ -61,6 +61,12 @@ void cf_platform_worker_setcpu(struct cf_worker *kw)
  ****************************************************************/
 void cf_platform_event_init( void )
 {
+    if( efd != -1 )
+        close(efd);
+
+    if( events != NULL )
+        mem_free( events );
+
     if( (efd = epoll_create(10000)) == -1 )
 		cf_fatal("epoll_create(): %s", errno_s);
 
@@ -90,9 +96,7 @@ void cf_platform_event_cleanup( void )
 int cf_platform_event_wait( uint64_t timer )
 {
     uint32_t r = 0; /* return value */
-    struct connection *c = NULL;
-    struct listener	*l = NULL;
-    uint8_t type;
+    struct cf_event	*evt = NULL;
     int	n, i;
 
     /* Wait events */
@@ -115,91 +119,22 @@ int cf_platform_event_wait( uint64_t timer )
         if( events[i].data.ptr == NULL )
 			cf_fatal("events[%d].data.ptr == NULL", i);
 
-        type = *(uint8_t *)events[i].data.ptr;
+        /* Reinit return value */
+        r = 0;
 
-        /* Catch errors */
+        evt = (struct cf_event *)events[i].data.ptr;
+
+        if( events[i].events & EPOLLIN )
+            evt->flags |= CF_EVENT_READ;
+
+        if( events[i].events & EPOLLOUT )
+            evt->flags |= CF_EVENT_WRITE;
+
         if( events[i].events & EPOLLERR || events[i].events & EPOLLHUP )
-        {
-            switch( type )
-            {
-            case CF_TYPE_LISTENER:
-				cf_fatal("failed on listener socket");
-				/* NOTREACHED */
-#ifdef CF_PGSQL
-            case CF_TYPE_PGSQL_CONN:
-                cf_pgsql_handle(events[i].data.ptr, 1);
-				break;
-#endif
-#ifdef CF_TASKS
-            case CF_TYPE_TASK:
-                cf_task_handle(events[i].data.ptr, 1);
-				break;
-#endif
-			default:
-				c = (struct connection *)events[i].data.ptr;
-                if( type == CF_TYPE_BACKEND )
-                    cf_connection_backend_error(c);
-                else
-                    cf_connection_disconnect(c);
-				break;
-			}
+            r = 1;
 
-			continue;
-		}
-
-        switch( type )
-        {
-        case CF_TYPE_LISTENER:
-			l = (struct listener *)events[i].data.ptr;
-
-            while( server.worker_active_connections < server.worker_max_connections )
-            {
-                if( server.worker_accept_threshold != 0 && r >= server.worker_accept_threshold )
-					break;
-
-                if( !cf_connection_accept(l, &c) )
-                {
-					r = 1;
-					break;
-				}
-
-				if (c == NULL)
-					break;
-
-				r++;
-                cf_platform_event_all(c->fd, c);
-			}
-			break;
-
-        case CF_TYPE_CLIENT:
-        case CF_TYPE_BACKEND:
-			c = (struct connection *)events[i].data.ptr;
-
-            if( events[i].events & EPOLLIN && !(c->flags & CONN_READ_BLOCK) )
-				c->flags |= CONN_READ_POSSIBLE;
-
-            if( events[i].events & EPOLLOUT && !(c->flags & CONN_WRITE_BLOCK) )
-				c->flags |= CONN_WRITE_POSSIBLE;
-
-            /* Catch data from socket */
-            if( c->handle != NULL && !c->handle(c) )
-                cf_connection_disconnect(c);
-
-            break;
-#ifdef CF_PGSQL
-        case CF_TYPE_PGSQL_CONN:
-            cf_pgsql_handle( events[i].data.ptr, 0 );
-			break;
-#endif
-#ifdef CF_TASKS
-        case CF_TYPE_TASK:
-            cf_task_handle( events[i].data.ptr, 0 );
-			break;
-#endif
-		default:
-			cf_fatal("wrong type in event %d", type);
-		}
-	}
+        evt->handle(events[i].data.ptr, r);
+    }
 
     return r;
 }
@@ -254,7 +189,7 @@ void cf_platform_schedule_write( int fd, void *data )
  *  Helper function add file descriptor to disable
  *  catch incoming data events
  ****************************************************************/
-void cf_platform_disable_events( int fd )
+void cf_platform_disable_read( int fd )
 {
     if( epoll_ctl(efd, EPOLL_CTL_DEL, fd, NULL) == -1 )
         cf_fatal("cf_platform_disable_events(): %s", errno_s);
@@ -309,7 +244,7 @@ int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
         {
             if( errno == EAGAIN )
             {
-                c->flags &= ~CONN_WRITE_POSSIBLE;
+                c->evt.flags &= ~CF_EVENT_WRITE;
                 return CF_RESULT_OK;
             }
 

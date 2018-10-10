@@ -36,7 +36,7 @@ static uint32_t event_count = 0;
 /****************************************************************
  *  Init platform function
  ****************************************************************/
-void cf_platform_init()
+void cf_platform_init( void )
 {
 #if defined(__MACH__) || defined(__FreeBSD_version)
 	long	n;
@@ -74,7 +74,7 @@ void cf_platform_worker_setcpu( struct cf_worker *kw )
 /****************************************************************
  *  Event platform init function
  ****************************************************************/
-void cf_platform_event_init()
+void cf_platform_event_init( void )
 {
     struct listener	*l = NULL;
 
@@ -96,7 +96,7 @@ void cf_platform_event_init()
 /****************************************************************
  *  Cleanup event platform init function
  ****************************************************************/
-void cf_platform_event_cleanup()
+void cf_platform_event_cleanup( void )
 {
     if( kfd != -1 )
     {
@@ -115,12 +115,15 @@ void cf_platform_event_cleanup()
  ****************************************************************/
 int cf_platform_event_wait(uint64_t timer)
 {
-    uint32_t r;
+    uint32_t  r = 0;
+    struct cf_event	*evt = NULL;
+    struct timespec timeo;
+    int	n, i;
+
     struct listener *l = NULL;
     struct connection *c = NULL;
     uint8_t type;
-    struct timespec timeo;
-    int	n, i;
+
 
 	timeo.tv_sec = timer / 1000;
 	timeo.tv_nsec = (timer % 1000) * 1000000;
@@ -136,91 +139,28 @@ int cf_platform_event_wait(uint64_t timer)
     if( n > 0 )
         log_debug("main(): %d sockets available", n);
 
-	r = 0;
     for(i = 0; i < n; i++)
     {
         if( events[i].udata == NULL )
 			cf_fatal("events[%d].udata == NULL", i);
 
-        type = *(uint8_t *)events[i].udata;
+        /* Reinit return value */
+        r = 0;
+        evt = (struct cf_event*)events[i].udata;
+
+        if( events[i].filter == EVFILT_READ )
+            evt->flags |= CF_EVENT_READ;
+
+        if( events[i].filter == EVFILT_WRITE )
+            evt->flags |= CF_EVENT_WRITE;
 
         if( events[i].flags & EV_EOF || events[i].flags & EV_ERROR )
-        {
-            switch( type )
-            {
-            case CF_TYPE_LISTENER:
-				cf_fatal("error on server socket");
-				/* NOTREACHED */
-#ifdef CF_PGSQL
-            case CF_TYPE_PGSQL_CONN:
-                cf_pgsql_handle(events[i].udata, 1);
-				break;
-#endif
-#ifdef CF_TASKS
-            case CF_TYPE_TASK:
-                cf_task_handle(events[i].udata, 1);
-				break;
-#endif
-			default:
-				c = (struct connection *)events[i].udata;
-                cf_connection_disconnect(c);
-				break;
-			}
+            r = 1;
 
-			continue;
-		}
+        evt->handle(events[i].udata, r);
+    }
 
-        switch( type )
-        {
-        case CF_TYPE_LISTENER:
-			l = (struct listener *)events[i].udata;
-
-            while( server.worker_active_connections < server.worker_max_connections )
-            {
-                if( server.worker_accept_threshold != 0 && r >= server.worker_accept_threshold )
-					break;
-
-                if( !cf_connection_accept(l, &c) )
-                {
-					r = 1;
-					break;
-				}
-
-                if( c == NULL )
-					break;
-
-				r++;
-                cf_platform_event_all(c->fd, c);
-			}
-			break;
-        case CF_TYPE_CLIENT:
-			c = (struct connection *)events[i].udata;
-            if( events[i].filter == EVFILT_READ && !(c->flags & CONN_READ_BLOCK) )
-				c->flags |= CONN_READ_POSSIBLE;
-
-            if( events[i].filter == EVFILT_WRITE && !(c->flags & CONN_WRITE_BLOCK) )
-				c->flags |= CONN_WRITE_POSSIBLE;
-
-            if( c->handle != NULL && !c->handle(c) )
-                cf_connection_disconnect(c);
-			break;
-#ifdef CF_PGSQL
-        case CF_TYPE_PGSQL_CONN:
-            cf_pgsql_handle(events[i].udata, 0);
-			break;
-#endif
-
-#ifdef CF_TASKS
-        case CF_TYPE_TASK:
-            cf_task_handle(events[i].udata, 0);
-			break;
-#endif
-		default:
-			cf_fatal("wrong type in event %d", type);
-		}
-	}
-
-	return (r);
+    return r;
 }
 /****************************************************************
  *  Helper function add file descriptor to catch
@@ -283,7 +223,7 @@ void cf_platform_schedule_write(int fd, void *data)
  *  Helper function add file descriptor to disable
  *  catch incoming data events
  ****************************************************************/
-void cf_platform_disable_events(int fd)
+void cf_platform_disable_read(int fd)
 {
     cf_platform_event_schedule(fd, EVFILT_READ, EV_DELETE, NULL);
 }
@@ -317,7 +257,7 @@ int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
         if( errno == EAGAIN )
         {
             nb->fd_off += len;
-            c->flags &= ~CONN_WRITE_POSSIBLE;
+            c->evt.flags &= ~CF_EVENT_WRITE;
             return CF_RESULT_OK;
         }
 

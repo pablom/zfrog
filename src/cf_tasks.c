@@ -49,8 +49,9 @@ void cf_task_create( struct cf_task *t, int (*entry)(struct cf_task *) )
 #ifndef CF_NO_HTTP
 	t->req = NULL;
 #endif
+    t->evt.type = CF_TYPE_TASK;
+    t->evt.handle = cf_task_handle;
 	t->entry = entry;
-    t->type = CF_TYPE_TASK;
     t->state = CF_TASK_STATE_CREATED;
 	pthread_rwlock_init(&(t->lock), NULL);
 
@@ -208,8 +209,10 @@ uint32_t cf_task_channel_read( struct cf_task *t, void *out, uint32_t len )
 /****************************************************************
  *  Task function default handler
  ****************************************************************/
-void cf_task_handle( struct cf_task *t, int finished )
+void cf_task_handle( void *arg, int finished )
 {
+    struct cf_task *t = (struct cf_task*)arg;
+
     log_debug("cf_task_handle: %p, %d", t, finished);
 
 #ifndef CF_NO_HTTP
@@ -219,7 +222,7 @@ void cf_task_handle( struct cf_task *t, int finished )
 
     if( finished )
     {
-        cf_platform_disable_events( t->fds[0] );
+        cf_platform_disable_read( t->fds[0] );
         cf_task_set_state(t, CF_TASK_STATE_FINISHED);
 #ifndef CF_NO_HTTP
         if( t->req != NULL )

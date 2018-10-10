@@ -150,6 +150,8 @@ void cf_platform_event_cleanup(void)
 int cf_platform_event_wait( uint64_t timer )
 {
     uint32_t r = 0; /* return value */
+    struct cf_event	*evt = NULL;
+
     uint_t i = 0;
     struct timespec timeo;
     int err;
@@ -190,93 +192,21 @@ int cf_platform_event_wait( uint64_t timer )
         if( events[i].portev_user == NULL )
             cf_fatal("events[%d].portev_user == NULL", i);
 
-        type = *(uint8_t *)events[i].portev_user;
+        /* Reinit return value */
+        r = 0;
+
+        evt = (struct cf_event *)events[i].portev_user;
+
+        if( events[i].portev_events & POLLIN )
+            evt->flags |= CF_EVENT_READ;
+
+        if( events[i].portev_events & POLLOUT )
+            evt->flags |= CF_EVENT_WRITE;
 
         if( events[i].portev_events & POLLERR || events[i].portev_events & POLLHUP )
-        {
-            switch (type)
-            {
-            case CF_TYPE_LISTENER:
-                cf_fatal("failed on listener socket");
-                /* NOTREACHED */
-#ifdef CF_PGSQL
-            case CF_TYPE_PGSQL_CONN:
-                cf_pgsql_handle(events[i].portev_user, 1);
-                break;
-#endif
-#ifdef CF_TASKS
-            case CF_TYPE_TASK:
-                cf_task_handle(events[i].portev_user, 1);
-                break;
-#endif
-            default:
-                c = (struct connection *)events[i].portev_user;
-                cf_connection_disconnect(c);
-                break;
-            }
+            r = 1;
 
-            continue;
-        }
-
-        switch( type )
-        {
-        case CF_TYPE_LISTENER:
-            l = (struct listener *)events[i].portev_user;
-
-            while( server.worker_active_connections < server.worker_max_connections )
-            {
-                if( server.worker_accept_threshold != 0 && r >= server.worker_accept_threshold )
-                    break;
-
-                if( !cf_connection_accept(l, &c) )
-                {
-                    r = 1;
-                    break;
-                }
-
-                if( c == NULL )
-                    break;
-
-                r++;
-
-                /* Add connection to evport scheduler */
-                cf_platform_event_all(c->fd, c);
-
-                /* Reassociate listener in evport scheduler */
-                cf_platform_event_schedule(l->fd, POLLIN, 0, l);
-            }
-            break;
-
-        case CF_TYPE_CLIENT:
-            c = (struct connection *)events[i].portev_user;
-
-            if( events[i].portev_events & POLLIN && !(c->flags & CONN_READ_BLOCK) )
-                c->flags |= CONN_READ_POSSIBLE;
-
-            if( events[i].portev_events & POLLOUT && !(c->flags & CONN_WRITE_BLOCK) )
-                c->flags |= CONN_WRITE_POSSIBLE;
-
-            if( c->handle != NULL && !c->handle(c) )
-                cf_connection_disconnect( c );
-            else /* Reassociate listener in evport scheduler */
-                cf_platform_schedule_read(c->fd,c);
-
-            break;
-
-#ifdef CF_PGSQL
-        case CF_TYPE_PGSQL_CONN:
-            cf_pgsql_handle(events[i].portev_user, 0);
-            break;
-#endif
-
-#ifdef CF_TASKS
-        case CF_TYPE_TASK:
-            cf_task_handle(events[i].portev_user, 0);
-            break;
-#endif
-        default:
-            cf_fatal("wrong type in event %d", type);
-        }
+        evt->handle(events[i].portev_user, r);
     }
 
     return r;

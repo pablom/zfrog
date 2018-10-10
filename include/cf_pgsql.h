@@ -24,9 +24,9 @@ extern "C" {
 
 struct pgsql_conn
 {
-    uint8_t   type;
-    uint8_t   flags;
-    char	   *name;
+    struct cf_event evt;
+    uint8_t         flags;
+    char            *name;
 
     PGconn             *db;
     struct pgsql_job   *job;

@@ -680,7 +680,7 @@ static struct redis_conn* redis_conn_create( struct cf_redis *redis, struct redi
     connection_add_backend( conn->c );
 
     /* Kick off connecting */
-    conn->c->flags |= CONN_WRITE_POSSIBLE;
+    conn->c->evt.flags |= CF_EVENT_WRITE;
     conn->c->handle( conn->c );
 
     if( conn->c->state == CONN_STATE_ESTABLISHED )
@@ -701,7 +701,7 @@ static void redis_conn_release( struct cf_redis *redis )
     {
         if( redis->flags & CF_REDIS_SCHEDULED )
         {
-            cf_platform_disable_events( redisSocket(redis) );
+            cf_platform_disable_read( redisSocket(redis) );
 
             if( redis->state != CF_REDIS_STATE_DONE )
                 redis_cancel( redis );
@@ -796,7 +796,7 @@ static int redis_handle_connect( struct connection *c )
     struct redis_conn* redis_c = NULL;
 
     /* We will get a write notification when we can progress */
-    if( !(c->flags & CONN_WRITE_POSSIBLE) )
+    if( !(c->evt.flags & CF_EVENT_WRITE) )
         return CF_RESULT_OK;
 
     cf_connection_stop_idletimer( c );
@@ -816,7 +816,7 @@ static int redis_handle_connect( struct connection *c )
         /* Clean the write flag, we'll be called later */
         if( errno != EISCONN )
         {
-            c->flags &= ~CONN_WRITE_POSSIBLE;
+            c->evt.flags &= ~CF_EVENT_WRITE;
             cf_connection_start_idletimer(c);
             return CF_RESULT_OK;
         }
@@ -901,7 +901,7 @@ static int redis_recv( struct netbuf *nb )
 static void redis_handle_disconnect( struct connection *c, int err )
 {
     /* Disable catch events */
-    cf_platform_disable_events( c->fd );
+    cf_platform_disable_read( c->fd );
 
     if( err )
     {

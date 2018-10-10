@@ -90,7 +90,7 @@ void cf_msg_worker_init(void)
     server.worker->msg[1]->state = CONN_STATE_ESTABLISHED;
     server.worker->msg[1]->disconnect = msg_disconnected_parent;
     server.worker->msg[1]->handle = cf_connection_handle;
-    server.worker->msg[1]->flags = CONN_WRITE_POSSIBLE;
+    server.worker->msg[1]->evt.flags = CF_EVENT_WRITE;
 
     TAILQ_INSERT_TAIL(&connections, server.worker->msg[1], list);
     cf_platform_event_all(server.worker->msg[1]->fd, server.worker->msg[1]);

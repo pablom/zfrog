@@ -163,8 +163,9 @@ void net_recv_reset( struct connection *c, size_t len, int (*cb)(struct netbuf *
 	c->rnb->s_off = 0;
 	c->rnb->b_len = len;
 
-    if( c->rnb->b_len <= c->rnb->m_len && c->rnb->m_len < (NETBUF_SEND_PAYLOAD_MAX / 2) )
-		return;
+    if( c->rnb->buf != NULL && c->rnb->b_len <= c->rnb->m_len &&
+        c->rnb->m_len < (NETBUF_SEND_PAYLOAD_MAX / 2) )
+        return;
 
     mem_free(c->rnb->buf);
 	c->rnb->m_len = len;
@@ -225,7 +226,7 @@ int net_send( struct connection *c )
         if( !c->write(c, len, &r) )
             return CF_RESULT_ERROR;
 
-        if( !(c->flags & CONN_WRITE_POSSIBLE) )
+        if( !(c->evt.flags & CF_EVENT_WRITE) )
             return CF_RESULT_OK;
 
         log_debug("net_send(%p/%d/%d bytes), progress with %d", c->snb, c->snb->s_off, c->snb->b_len, r);
@@ -249,7 +250,7 @@ int net_send_flush( struct connection *c )
 {
     log_debug("net_send_flush(%p)", c);
 
-    while( !TAILQ_EMPTY(&(c->send_queue)) && (c->flags & CONN_WRITE_POSSIBLE) )
+    while( !TAILQ_EMPTY(&(c->send_queue)) && (c->evt.flags & CF_EVENT_WRITE) )
     {
         if( !net_send(c) )
             return CF_RESULT_ERROR;
@@ -272,7 +273,7 @@ int net_recv_flush( struct connection *c )
     if( c->rnb == NULL )
         return CF_RESULT_OK;
 
-    while( c->flags & CONN_READ_POSSIBLE )
+    while( c->evt.flags & CF_EVENT_READ )
     {
         if( c->rnb->buf == NULL )
             return CF_RESULT_OK;
@@ -280,7 +281,7 @@ int net_recv_flush( struct connection *c )
         if( !c->read(c, &r) )
             return CF_RESULT_ERROR;
 
-        if( !(c->flags & CONN_READ_POSSIBLE) )
+        if( !(c->evt.flags & CF_EVENT_READ) )
 			break;
 
         log_debug("net_recv(%ld/%ld bytes), progress with %d", c->rnb->s_off, c->rnb->b_len, r);
@@ -354,8 +355,8 @@ int net_write_tls( struct connection *c, size_t len, size_t *written )
         {
 		case SSL_ERROR_WANT_READ:
 		case SSL_ERROR_WANT_WRITE:
-			c->snb->flags |= NETBUF_MUST_RESEND;
-			c->flags &= ~CONN_WRITE_POSSIBLE;
+            c->evt.flags &= ~CF_EVENT_WRITE;
+			c->snb->flags |= NETBUF_MUST_RESEND;            
             return CF_RESULT_OK;
 		case SSL_ERROR_SYSCALL:
             switch( errno )
@@ -364,8 +365,8 @@ int net_write_tls( struct connection *c, size_t len, size_t *written )
 				*written = 0;
                 return CF_RESULT_OK;
 			case EAGAIN:
-				c->snb->flags |= NETBUF_MUST_RESEND;
-				c->flags &= ~CONN_WRITE_POSSIBLE;
+                c->evt.flags &= ~CF_EVENT_WRITE;
+                c->snb->flags |= NETBUF_MUST_RESEND;
                 return CF_RESULT_OK;
 			default:
 				break;
@@ -402,7 +403,7 @@ int net_read_tls( struct connection *c, size_t *bytes )
         {
 		case SSL_ERROR_WANT_READ:
 		case SSL_ERROR_WANT_WRITE:
-			c->flags &= ~CONN_READ_POSSIBLE;            
+            c->evt.flags &= ~CF_EVENT_READ;
             return CF_RESULT_OK;
 		case SSL_ERROR_SYSCALL:
             switch( errno )
@@ -411,8 +412,8 @@ int net_read_tls( struct connection *c, size_t *bytes )
 				*bytes = 0;
                 return (CF_RESULT_OK);
 			case EAGAIN:
+                c->evt.flags &= ~CF_EVENT_READ;
 				c->snb->flags |= NETBUF_MUST_RESEND;
-				c->flags &= ~CONN_WRITE_POSSIBLE;
                 return CF_RESULT_OK;
 			default:
 				break;
@@ -445,7 +446,7 @@ int net_write(struct connection *c, size_t len, size_t *written)
 			*written = 0;
             return CF_RESULT_OK;
 		case EAGAIN:
-			c->flags &= ~CONN_WRITE_POSSIBLE;
+            c->evt.flags &= ~CF_EVENT_WRITE;
             return CF_RESULT_OK;
 		default:
             log_debug("write(): %s", errno_s);
@@ -465,7 +466,7 @@ int net_read( struct connection *c, size_t *bytes )
 
     r = read(c->fd, (c->rnb->buf + c->rnb->s_off), (c->rnb->b_len - c->rnb->s_off));
 
-    if( r <= 0 )
+    if( r == -1 )
     {
         switch( errno )
         {
@@ -473,13 +474,20 @@ int net_read( struct connection *c, size_t *bytes )
 			*bytes = 0;
             return CF_RESULT_OK;
 		case EAGAIN:
-			c->flags &= ~CONN_READ_POSSIBLE;
+            c->evt.flags &= ~CF_EVENT_READ;
             return CF_RESULT_OK;
 		default:
             log_debug("read(): %s", errno_s);
             return CF_RESULT_ERROR;
 		}
 	}
+
+    if( r == 0 )
+    {
+        cf_connection_disconnect(c);
+        c->evt.flags &= ~CF_EVENT_READ;
+        return CF_RESULT_OK;
+    }
 
     *bytes = (size_t)r;
     return CF_RESULT_OK;

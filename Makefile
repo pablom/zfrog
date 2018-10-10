@@ -468,6 +468,28 @@ example-json_yajl:
 example-all: example-generic example-integers example-websocket example-parameters example-memtag \
           example-headers example-cookies example-messaging
 
+########################################################################
+#  Example run applications section
+########################################################################
+run-generic:
+	cd examples/generic && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/generic/conf/generic.conf && cd -
+
+run-pipe_task:
+	cd examples/pipe_task && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/pipe_task/conf/pipe_task.conf && cd -
+	
+run-websocket:
+	cd examples/websocket && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/websocket/conf/websocket.conf && cd -
+
+run-tls-proxy:
+	cd examples/tls-proxy && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/tls-proxy/conf/tls-proxy.conf && cd -
+	
+run-jsonrpc:
+	cd examples/jsonrpc && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/jsonrpc/conf/jsonrpc.conf && cd -
+
+run-redis:
+	cd examples/redis && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/redis/conf/redis.conf && cd -
+
+
 .DEFAULT_GOAL := all
 
 .PHONY: all clean install uninstall

@@ -337,7 +337,7 @@ static int websocket_recv_frame( struct netbuf* nb )
 		}
 		break;
 	case WEBSOCKET_OP_CLOSE:
-		c->flags &= ~CONN_READ_POSSIBLE;
+        c->evt.flags &= ~CF_EVENT_READ;
         if( !(c->flags & CONN_WS_CLOSE_SENT) )
         {
 			c->flags |= CONN_WS_CLOSE_SENT;
@@ -365,7 +365,7 @@ static void websocket_disconnect(struct connection *c, int err)
 
     if( !(c->flags & CONN_WS_CLOSE_SENT) )
     {
-		c->flags &= ~CONN_READ_POSSIBLE;
+        c->evt.flags &= ~CF_EVENT_READ;
 		c->flags |= CONN_WS_CLOSE_SENT;
         cf_websocket_send(c, WEBSOCKET_OP_CLOSE, NULL, 0);
 	}

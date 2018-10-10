@@ -34,7 +34,7 @@ int init( int state )
 		return CF_RESULT_ERROR;
 
 	/* Only do this on a dedicated worker */
-	if( worker->id != 1 )
+    if( server.worker->id != 1 )
 		return CF_RESULT_OK;
 
 	/* Create our task */
@@ -127,7 +127,7 @@ int pipe_reader( struct cf_task *t )
 			continue;
 		}
 
-		if( ret == 0 ) 
+        if( ret == 0 )
 		{
 			cf_log(LOG_NOTICE, "writer disconnected");
 			close(fd);

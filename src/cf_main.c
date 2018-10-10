@@ -333,6 +333,34 @@ void cf_tls_info_callback( const SSL *ssl, int flags, int ret )
 	}
 }
 #endif
+
+static void listener_accept(void *arg, int error)
+{
+    struct connection	*c;
+    struct listener		*l = arg;
+    uint32_t		accepted = 0;
+
+    if( error )
+        cf_fatal("error on listening socket");
+
+    if( !(l->evt.flags & CF_EVENT_READ) )
+        return;
+
+    while( server.worker_active_connections < server.worker_max_connections )
+    {
+        if( server.worker_accept_threshold != 0 && accepted >= server.worker_accept_threshold )
+            break;
+
+        if( !cf_connection_accept(l, &c) )
+            break;
+
+        if (c == NULL)
+            break;
+
+        accepted++;
+        cf_platform_event_all(c->fd, c);
+    }
+ }
 /****************************************************************
  *  Helper function to cleanup listener structure
  ****************************************************************/
@@ -369,7 +397,8 @@ static struct listener* listener_alloc( int family, const char *ccb )
 
     l->fd = -1;
     l->family = family;
-    l->type = CF_TYPE_LISTENER;
+    l->evt.type = CF_TYPE_LISTENER;
+    l->evt.handle = listener_accept;
 
     /* Create socket */
     if( (l->fd = socket(family, SOCK_STREAM, 0)) == -1 )

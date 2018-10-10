@@ -134,7 +134,7 @@ void client_setup( struct connection *c )
 	c->state = CONN_STATE_ESTABLISHED;
 
     /* Kick off connecting */
-	backend->flags |= CONN_WRITE_POSSIBLE;
+    backend->evt.flags |= CF_EVENT_WRITE;
 	backend->handle(backend);
 }
 
@@ -153,7 +153,7 @@ int backend_handle_connect( struct connection *c )
 	struct connection	*src;
 
 	/* We will get a write notification when we can progress. */
-	if( !(c->flags & CONN_WRITE_POSSIBLE) )
+    if( !(c->evt.flags & CF_EVENT_WRITE) )
 		return CF_RESULT_OK;
 
 	cf_connection_stop_idletimer(c);
@@ -174,7 +174,7 @@ int backend_handle_connect( struct connection *c )
 		/* Clean the write flag, we'll be called later */
         if( errno != EISCONN )
 		{
-			c->flags &= ~CONN_WRITE_POSSIBLE;
+            c->evt.flags &= ~CF_EVENT_WRITE;
 			cf_connection_start_idletimer(c);
 			return CF_RESULT_OK;
 		}

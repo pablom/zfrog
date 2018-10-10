@@ -320,6 +320,9 @@ void cf_pgsql_handle( void *c, int err )
 		return;
 	}
 
+    if( !(conn->evt.flags & CF_EVENT_READ) )
+        cf_fatal("%s: read event not set", __func__);
+
 	pgsql = conn->job->pgsql;
 
     if( !PQconsumeInput(conn->db) )
@@ -636,10 +639,11 @@ static struct pgsql_conn* pgsql_conn_create( struct cf_pgsql *pgsql, struct pgsq
 
     db->conn_count++;
 
-    conn = mem_malloc(sizeof(*conn));
+    conn = mem_calloc(1, sizeof(*conn));
 	conn->job = NULL;
 	conn->flags = PGSQL_CONN_FREE;
-    conn->type = CF_TYPE_PGSQL_CONN;
+    conn->evt.type = CF_TYPE_PGSQL_CONN;
+    conn->evt.handle = cf_pgsql_handle;
     conn->name = mem_strdup(db->name);
 	TAILQ_INSERT_TAIL(&pgsql_conn_free, conn, list);
 
