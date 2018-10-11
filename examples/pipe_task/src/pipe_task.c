@@ -168,5 +168,5 @@ void pipe_data_available(struct cf_task *t)
 	/* Broadcast it to all connected websocket clients. */
 	cf_log(LOG_NOTICE, "got %zu bytes from task", len);
 
-	cf_websocket_broadcast(NULL, WEBSOCKET_OP_TEXT,buf, len, WEBSOCKET_BROADCAST_GLOBAL);
+    cf_websocket_broadcast(NULL, WEBSOCKET_OP_TEXT, buf, len, WEBSOCKET_BROADCAST_GLOBAL);
 }

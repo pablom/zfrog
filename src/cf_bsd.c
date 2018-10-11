@@ -120,11 +120,6 @@ int cf_platform_event_wait(uint64_t timer)
     struct timespec timeo;
     int	n, i;
 
-    struct listener *l = NULL;
-    struct connection *c = NULL;
-    uint8_t type;
-
-
 	timeo.tv_sec = timer / 1000;
 	timeo.tv_nsec = (timer % 1000) * 1000000;
 	n = kevent(kfd, NULL, 0, events, event_count, &timeo);

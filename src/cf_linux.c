@@ -130,7 +130,7 @@ int cf_platform_event_wait( uint64_t timer )
         if( events[i].events & EPOLLOUT )
             evt->flags |= CF_EVENT_WRITE;
 
-        if( events[i].events & EPOLLERR || events[i].events & EPOLLHUP )
+        if( events[i].events & EPOLLERR || events[i].events & EPOLLHUP || events[i].events & EPOLLRDHUP )
             r = 1;
 
         evt->handle(events[i].data.ptr, r);
