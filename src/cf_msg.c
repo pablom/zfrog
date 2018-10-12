@@ -123,7 +123,7 @@ void cf_msg_send( uint16_t dst, uint8_t id, const void *data, size_t len )
     struct cf_msg m;
 
 	m.id = id;
-	m.dst = dst;
+    m.dst = dst;
 	m.length = len;
     m.src = server.worker->id;
 
@@ -152,7 +152,6 @@ static int msg_recv_data( struct netbuf *nb )
 {
     struct connection *c = NULL;
     struct msg_type *type = NULL;
-    uint16_t destination;
     struct cf_msg *msg = (struct cf_msg *)nb->buf;
 
     if( (type = msg_type_lookup(msg->id)) != NULL )
@@ -168,9 +167,11 @@ static int msg_recv_data( struct netbuf *nb )
             type->cb(msg, NULL);
 	}
 
+    /* Root application receive messages */
     if( server.worker == NULL && type == NULL )
     {
-		destination = msg->dst;
+        uint16_t destination = msg->dst;
+
         TAILQ_FOREACH(c, &connections, list)
         {           
             if( c->proto != CONN_PROTO_MSG || c->hdlr_extra == NULL )
@@ -179,7 +180,15 @@ static int msg_recv_data( struct netbuf *nb )
             if( destination != CF_MSG_WORKER_ALL && *(uint8_t *)c->hdlr_extra != destination )
 				continue;
 
-			/* This allows the worker to receive the correct id. */
+            /* Skip to send websocket message to the source or key manager for broadcast request */
+            if( msg->id == CF_MSG_WEBSOCKET && destination == CF_MSG_WORKER_ALL && (
+#ifndef CF_NO_TLS
+                CF_WORKER_KEYMGR == *(uint8_t *)c->hdlr_extra ||
+#endif
+                msg->src == *(uint8_t *)c->hdlr_extra ) )
+                    continue;
+
+            /* This allows the worker to receive the correct id */
             msg->dst = *(uint8_t *)c->hdlr_extra;
 
 			net_send_queue(c, nb->buf, nb->s_off);

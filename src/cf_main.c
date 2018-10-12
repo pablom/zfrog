@@ -95,27 +95,39 @@ static void print_min_max( void )
  ****************************************************************/
 static void builtin_report( void )
 {
+    char tmp[256];
+    int len = 0;
+
+    /* Init buffer */
+    memset(tmp, 0, sizeof(tmp));
+
 #ifdef CF_PGSQL
-    cf_log(LOG_NOTICE, "pgsql built-in enabled");
+    strcat(tmp, "pgsql, ");
 #endif
 #ifdef CF_MYSQL
-    cf_log(LOG_NOTICE, "mysql built-in enabled");
+    strcat(tmp, "mysql, ");
 #endif
 #ifdef CF_TASKS
-    cf_log(LOG_NOTICE, "tasks built-in enabled");
+    strcat(tmp, "tasks, ");
 #endif
 #ifdef CF_JSONRPC
-    cf_log(LOG_NOTICE, "jsonrpc built-in enabled");
+    strcat(tmp, "jsonrpc, ");
 #endif
 #ifdef CF_PYTHON
-    cf_log(LOG_NOTICE, "python built-in enabled");
+    strcat(tmp, "python, ");
 #endif
 #ifdef CF_LUA
-    cf_log(LOG_NOTICE, "lua built-in enabled");
+    strcat(tmp, "lua, ");
 #endif
 #ifdef CF_REDIS
-    cf_log(LOG_NOTICE, "redis built-in enabled");
+    strcat(tmp, "redis, ");
 #endif
+
+    if( (len = strlen(tmp)) )
+    {
+        tmp[len - 2] = 0;
+        cf_log(LOG_NOTICE, "%s built-in enabled", tmp);
+    }
 }
 /****************************************************************
  *  Helper function return usage information
