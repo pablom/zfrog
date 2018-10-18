@@ -46,7 +46,7 @@ DEPS =
 ###########################################################################
 S_SRC = src/cf_main.c src/cf_buf.c src/cf_config.c src/cf_connection.c src/cf_timer.c \
         src/cf_domain.c src/cf_memory.c src/cf_msg.c src/cf_module.c src/cf_network.c \
-        src/cf_mem_pool.c src/cf_utils.c src/cf_worker.c src/cf_runtime.c
+        src/cf_mem_pool.c src/cf_utils.c src/cf_worker.c src/cf_runtime.c src/cf_fileref.c
 
 ###########################################################################
 #  zfrog cli sources
@@ -99,7 +99,7 @@ ifeq ($(CF_NO_HTTP), 1)
     FEATURES += -DCF_NO_HTTP
 else
     S_SRC+= src/cf_auth.c src/cf_accesslog.c src/cf_http.c src/cf_websocket.c\
-            src/cf_validator.c src/cf_filemap.c src/cf_fileref.c
+            src/cf_validator.c src/cf_filemap.c
 endif
 ###########################################################################
 #  TLS support
@@ -463,6 +463,9 @@ example-tasks:
 
 example-json_yajl:
 	cd examples/json_yajl && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
+
+example-python-echo:
+	cd examples/python-echo && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
 # Build all test applications by default
 example-all: example-generic example-integers example-websocket example-parameters example-memtag \

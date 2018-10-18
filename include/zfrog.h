@@ -157,8 +157,9 @@ TAILQ_HEAD(netbuf_head, netbuf);
 #define CF_TYPE_CLIENT              3
 #define CF_TYPE_BACKEND             4
 #define CF_TYPE_TASK                5
-#define CF_TYPE_PGSQL_CONN          6
-#define CF_TYPE_REDIS               7
+#define CF_TYPE_PYSOCKET            6
+#define CF_TYPE_PGSQL_CONN          7
+#define CF_TYPE_REDIS               8
 
 /* Connection state definition */
 #define CONN_STATE_UNKNOWN          0
@@ -287,7 +288,7 @@ struct cf_runtime
 
 struct cf_runtime_call
 {
-    void *addr;
+    void              *addr;
     struct cf_runtime *runtime;
 };
 
@@ -404,16 +405,16 @@ struct cf_worker
 
 struct cf_domain
 {
-    char *domain;
-    int	 accesslog;
+    char    *domain;
+    int     accesslog;
 
 #ifndef CF_NO_TLS
-    char  *cafile;
-    char  *crlfile;
-    char  *certfile;    /* Certificate file path */
-    char  *certkey;     /* Private key path */
+    char    *cafile;
+    char    *crlfile;
+    char    *certfile;    /* Certificate file path */
+    char    *certkey;     /* Private key path */
     SSL_CTX *ssl_ctx;
-    int	  x509_verify_depth;
+    int     x509_verify_depth;
 #endif
 
     TAILQ_HEAD(, cf_module_handle)	handlers;
@@ -648,6 +649,7 @@ void cf_platform_event_init(void);
 void cf_platform_event_cleanup(void);
 void cf_platform_proctitle(char*);
 void cf_platform_disable_read(int);
+void cf_platform_disable_write(int);
 void cf_platform_enable_accept(void);
 void cf_platform_disable_accept(void);
 int	 cf_platform_event_wait(uint64_t);
@@ -819,16 +821,16 @@ void cf_runtime_configure(struct cf_runtime_call*, int, char**);
     int	cf_validator_run(struct http_request*, const char*, char*);
     int	cf_validator_check(struct http_request*, struct cf_validator*, const void*);
     struct cf_validator* cf_validator_lookup(const char*);
-
-    void cf_filemap_init(void);
-    int	 cf_filemap_create(struct cf_domain*, const char*, const char*);
-    void cf_filemap_resolve_paths(void);
-    void cf_fileref_init(void);
-    struct cf_fileref* cf_fileref_get(const char*);
-    struct cf_fileref* cf_fileref_create(const char*, int, off_t,struct timespec*);
-    void cf_fileref_release(struct cf_fileref*);
-    void cf_fileref_init(void);
 #endif
+
+void cf_filemap_init(void);
+int	 cf_filemap_create(struct cf_domain*, const char*, const char*);
+void cf_filemap_resolve_paths(void);
+void cf_fileref_init(void);
+struct cf_fileref* cf_fileref_get(const char*);
+struct cf_fileref* cf_fileref_create(const char*, int, off_t,struct timespec*);
+void cf_fileref_release(struct cf_fileref*);
+void cf_fileref_init(void);
 
 struct cf_domain* cf_domain_lookup(const char*);
 struct cf_module_handle* cf_module_handler_find(const char*, const char*);

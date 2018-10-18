@@ -47,8 +47,8 @@
 #define PRI_TIME_T		"ld"
 #endif
 
-#define LD_FLAGS_MAX	30
-#define CFLAGS_MAX		30
+#define LD_FLAGS_MAX	300
+#define CFLAGS_MAX		300
 #define CXXFLAGS_MAX	CFLAGS_MAX
 
 #define BUILD_NOBUILD	0
@@ -190,6 +190,9 @@ static void	cli_flavor(int, char**);
 
 static void	file_create_src(void);
 static void	file_create_config(void);
+static void file_create_gitignore(void);
+static void file_create_pyko_src(void);
+static void	file_create_pyko_config(void);
 
 static struct cmd cmds[] = {
     { "help",       "this help text",                       cli_help },
@@ -217,6 +220,18 @@ static const char *gen_dirs[] = {
 	"conf",
 	"assets",
 	NULL
+};
+
+static const char *pyko_gen_dirs[] = {
+    "cert",
+    NULL
+};
+
+static struct filegen pyko_gen_files[] = {
+    { file_create_pyko_src },
+    { file_create_pyko_config },
+    { file_create_gitignore },
+    { NULL }
 };
 
 static const char *http_serveable_function =
@@ -291,6 +306,46 @@ static const char *build_data =
 	"#	included if you build with the \"prod\" flavor.\n"
 	"#}\n";
 
+static const char *pyko_config_data =
+    "# %s configuration\n"
+    "\n"
+    "tls_dhparam\tdh2048.pem\n"
+    "\n"
+    "domain * {\n"
+    "\tcertfile\tcert/server.pem\n"
+    "\tcertkey\t\tcert/key.pem\n"
+    "\n"
+    "\tstatic\t/\tpage\n"
+    "}\n";
+
+static const char *pyko_init_data =
+    "import os\n"
+    "import zfrog\n"
+    "from handlers import *\n"
+    "\n"
+    "ip = os.getenv('PYKO_IP')\n"
+    "if ip is None:\n"
+    "\tip = '127.0.0.1'\n"
+    "\n"
+    "port = os.getenv('PYKO_PORT')\n"
+    "if port is None:\n"
+    "\tport = '8888'\n"
+    "\n"
+    "zfrog.listen(ip, port)\n"
+    "\n"
+    "def zfrog_worker_configure():\n"
+    "\tconninfo = os.getenv('PYKO_CONNINFO')\n"
+    "\tif conninfo is not None:\n"
+    "\t\tzfrog.register_database('appdb', conninfo)\n";
+
+static const char *pyko_handlers_data =
+    "import zfrog\n"
+    "\n"
+    "def page(req):\n"
+    "\treq.response(200, b'')\n";
+
+static const char *gitignore = "*.o\n.flavor\n.obj\n%s.so\nassets.h\ncert\n";
+
 static const char *dh2048_data =
 	"-----BEGIN DH PARAMETERS-----\n"
 	"MIIBCAKCAQEAn4f4Qn5SudFjEYPWTbUaOTLUH85YWmmPFW1+b5bRa9ygr+1wfamv\n"
@@ -308,9 +363,13 @@ static int			run_after = 0;
 static char			*compiler_c     = "gcc";
 static char			*compiler_cpp   = "g++";
 static char			*compiler_ld    = "gcc";
+
+static const char	*prefix = PREFIX;
+
 static struct mime_list	mime_types;
 static struct cfile_list source_files;
 static struct buildopt_list	build_options;
+
 static int			source_files_count;
 static int			cxx_files_count;
 static struct cmd *command = NULL;
@@ -318,6 +377,7 @@ static int			cflags_count = 0;
 static int			cxxflags_count = 0;
 static int			ldflags_count = 0;
 static char			*flavor = NULL;
+static char			*object_dir = ".obj";
 static char			*cflags[CFLAGS_MAX];
 static char			*cxxflags[CXXFLAGS_MAX];
 static char			*ldflags[LD_FLAGS_MAX];
@@ -343,6 +403,7 @@ static void cli_usage(void)
 int main(int argc, char **argv)
 {
     int i;
+    char* env = NULL;
 
     if( argc < 2 ) {
         cli_usage();
@@ -350,6 +411,12 @@ int main(int argc, char **argv)
 
 	argc--;
 	argv++;
+
+    if( (env = getenv("ZFROG_PREFIX")) != NULL )
+        prefix = env;
+
+    if( (env = getenv("ZFROG_OBJDIR")) != NULL )
+        object_dir = env;
 
     umask(S_IWGRP | S_IWOTH);
 
@@ -378,11 +445,42 @@ static void cli_help(int argc, char **argv)
 {
     cli_usage();
 }
+static void cli_create_help(void)
+{
+    printf("Usage: zfrog_cli create [-p] [name]\n");
+    printf("Synopsis:\n");
+    printf("  Create a new application skeleton directory structure.\n");
+    printf("\n");
+    printf("  Optional flags:\n");
+    printf("\t-p = generate a application for use with pyko\n");
+
+    exit(1);
+}
 /*----------------------------------------------------------------------------*/
 static void cli_create(int argc, char **argv)
 {
     int	i;
     char *fpath;
+    const char	**dirs;
+    struct filegen* files = NULL;
+    int	ch;
+    int pyko = 0;
+
+    while( (ch = getopt(argc, argv, "hp")) != -1 )
+    {
+        switch( ch )
+        {
+        case 'h':
+            cli_create_help();
+            break;
+        case 'p':
+            pyko = 1;
+            break;
+        default:
+            cli_create_help();
+            break;
+        }
+    }
 
     if( argc != 1 ) {
         cli_fatal("missing application name");
@@ -391,15 +489,26 @@ static void cli_create(int argc, char **argv)
 	appl = argv[0];
 	cli_mkdir(appl, 0755);
 
-    for( i = 0; gen_dirs[i] != NULL; i++ )
+    if( pyko )
     {
-        cli_vasprintf(&fpath, "%s/%s", appl, gen_dirs[i]);
+        dirs = pyko_gen_dirs;
+        files = pyko_gen_files;
+    }
+    else
+    {
+        dirs = gen_dirs;
+        files = gen_files;
+    }
+
+    for( i = 0; dirs[i] != NULL; i++ )
+    {
+        cli_vasprintf(&fpath, "%s/%s", appl, dirs[i]);
 		cli_mkdir(fpath, 0755);
 		free(fpath);
 	}
 
-    for( i = 0; gen_files[i].cb != NULL; i++ )
-		gen_files[i].cb();
+    for( i = 0; files[i].cb != NULL; i++ )
+        files[i].cb();
 
     if( chdir(appl) == -1 ) {
         cli_fatal("chdir(%s): %s", appl, errno_s);
@@ -468,7 +577,7 @@ static void cli_build( int argc, char **argv )
     char *build_path = NULL;
     int	requires_relink, l;
     char *sofile, *config, *data;
-    char *assets_path, *p, *obj_path;
+    char *assets_path, *p;
     char pwd[PATH_MAX], *src_path, *assets_header;
     char* build_appl_path = NULL;
 
@@ -549,19 +658,17 @@ static void cli_build( int argc, char **argv )
     {
 		l = cli_vasprintf(&data, build_data, appl);
 		cli_file_create("conf/build.conf", data, l);
-		free(data);
+        free( data );
 	}
 
 	cli_find_files(src_path, cli_register_source_file);
-	free(src_path);
+    free( src_path );
 
 	cli_buildopt_parse(build_path);
-	free(build_path);
+    free( build_path );
 
-    cli_vasprintf(&obj_path, ".objs");
-    if( !cli_dir_exists(obj_path) )
-		cli_mkdir(obj_path, 0755);
-	free(obj_path);
+    if( !cli_dir_exists(object_dir) )
+        cli_mkdir(object_dir, 0755);
 
     if( bopt->single_binary )
     {
@@ -669,8 +776,8 @@ static void cli_build( int argc, char **argv )
 /*----------------------------------------------------------------------------*/
 static void cli_clean( int argc, char **argv )
 {
-    if( cli_dir_exists(".objs") )
-		cli_cleanup_files(".objs");
+    if( cli_dir_exists(object_dir) )
+        cli_cleanup_files(object_dir);
 }
 /*----------------------------------------------------------------------------*/
 static void cli_distclean(int argc, char **argv )
@@ -924,7 +1031,7 @@ static void cli_file_write(int fd, const void *buf, size_t len)
 /*----------------------------------------------------------------------------*/
 static void cli_file_create(const char *name, const char *data, size_t len)
 {
-    int fd;
+    int fd = -1;
 
 	cli_file_open(name, O_CREAT | O_TRUNC | O_WRONLY, &fd);
 	cli_file_write(fd, data, len);
@@ -938,10 +1045,10 @@ static void cli_write_asset(const char *n, const char *e, struct buildopt *bopt)
     cli_file_writef(s_fd, "extern const uint8_t asset_%s_%s[];\n", n, e);
     cli_file_writef(s_fd, "extern const uint32_t asset_len_%s_%s;\n", n, e);
 	cli_file_writef(s_fd, "extern const time_t asset_mtime_%s_%s;\n", n, e);
-	cli_file_writef(s_fd, "extern const char *asset_sha256_%s_%s;\n", n, e);
 
     if( bopt->flavor_nohttp == 0 )
     {
+        cli_file_writef(s_fd, "extern const char *asset_sha256_%s_%s;\n", n, e);
         cli_file_writef(s_fd, "int asset_serve_%s_%s(struct http_request *);\n", n, e);
 	}
 }
@@ -992,8 +1099,8 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
 		return;
 	}
 
-    cli_vasprintf(&opath, ".objs/%s.o", name);
-    cli_vasprintf(&cpath, ".objs/%s.c", name);
+    cli_vasprintf(&opath, "%s/%s.o", object_dir, name);
+    cli_vasprintf(&cpath, "%s/%s.c", object_dir, name);
 
     /* Check if the file needs to be built */
     if( !cli_file_requires_build(&st, opath) )
@@ -1003,7 +1110,7 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
 		*ext = '_';
 
 		cli_add_source_file(name, cpath, opath, &st, BUILD_NOBUILD);
-		free(name);
+        free( name );
 		return;
 	}
 
@@ -1026,7 +1133,11 @@ static void cli_build_asset(char *fpath, struct dirent *dp)
     cli_file_writef(out, "#include <stdint.h>\n\n");
 	cli_file_writef(out, "#include <sys/types.h>\n\n");
     cli_file_writef(out, "#include <zfrog.h>\n");
-    cli_file_writef(out, "#include <cf_http.h>\n\n");
+
+    if( bopt->flavor_nohttp == 0 ) {
+        cli_file_writef(out, "#include <cf_http.h>\n\n");
+    }
+
 	cli_file_writef(out, "#include \"assets.h\"\n\n");
 
     /* Write the file data as a byte array */
@@ -1128,7 +1239,7 @@ static void cli_register_source_file(char* fpath, struct dirent* dp)
     if( !strcmp(ext, ".cpp") )
 		cxx_files_count++;
 
-    cli_vasprintf(&opath, ".objs/%s.o", dp->d_name);
+    cli_vasprintf(&opath, "%s/%s.o", object_dir, dp->d_name);
 
     if( !cli_file_requires_build(&st, opath) )
     {
@@ -1162,7 +1273,7 @@ static void cli_register_file( char* fpath, struct dirent* dp )
     if( (fname = basename(fpath)) == NULL )
         cli_fatal("basename failed");
 
-    cli_vasprintf(&opath, ".objs/%s.o", fname);
+    cli_vasprintf(&opath, "%s/%s.o", object_dir, fname);
 
     /* Silently ignore non existing object files for zfrog source files. */
     if( stat(opath, &ost) == -1 )
@@ -1355,7 +1466,7 @@ static void cli_compile_source_file(void *arg)
 	idx = 0;
 	args[idx++] = compiler;
 
-	for (i = 0; i < flags_count; i++)
+    for( i = 0; i < flags_count; i++ )
 		args[idx++] = flags[i];
 
 	args[idx++] = "-c";
@@ -1406,10 +1517,16 @@ static void cli_compile_zfrog( void *arg )
     int	idx, i, fcnt;
     char *obj, *args[20], pwd[MAXPATHLEN], *flavors[7];
 
-    if( getcwd(pwd, sizeof(pwd)) == NULL )
-        cli_fatal("could not get cwd: %s", errno_s);
+    if( object_dir[0] != '/' )
+    {
+        if( getcwd(pwd, sizeof(pwd)) == NULL )
+            cli_fatal("could not get cwd: %s", errno_s);
 
-    cli_vasprintf(&obj, "OBJDIR=%s/.objs", pwd);
+        cli_vasprintf(&obj, "OBJDIR=%s/%s", pwd, object_dir);
+    }
+    else {
+        cli_vasprintf(&obj, "OBJDIR=%s", object_dir);
+    }
 
     if( putenv(obj) != 0 ) {
         cli_fatal("cannot set OBJDIR for building zfrog");
@@ -1424,7 +1541,7 @@ static void cli_compile_zfrog( void *arg )
 	args[0] = "make";
 #endif
 
-	args[1] = "-s";
+    args[1] = "-s";
 	args[2] = "-C";
     args[3] = bopt->cf_source;
 	args[4] = "objects";
@@ -1715,7 +1832,7 @@ static void cli_buildopt_flavor(struct buildopt *bopt, const char *string)
 
 		*p = '\0';
 
-        if( !strcmp(flavors[i], "NOHTTP") )
+        if( !strcmp(flavors[i], "CF_NO_HTTP") )
 			bopt->flavor_nohttp = 1;
 	}
 
@@ -1873,6 +1990,8 @@ static void cli_build_ldflags( struct buildopt *bopt )
     size_t len;
     struct buildopt *obopt;
     char *string, *buf;
+    char* path = NULL;
+    char* env = NULL;
 
     if( (obopt = cli_buildopt_find(flavor)) == NULL )
         cli_fatal("no such build flavor: %s", flavor);
@@ -1890,11 +2009,12 @@ static void cli_build_ldflags( struct buildopt *bopt )
     }
     else
     {
-        cli_file_open(".obj/ldflags", O_RDONLY, &fd);
+        cli_vasprintf(&path, "%s/ldflags", object_dir);
+        cli_file_open(path, O_RDONLY, &fd);
 		cli_file_read(fd, &buf, &len);
 		cli_file_close(fd);
         if( len == 0 )
-            cli_fatal(".obj/ldflags is empty");
+            cli_fatal("ldflags is empty");
         len--;
 
 		cli_buf_append(bopt->ldflags, buf, len);
@@ -1907,6 +2027,10 @@ static void cli_build_ldflags( struct buildopt *bopt )
         cli_buf_append(bopt->ldflags, obopt->ldflags->data, obopt->ldflags->offset);
     }
 
+    if( (env = getenv("LDFLAGS")) != NULL ) {
+        cli_buf_appendf(bopt->ldflags, "%s", env);
+    }
+
 	string = cli_buf_stringify(bopt->ldflags, NULL);
 	printf("LDFLAGS=%s\n", string);
 	ldflags_count = cli_split_string(string, " ", ldflags, LD_FLAGS_MAX);
@@ -1916,6 +2040,12 @@ static void cli_flavor_load(void)
 {
     FILE *fp = NULL;
     char buf[BUFSIZ], pwd[MAXPATHLEN], *p, *conf;
+    char* env = NULL;
+
+    if( (env = getenv("ZFROG_BUILD_FLAVOR")) != NULL ) {
+        flavor = cli_strdup(env);
+        return;
+    }
 
     if( getcwd(pwd, sizeof(pwd)) == NULL ) {
         cli_fatal("could not get cwd: %s", errno_s);
@@ -1953,24 +2083,41 @@ static void cli_flavor_load(void)
 /* ----------------------------------------------------------------------------*/
 static void cli_features( struct buildopt *bopt, char **out, size_t *outlen )
 {
-    int	fd;
-    size_t len;
+    char pwd[PATH_MAX]; /* current folder build <app name> */
+
+    int	fd = -1;
+    size_t len = 0;
     char *path = NULL;
     char *data = NULL;
 
-    if( bopt->single_binary )
+    if( bopt->single_binary ) /* Single binary execution */
     {
-        cli_vasprintf(&path, ".obj/features");
+        cli_vasprintf(&path, "%s/features", object_dir);
+
+        if( !cli_file_exists( path ) )
+        {
+            if( getcwd(pwd, sizeof(pwd)) == NULL ) {
+                cli_fatal("could not get cwd: %s", errno_s);
+            }
+
+            /* Delete temporary path buffer */
+            free( path );
+            path = NULL;
+
+            /* Try to find in local folder */
+            cli_vasprintf(&path, "%s/%s/features", pwd, object_dir);
+
+            if( !cli_file_exists( path ) )
+                cli_fatal("failed to find 'features' [%s]", path);
+        }
     }
     else
     {
         /* Try to find first installed zfrog features */
-        cli_vasprintf(&path, "%s/share/zfrog/features", PREFIX);
+        cli_vasprintf(&path, "%s/share/zfrog/features", prefix);
 
         if( !cli_file_exists( path ) )
         {
-            char pwd[PATH_MAX]; /* current folder build <app name>*/
-
             if( getcwd(pwd, sizeof(pwd)) == NULL ) {
                 cli_fatal("could not get cwd: %s", errno_s);
             }
@@ -2009,7 +2156,7 @@ static void cli_features( struct buildopt *bopt, char **out, size_t *outlen )
     free( path );
 
     if( len == 0 ) {
-        cli_fatal(".objs/features is empty");
+        cli_fatal("features is empty");
     }
 
     len--;
@@ -2220,7 +2367,7 @@ char* cli_buf_stringify(struct cli_buf *buf, size_t *len)
 static int cli_split_string(char *input, const char *delim, char **out, size_t ele)
 {
     int	count;
-    char **ap;
+    char **ap = NULL;
 
     if( ele == 0 ) {
         return 0;
@@ -2366,4 +2513,41 @@ static int cli_proc_path( void *buf, size_t len )
 #endif
 
     return 0;
+}
+
+static void file_create_pyko_src(void)
+{
+    char* name = NULL;
+
+    cli_vasprintf(&name, "%s/__init__.py", appl);
+    cli_file_create(name, pyko_init_data, strlen(pyko_init_data));
+    free( name );
+
+    cli_vasprintf(&name, "%s/handlers.py", appl);
+    cli_file_create(name, pyko_handlers_data, strlen(pyko_handlers_data));
+    free( name );
+}
+
+static void file_create_pyko_config(void)
+{
+    int	l = 0;
+    char *name, *data;
+
+    cli_vasprintf(&name, "%s/zfrog.conf", appl);
+    l = cli_vasprintf(&data, pyko_config_data, appl);
+    cli_file_create(name, data, l);
+    free(name);
+    free(data);
+}
+
+static void file_create_gitignore(void)
+{
+    int	l = 0;
+    char *name, *data;
+
+    cli_vasprintf(&name, "%s/.gitignore", appl);
+    l = cli_vasprintf(&data, gitignore, appl);
+    cli_file_create(name, data, l);
+    free( name );
+    free( data );
 }

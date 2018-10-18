@@ -4,7 +4,11 @@
 /* Forward function declaration */
 static PyObject* python_log(PyObject*, PyObject*);
 static PyObject* python_fatal(PyObject*, PyObject*);
-static PyObject* python_listen(PyObject*, PyObject*);
+static PyObject* python_fatalx( PyObject*, PyObject*);
+static PyObject* python_bind(PyObject*, PyObject*);
+static PyObject* python_bind_unix(PyObject*, PyObject*);
+static PyObject* python_task_create(PyObject*, PyObject*);
+static PyObject* python_socket_wrap(PyObject*, PyObject*);
 
 #ifndef CF_NO_HTTP
     static PyObject* python_websocket_broadcast(PyObject*, PyObject*);
@@ -23,7 +27,11 @@ static struct PyMethodDef pycf_methods[] =
 {
     METHOD("log", python_log, METH_VARARGS),
     METHOD("fatal", python_fatal, METH_VARARGS),
-    METHOD("listen", python_listen, METH_VARARGS),
+    METHOD("fatalx", python_fatalx, METH_VARARGS),
+    METHOD("bind", python_bind, METH_VARARGS),
+    METHOD("bind_unix", python_bind_unix, METH_VARARGS),
+    METHOD("task_create", python_task_create, METH_VARARGS),
+    METHOD("socket_wrap", python_socket_wrap, METH_VARARGS),
 #ifndef CF_NO_HTTP
     METHOD("websocket_broadcast", python_websocket_broadcast, METH_VARARGS),
 #endif
@@ -36,6 +44,92 @@ static struct PyMethodDef pycf_methods[] =
 static struct PyModuleDef pycf_module =
 {
     PyModuleDef_HEAD_INIT, "zfrog", NULL, -1, pycf_methods
+};
+
+
+struct pysocket {
+    PyObject_HEAD
+    int			fd;
+    int			family;
+    int			protocol;
+    PyObject	*socket;
+    socklen_t	addr_len;
+    union {
+        struct sockaddr_in	ipv4;
+        struct sockaddr_un	sun;
+    } addr;
+};
+
+static PyObject* pysocket_send(struct pysocket*, PyObject*);
+static PyObject* pysocket_recv(struct pysocket*, PyObject*);
+static PyObject* pysocket_close(struct pysocket*, PyObject*);
+static PyObject* pysocket_accept(struct pysocket*, PyObject*);
+static PyObject* pysocket_connect(struct pysocket*, PyObject*);
+
+static PyMethodDef pysocket_methods[] = {
+    METHOD("recv", pysocket_recv, METH_VARARGS),
+    METHOD("send", pysocket_send, METH_VARARGS),
+    METHOD("close", pysocket_close, METH_NOARGS),
+    METHOD("accept", pysocket_accept, METH_NOARGS),
+    METHOD("connect", pysocket_connect, METH_VARARGS),
+    METHOD(NULL, NULL, -1),
+};
+
+static void	pysocket_dealloc(struct pysocket *);
+
+
+static PyTypeObject pysocket_type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "zfrog.socket",
+    .tp_doc = "zfrog socket implementation",
+    .tp_methods = pysocket_methods,
+    .tp_basicsize = sizeof(struct pysocket),
+    .tp_dealloc = (destructor)pysocket_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+};
+
+#define PYSOCKET_TYPE_ACCEPT	1
+#define PYSOCKET_TYPE_CONNECT	2
+#define PYSOCKET_TYPE_RECV      3
+#define PYSOCKET_TYPE_SEND      4
+
+struct pysocket_data {
+    struct cf_event     evt;
+    int                 fd;
+    int                 type;
+    void                *self;
+    void                *coro;
+    int                 state;
+    size_t              length;
+    struct cf_buf		buffer;
+    struct pysocket		*socket;
+};
+
+struct pysocket_op {
+    PyObject_HEAD
+    struct pysocket_data	data;
+};
+
+static void	pysocket_op_dealloc(struct pysocket_op*);
+
+static PyObject	*pysocket_op_await(PyObject *);
+static PyObject	*pysocket_op_iternext(struct pysocket_op*);
+
+static PyAsyncMethods pysocket_op_async = {
+    (unaryfunc)pysocket_op_await,
+    NULL,
+    NULL
+};
+
+static PyTypeObject pysocket_op_type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "zfrog.socketop",
+    .tp_doc = "socket operation",
+    .tp_as_async = &pysocket_op_async,
+    .tp_iternext = (iternextfunc)pysocket_op_iternext,
+    .tp_basicsize = sizeof(struct pysocket_op),
+    .tp_dealloc = (destructor)pysocket_op_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
 
 struct pyconnection
@@ -110,6 +204,7 @@ static PyObject* pyhttp_populate_cookies(struct pyhttp_request*, PyObject*);
 static PyObject* pyhttp_request_header(struct pyhttp_request*, PyObject*);
 static PyObject* pyhttp_response_header(struct pyhttp_request*, PyObject*);
 static PyObject* pyhttp_websocket_handshake(struct pyhttp_request*, PyObject*);
+
 #ifdef CF_PGSQL
     static PyObject* pyhttp_pgsql(struct pyhttp_request*, PyObject*);
 #endif

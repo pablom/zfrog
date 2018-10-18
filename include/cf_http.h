@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 
+#include <openssl/sha.h>
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -240,6 +242,7 @@ struct http_request
     struct cf_module_handle	*hdlr;
 
     uint8_t         http_body_digest[HTTP_BODY_DIGEST_LEN];
+
     SHA256_CTX		hashctx;
 
 #ifdef CF_PYTHON

@@ -497,6 +497,10 @@ static void worker_entry( struct cf_worker *kw )
 #ifndef CF_NO_HTTP
 		http_process();
 #endif
+
+#ifdef CF_PYTHON
+        cf_python_coro_run();
+#endif
         if( next_prune <= now )
         {
             cf_connection_check_timeout(now);

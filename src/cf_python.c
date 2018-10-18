@@ -16,11 +16,38 @@
 #include "cf_python.h"
 #include "cf_python_methods.h"
 
+#define CORO_STATE_RUNNABLE         1
+#define CORO_STATE_SUSPENDED		2
+
+struct python_coro
+{
+    int                       state;
+    int                       error;
+    PyObject                  *obj;
+
+#ifndef CF_NO_HTTP
+    struct http_request       *request;
+#endif
+
+    TAILQ_ENTRY(python_coro)  list;
+};
+
+
 static PyMODINIT_FUNC   python_module_init(void);
 static PyObject*        python_import(const char*);
-static void             python_log_error(const char*);
 static PyObject*        pyconnection_alloc(struct connection*);
 static PyObject*        python_callable(PyObject*, const char*);
+
+static struct python_coro* python_coro_create(PyObject*);
+static int python_coro_run(struct python_coro*);
+static void python_coro_wakeup(struct python_coro*);
+
+static PyObject* pysocket_op_create(struct pysocket*,int,const void*, size_t);
+static void pysocket_evt_handle(void*, int);
+static PyObject* pysocket_async_recv(struct pysocket_op*);
+static PyObject* pysocket_async_send(struct pysocket_op*);
+static PyObject* pysocket_async_accept(struct pysocket_op*);
+static PyObject* pysocket_async_connect(struct pysocket_op*);
 
 static void python_append_path(const char*);
 static void python_push_integer(PyObject*, const char*, long);
@@ -28,9 +55,7 @@ static void python_push_type(const char*, PyObject*, PyTypeObject*);
 
 #ifndef CF_NO_HTTP
     static PyObject *pyhttp_request_alloc(const struct http_request *);
-    static int  python_coroutine_run(struct http_request*);
     static PyObject *pyhttp_file_alloc(struct http_file*);
-
     static int  python_runtime_http_request(void*, struct http_request*);
     static int  python_runtime_validator(void*, struct http_request*, const void*);
     static void python_runtime_wsmessage(void*, struct connection*, uint8_t, const void*, size_t);
@@ -45,9 +70,9 @@ static int  python_runtime_onload(void*, int);
 static void	python_runtime_configure(void*, int, char**);
 static void python_runtime_connect(void*, struct connection*);
 
+static void python_module_load(struct cf_module*);
 static void python_module_free(struct cf_module*);
 static void python_module_reload(struct cf_module*);
-static void python_module_load(struct cf_module*);
 static void *python_module_getsym(struct cf_module*, const char*);
 
 static void *python_malloc(void*, size_t);
@@ -68,14 +93,14 @@ struct cf_runtime cf_python_runtime =
     CF_RUNTIME_PYTHON,
 #ifndef CF_NO_HTTP
     .http_request = python_runtime_http_request,
-    .validator = python_runtime_validator,
-    .wsconnect = python_runtime_connect,
-    .wsmessage = python_runtime_wsmessage,
+    .validator    = python_runtime_validator,
+    .wsconnect    = python_runtime_connect,
+    .wsmessage    = python_runtime_wsmessage,
     .wsdisconnect = python_runtime_connect,
 #endif
-    .onload = python_runtime_onload,
-    .connect = python_runtime_connect,
-    .execute = python_runtime_execute,
+    .onload    = python_runtime_onload,
+    .connect   = python_runtime_connect,
+    .execute   = python_runtime_execute,
     .configure = python_runtime_configure
 };
 
@@ -122,8 +147,30 @@ static PyMemAllocatorEx allocator =
     .free    = python_free
 };
 
+static struct cf_mem_pool           coro_pool;
+static int                          coro_count;
+static TAILQ_HEAD(, python_coro)	coro_runnable;
+static TAILQ_HEAD(, python_coro)	coro_suspended;
+
+extern const char *__progname;
+
+#ifndef CF_NO_HTTP
+    static struct http_request* req_running = NULL;
+#endif
+
+static struct python_coro*  coro_running = NULL;
+
+/****************************************************************
+ *  Python module init function
+ ****************************************************************/
 void cf_python_init(void)
 {
+    coro_count = 0;
+    TAILQ_INIT(&coro_runnable);
+    TAILQ_INIT(&coro_suspended);
+
+    cf_mem_pool_init(&coro_pool, "coropool", sizeof(struct python_coro), 100);
+
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &allocator);
     PyMem_SetAllocator(PYMEM_DOMAIN_MEM, &allocator);
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &allocator);
@@ -135,7 +182,9 @@ void cf_python_init(void)
 
     Py_Initialize();
 }
-
+/****************************************************************
+ *  Python module cleanup function
+ ****************************************************************/
 void cf_python_cleanup(void)
 {
     if( Py_IsInitialized() )
@@ -144,10 +193,69 @@ void cf_python_cleanup(void)
         Py_Finalize();
     }
 }
-
+/****************************************************************
+ *  Python module add path function
+ ****************************************************************/
 void cf_python_path(const char *path)
 {
     python_append_path(path);
+}
+
+void cf_python_coro_run(void)
+{
+    struct python_coro	*coro, *next;
+
+    for( coro = TAILQ_FIRST(&coro_runnable); coro != NULL; coro = next )
+    {
+        next = TAILQ_NEXT(coro, list);
+
+        if( coro->state != CORO_STATE_RUNNABLE )
+            cf_fatal("non-runnable coro on coro_runnable");
+
+        if( python_coro_run(coro) == CF_RESULT_OK )
+            cf_python_coro_delete(coro);
+    }
+}
+
+void cf_python_coro_delete( void* obj )
+{
+    struct python_coro* coro = (struct python_coro*)obj;
+
+    coro_count--;
+    Py_DECREF(coro->obj);
+
+    if( coro->state == CORO_STATE_RUNNABLE )
+        TAILQ_REMOVE(&coro_runnable, coro, list);
+    else
+        TAILQ_REMOVE(&coro_suspended, coro, list);
+
+    cf_mem_pool_put(&coro_pool, coro);
+}
+
+void cf_python_log_error(const char *function)
+{
+    PyObject *type, *value, *traceback;
+
+    if( !PyErr_Occurred() || PyErr_ExceptionMatches(PyExc_StopIteration) )
+        return;
+
+    PyErr_Fetch(&type, &value, &traceback);
+
+    if( type == NULL || value == NULL || traceback == NULL )
+    {
+        cf_log(LOG_ERR, "unknown python exception in '%s'", function);
+        return;
+    }
+
+    cf_log( LOG_ERR,"python exception in '%s' - type:%s - value:%s - trace:%s",
+            function,
+            PyUnicode_AsUTF8AndSize(type, NULL),
+            PyUnicode_AsUTF8AndSize(value, NULL),
+            PyUnicode_AsUTF8AndSize(traceback, NULL));
+
+    Py_DECREF(type);
+    Py_DECREF(value);
+    Py_DECREF(traceback);
 }
 
 static void* python_malloc(void *ctx, size_t len)
@@ -170,32 +278,6 @@ static void python_free(void *ctx, void *ptr)
     mem_free(ptr);
 }
 
-static void python_log_error(const char *function)
-{
-    PyObject *type, *value, *traceback;
-
-    if( !PyErr_Occurred() || PyErr_ExceptionMatches(PyExc_StopIteration) )
-        return;
-
-    PyErr_Fetch(&type, &value, &traceback);
-
-    if(type == NULL || value == NULL || traceback == NULL)
-    {
-        cf_log(LOG_ERR, "unknown python exception in '%s'", function);
-        return;
-    }
-
-    cf_log( LOG_ERR,"python exception in '%s' - type:%s - value:%s - trace:%s",
-            function,
-            PyUnicode_AsUTF8AndSize(type, NULL),
-            PyUnicode_AsUTF8AndSize(value, NULL),
-            PyUnicode_AsUTF8AndSize(traceback, NULL));
-
-    Py_DECREF(type);
-    Py_DECREF(value);
-    Py_DECREF(traceback);
-}
-
 static void python_module_free( struct cf_module *module )
 {
     mem_free(module->path);
@@ -212,7 +294,7 @@ static void python_module_reload( struct cf_module *module )
 
     if( (handle = PyImport_ReloadModule(module->handle)) == NULL)
     {
-        python_log_error("python_module_reload");
+        cf_python_log_error("python_module_reload");
         return;
     }
 
@@ -230,11 +312,94 @@ static void * python_module_getsym( struct cf_module *module, const char *symbol
 {
     return python_callable(module->handle, symbol);
 }
-
-static void pyconnection_dealloc( struct pyconnection *pyc )
+/****************************************************************
+ *  Coroutine python function
+ ****************************************************************/
+static struct python_coro* python_coro_create( PyObject* obj )
 {
-    PyObject_Del((PyObject *)pyc);
+    struct python_coro* coro = NULL;
+
+    if( !PyCoro_CheckExact(obj) )
+        cf_fatal("%s: object is not a coroutine", __func__);
+
+    coro = cf_mem_pool_get(&coro_pool);
+    coro_count++;
+
+    coro->obj = obj;
+    coro->error = 0;
+#ifndef CF_NO_HTTP
+    coro->request = req_running;
+#endif
+    coro->state = CORO_STATE_RUNNABLE;
+
+    TAILQ_INSERT_HEAD(&coro_runnable, coro, list);
+
+#ifndef CF_NO_HTTP
+    if( coro->request != NULL )
+        http_request_sleep(coro->request);
+#endif
+
+    return coro;
 }
+
+static int python_coro_run( struct python_coro* coro )
+{
+    PyObject* item = NULL;
+
+    if( coro->state != CORO_STATE_RUNNABLE )
+        cf_fatal("non-runnable coro attempted to run");
+
+    coro_running = coro;
+
+    for(;;)
+    {
+        PyErr_Clear();
+
+        if( coro->error )
+            PyErr_SetString(PyExc_RuntimeError, "i/o error");
+
+        item = _PyGen_Send((PyGenObject *)coro->obj, NULL);
+
+        if( item == NULL )
+        {
+            cf_python_log_error("coroutine");
+            coro_running = NULL;
+            return CF_RESULT_OK;
+        }
+
+        if( item == Py_None )
+        {
+            Py_DECREF(item);
+            break;
+        }
+
+        Py_DECREF(item);
+    }
+
+    coro->state = CORO_STATE_SUSPENDED;
+    TAILQ_REMOVE(&coro_runnable, coro, list);
+    TAILQ_INSERT_HEAD(&coro_suspended, coro, list);
+
+    coro_running = NULL;
+
+#ifndef CF_NO_HTTP
+    if( coro->request != NULL )
+        http_request_sleep(coro->request);
+#endif
+
+    return CF_RESULT_RETRY;
+}
+
+static void python_coro_wakeup( struct python_coro* coro )
+{
+    if( coro->state != CORO_STATE_SUSPENDED )
+        return;
+
+    coro->state = CORO_STATE_RUNNABLE;
+    TAILQ_REMOVE(&coro_suspended, coro, list);
+    TAILQ_INSERT_HEAD(&coro_runnable, coro, list);
+}
+
 /****************************************************************
  *  Execute python function
  ****************************************************************/
@@ -253,8 +418,50 @@ static void python_runtime_execute( void *addr )
 
     if( pyret == NULL )
     {
-        python_log_error("python_runtime_execute");
+        cf_python_log_error("python_runtime_execute");
         cf_fatal("failed to execute python call");
+    }
+
+    Py_DECREF(pyret);
+}
+
+static void python_runtime_configure(void *addr, int argc, char **argv)
+{
+    int	i;
+    PyObject *args, *pyret, *pyarg, *list;
+
+    PyObject* callable = (PyObject *)addr;
+
+    if( (args = PyTuple_New(argc)) == NULL )
+        cf_fatal("python_runtime_configure: PyTuple_New failed");
+
+    if( (list = PyList_New(argc + 1)) == NULL )
+        cf_fatal("python_runtime_configure: PyList_New failed");
+
+    if( (pyarg = PyUnicode_FromString(__progname)) == NULL )
+        cf_fatal("python_runtime_configure: PyUnicode_FromString");
+
+    if( PyList_SetItem(list, 0, pyarg) == -1 )
+        cf_fatal("python_runtime_configure: PyList_SetItem");
+
+    for( i = 0; i < argc; i++ )
+    {
+        if( (pyarg = PyUnicode_FromString(argv[i])) == NULL )
+            cf_fatal("python_runtime_configure: PyUnicode_FromString");
+
+        if( PyTuple_SetItem(args, i, pyarg) != 0 )
+            cf_fatal("python_runtime_configure: PyTuple_SetItem");
+    }
+
+    PyErr_Clear();
+    pyret = PyObject_Call(callable, args, NULL);
+    Py_DECREF(args);
+    Py_DECREF(list);
+
+    if( pyret == NULL )
+    {
+        cf_python_log_error("python_runtime_configure");
+        cf_fatal("failed to call configure method: wrong args?");
     }
 
     Py_DECREF(pyret);
@@ -285,7 +492,7 @@ static int python_runtime_onload( void *addr, int action )
 
     if( pyret == NULL )
     {
-        python_log_error("python_runtime_onload");
+        cf_python_log_error("python_runtime_onload");
         return CF_RESULT_ERROR;
     }
 
@@ -321,40 +528,8 @@ static void python_runtime_connect(void *addr, struct connection *c)
 
     if( pyret == NULL )
     {
-        python_log_error("python_runtime_connect");
+        cf_python_log_error("python_runtime_connect");
         cf_connection_disconnect(c);
-    }
-
-    Py_DECREF(pyret);
-}
-
-static void python_runtime_configure(void *addr, int argc, char **argv)
-{
-    int	i;
-    PyObject *args, *pyret, *pyarg;
-
-    PyObject* callable = (PyObject *)addr;
-
-    if( (args = PyTuple_New(argc)) == NULL )
-        cf_fatal("python_runtime_configure: PyTuple_New failed");
-
-    for( i = 0; i < argc; i++ )
-    {
-        if( (pyarg = PyUnicode_FromString(argv[i])) == NULL )
-            cf_fatal("python_runtime_configure: PyUnicode_FromString");
-
-        if( PyTuple_SetItem(args, i, pyarg) != 0 )
-            cf_fatal("python_runtime_configure: PyTuple_SetItem");
-    }
-
-    PyErr_Clear();
-    pyret = PyObject_Call(callable, args, NULL);
-    Py_DECREF(args);
-
-    if( pyret == NULL )
-    {
-        python_log_error("python_runtime_configure");
-        cf_fatal("failed to call configure method: wrong args?");
     }
 
     Py_DECREF(pyret);
@@ -366,8 +541,10 @@ static PyMODINIT_FUNC python_module_init(void)
     PyObject *py_obj = NULL;
 
     if( (py_obj = PyModule_Create(&pycf_module)) == NULL )
-        cf_fatal("python_module_init: failed to setup pyzfrog module");
+        cf_fatal("python_module_init: failed to setup python zfrog module");
 
+    python_push_type("pysocket", py_obj, &pysocket_type);
+    python_push_type("pysocket_op", py_obj, &pysocket_op_type);
     python_push_type("pyconnection", py_obj, &pyconnection_type);
 
     for( i = 0; python_integers[i].symbol != NULL; i++ )
@@ -410,9 +587,9 @@ static void python_push_type(const char *name, PyObject *module, PyTypeObject *t
         cf_fatal("python_push_type: failed to push %s", name);
 }
 
-static void python_push_integer(PyObject *module, const char *name, long value)
+static void python_push_integer( PyObject* module, const char* name, long value )
 {
-    int ret;
+    int ret = 0;
 
     if( (ret = PyModule_AddIntConstant(module, name, value)) == -1 )
         cf_fatal("python_push_integer: failed to add %s", name);
@@ -431,22 +608,6 @@ static PyObject* python_log( PyObject *self, PyObject *args )
     Py_RETURN_TRUE;
 }
 
-static PyObject* python_listen(PyObject *self, PyObject *args)
-{
-    const char *ip, *port;
-
-    if( !PyArg_ParseTuple(args, "ss", &ip, &port) )
-        return NULL;
-
-    if( !cf_server_bind(ip, port, NULL))
-    {
-        PyErr_SetString(PyExc_RuntimeError, "failed to listen");
-        return NULL;
-    }
-
-    Py_RETURN_TRUE;
-}
-
 static PyObject* python_fatal( PyObject *self, PyObject *args )
 {
     const char *reason = NULL;
@@ -458,6 +619,116 @@ static PyObject* python_fatal( PyObject *self, PyObject *args )
 
     /* not reached */
     Py_RETURN_TRUE;
+}
+
+static PyObject* python_fatalx( PyObject *self, PyObject *args )
+{
+    const char* reason = NULL;
+
+    if( !PyArg_ParseTuple(args, "s", &reason) )
+        reason = "python_fatalx: PyArg_ParseTuple failed";
+
+    cf_fatalx("%s", reason);
+
+    /* not reached */
+    Py_RETURN_TRUE;
+}
+
+static PyObject* python_bind(PyObject *self, PyObject *args)
+{
+    const char	*ip, *port;
+
+    if( !PyArg_ParseTuple(args, "ss", &ip, &port) )
+        return NULL;
+
+    if( !cf_server_bind(ip, port, NULL) )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "failed to listen");
+        return NULL;
+    }
+
+    Py_RETURN_TRUE;
+}
+
+static PyObject* python_bind_unix( PyObject *self, PyObject *args )
+{
+    const char* path = NULL;
+
+    if( !PyArg_ParseTuple(args, "s", &path) )
+        return NULL;
+
+    if( !cf_server_bind_unix(path, NULL) )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "failed bind to path");
+        return NULL;
+    }
+
+    Py_RETURN_TRUE;
+}
+
+static PyObject* python_task_create(PyObject *self, PyObject *args)
+{
+    PyObject* obj = NULL;
+
+    if( !PyArg_ParseTuple(args, "O", &obj) )
+        return NULL;
+
+    if( !PyCoro_CheckExact(obj) )
+        cf_fatal("%s: object is not a coroutine", __func__);
+
+    python_coro_create(obj);
+    Py_INCREF(obj);
+
+    Py_RETURN_NONE;
+}
+/****************************************************************
+ *  Python function to wrap socket object
+ ****************************************************************/
+static PyObject* python_socket_wrap( PyObject* self, PyObject* args )
+{
+    struct pysocket* sock = NULL;
+    PyObject* pysock = NULL;
+    PyObject* pyfd = NULL;
+    PyObject* pyfam = NULL;
+    PyObject* pyproto = NULL;
+
+    if( !PyArg_ParseTuple(args, "O", &pysock) )
+        return NULL;
+
+    if( (pyfd = PyObject_CallMethod(pysock, "fileno", NULL)) == NULL )
+        return NULL;
+
+    if( (pyfam = PyObject_GetAttrString(pysock, "family")) &&
+        (pyproto = PyObject_GetAttrString(pysock, "proto")) &&
+        (sock = PyObject_New(struct pysocket, &pysocket_type)) )
+    {
+        sock->socket = pysock;
+        Py_INCREF(sock->socket);
+
+        sock->fd = (int)PyLong_AsLong(pyfd);
+        sock->family = (int)PyLong_AsLong(pyfam);
+        sock->protocol = (int)PyLong_AsLong(pyproto);
+
+        memset(&sock->addr, 0, sizeof(sock->addr));
+
+        switch( sock->family )
+        {
+        case AF_INET:
+        case AF_UNIX:
+            break;
+        default:
+            PyErr_SetString(PyExc_RuntimeError, "unsupported family");
+            Py_DECREF((PyObject *)sock);
+            sock = NULL;
+            break;
+        }
+    }
+
+    Py_XDECREF(pyfd);
+    Py_XDECREF(pyfam);
+    Py_XDECREF(pyproto);
+
+    return ((PyObject *)sock);
 }
 
 static PyObject* python_import( const char *path )
@@ -500,7 +771,9 @@ static PyObject* python_callable( PyObject *module, const char *symbol )
 
     return obj;
 }
-
+/****************************************************************
+ *  Python connection functions
+ ****************************************************************/
 static PyObject* pyconnection_alloc(struct connection *c)
 {
     struct pyconnection *pyc = PyObject_New(struct pyconnection, &pyconnection_type);
@@ -512,6 +785,11 @@ static PyObject* pyconnection_alloc(struct connection *c)
     pyc->c = c;
 
     return (PyObject *)pyc;
+}
+
+static void pyconnection_dealloc( struct pyconnection *pyc )
+{
+    PyObject_Del((PyObject *)pyc);
 }
 
 static PyObject* pyconnection_disconnect( struct pyconnection *pyc, PyObject *args )
@@ -530,9 +808,9 @@ static PyObject* pyconnection_get_fd(struct pyconnection *pyc, void *closure)
     return fd;
 }
 
-static PyObject * pyconnection_get_addr(struct pyconnection *pyc, void *closure)
+static PyObject* pyconnection_get_addr(struct pyconnection *pyc, void *closure)
 {
-    void *ptr;
+    void *ptr = NULL;
     PyObject *result;
     char addr[INET6_ADDRSTRLEN];
 
@@ -561,6 +839,367 @@ static PyObject * pyconnection_get_addr(struct pyconnection *pyc, void *closure)
     return result;
 }
 
+static void pysocket_dealloc( struct pysocket* sock )
+{
+    PyObject_Del((PyObject *)sock);
+}
+
+static PyObject* pysocket_send( struct pysocket* sock, PyObject* args )
+{
+    Py_buffer buf;
+
+    if( !PyArg_ParseTuple(args, "y*", &buf) )
+        return NULL;
+
+    return pysocket_op_create(sock, PYSOCKET_TYPE_SEND, buf.buf, buf.len);
+}
+
+static PyObject* pysocket_recv( struct pysocket* sock, PyObject* args )
+{
+    Py_ssize_t	len;
+
+    if( !PyArg_ParseTuple(args, "n", &len) )
+        return NULL;
+
+    return pysocket_op_create(sock, PYSOCKET_TYPE_RECV, NULL, len);
+}
+
+static PyObject* pysocket_accept( struct pysocket* sock, PyObject* args )
+{
+    return pysocket_op_create(sock, PYSOCKET_TYPE_ACCEPT, NULL, 0);
+}
+
+static PyObject* pysocket_connect( struct pysocket* sock, PyObject* args )
+{
+    const char* host = NULL;
+    int	port = 0;
+    int len = 0;
+
+    if( !PyArg_ParseTuple(args, "s|i", &host, &port) )
+        return NULL;
+
+    if( port < 0 || port > USHRT_MAX )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "invalid port number");
+        return NULL;
+    }
+
+    switch( sock->family )
+    {
+    case AF_INET:
+        sock->addr.ipv4.sin_family = AF_INET;
+        sock->addr.ipv4.sin_port = htons(port);
+        if( inet_pton(sock->family, host, &sock->addr.ipv4.sin_addr) == -1 )
+        {
+            PyErr_SetString(PyExc_RuntimeError, "invalid host");
+            return NULL;
+        }
+        sock->addr_len = sizeof(sock->addr.ipv4);
+        break;
+    case AF_UNIX:
+        sock->addr.sun.sun_family = AF_UNIX;
+        len = snprintf(sock->addr.sun.sun_path, sizeof(sock->addr.sun.sun_path), "%s", host);
+        if( len == -1 ||(size_t)len >= sizeof(sock->addr.sun.sun_path) )
+        {
+            PyErr_SetString(PyExc_RuntimeError, "path too long");
+            return NULL;
+        }
+#if defined(__linux__)
+        /* Assume abstract socket if prefixed with '@' */
+        if( sock->addr.sun.sun_path[0] == '@' )
+            sock->addr.sun.sun_path[0] = '\0';
+#endif
+        sock->addr_len = sizeof(sock->addr.sun.sun_family) + len;
+        break;
+    default:
+        cf_fatal("unsupported socket family %d", sock->family);
+    }
+
+    return pysocket_op_create(sock, PYSOCKET_TYPE_CONNECT, NULL, 0);
+}
+
+static PyObject* pysocket_close( struct pysocket* sock, PyObject* args )
+{
+    if( sock->socket != NULL )
+    {
+        PyObject_CallMethod(sock->socket, "close", NULL);
+        Py_DECREF(sock->socket);
+    }
+    else if( sock->fd != -1 ) {
+        close(sock->fd);
+    }
+
+    Py_RETURN_TRUE;
+}
+
+static void pysocket_op_dealloc( struct pysocket_op* op )
+{
+#if defined(__linux__)
+    cf_platform_disable_read(op->data.fd);
+    close(op->data.fd);
+#else
+    switch( op->data.type )
+    {
+    case PYSOCKET_TYPE_RECV:
+    case PYSOCKET_TYPE_ACCEPT:
+        cf_platform_disable_read(op->data.fd);
+        break;
+    case PYSOCKET_TYPE_SEND:
+    case PYSOCKET_TYPE_CONNECT:
+        cf_platform_disable_write(op->data.fd);
+        break;
+    default:
+        cf_fatal("unknown pysocket_op type %u", op->data.type);
+    }
+#endif
+
+    if( op->data.type == PYSOCKET_TYPE_RECV || op->data.type == PYSOCKET_TYPE_SEND )
+        cf_buf_cleanup(&op->data.buffer);
+
+    Py_DECREF( op->data.socket );
+    PyObject_Del((PyObject*)op);
+}
+
+static PyObject* pysocket_op_create(struct pysocket *sock, int type, const void *ptr, size_t len)
+{
+    struct pysocket_op* op = NULL;
+
+    if( (op = PyObject_New(struct pysocket_op, &pysocket_op_type)) == NULL )
+        return NULL;
+
+#if defined(__linux__)
+    /*
+     * Duplicate the socket so each pysocket_op gets its own unique
+     * descriptor for epoll. This is so we can easily call EPOLL_CTL_DEL
+     * on the fd when the pysocket_op is finished as our event code
+     * does not track queued events.
+     */
+    if( (op->data.fd = dup(sock->fd)) == -1 )
+        cf_fatal("dup: %s", errno_s);
+#else
+    op->data.fd = sock->fd;
+#endif
+
+    op->data.self = op;
+    op->data.type = type;
+    op->data.socket = sock;
+    op->data.evt.flags = 0;
+    op->data.coro = coro_running;
+    op->data.evt.type = CF_TYPE_PYSOCKET;
+    op->data.evt.handle = pysocket_evt_handle;
+
+    Py_INCREF(op->data.socket);
+
+    switch( type )
+    {
+    case PYSOCKET_TYPE_RECV:
+        op->data.evt.flags |= CF_EVENT_READ;
+        cf_buf_init(&op->data.buffer, len);
+        cf_platform_schedule_read(op->data.fd, &op->data);
+        break;
+    case PYSOCKET_TYPE_SEND:
+        op->data.evt.flags |= CF_EVENT_WRITE;
+        cf_buf_init(&op->data.buffer, len);
+        cf_buf_append(&op->data.buffer, ptr, len);
+        cf_buf_reset(&op->data.buffer);
+        cf_platform_schedule_write(op->data.fd, &op->data);
+        break;
+    case PYSOCKET_TYPE_ACCEPT:
+        op->data.evt.flags |= CF_EVENT_READ;
+        cf_platform_schedule_read(op->data.fd, &op->data);
+        break;
+    case PYSOCKET_TYPE_CONNECT:
+        op->data.evt.flags |= CF_EVENT_WRITE;
+        cf_platform_schedule_write(op->data.fd, &op->data);
+        break;
+    default:
+        cf_fatal("unknown pysocket_op type %u", type);
+    }
+
+    return (PyObject*)op;
+}
+
+static PyObject* pysocket_op_await( PyObject* obj )
+{
+    Py_INCREF( obj );
+    return obj;
+}
+
+static PyObject* pysocket_op_iternext(struct pysocket_op *op)
+{
+    PyObject* ret = NULL;
+
+    switch( op->data.type )
+    {
+    case PYSOCKET_TYPE_CONNECT:
+        ret = pysocket_async_connect(op);
+        break;
+    case PYSOCKET_TYPE_ACCEPT:
+        ret = pysocket_async_accept(op);
+        break;
+    case PYSOCKET_TYPE_RECV:
+        ret = pysocket_async_recv(op);
+        break;
+    case PYSOCKET_TYPE_SEND:
+        ret = pysocket_async_send(op);
+        break;
+    default:
+        PyErr_SetString(PyExc_RuntimeError, "invalid op type");
+        return NULL;
+    }
+
+    return ret;
+}
+
+static PyObject* pysocket_async_connect( struct pysocket_op* op )
+{
+    if( connect(op->data.fd, (struct sockaddr *)&op->data.socket->addr, op->data.socket->addr_len) == -1 )
+    {
+        if( errno != EALREADY && errno != EINPROGRESS && errno != EISCONN )
+        {
+            PyErr_SetString(PyExc_RuntimeError, errno_s);
+            return NULL;
+        }
+
+        if( errno != EISCONN ) {
+            Py_RETURN_NONE;
+        }
+    }
+
+    PyErr_SetNone(PyExc_StopIteration);
+    return NULL;
+}
+
+static PyObject* pysocket_async_accept( struct pysocket_op* op )
+{
+    int fd;
+    struct pysocket* sock = NULL;
+
+    if( (sock = PyObject_New(struct pysocket, &pysocket_type)) == NULL )
+        return NULL;
+
+    sock->addr_len = sizeof(sock->addr);
+
+    if( (fd = accept(op->data.fd,(struct sockaddr *)&sock->addr, &sock->addr_len)) == -1 )
+    {
+        Py_DECREF((PyObject *)sock);
+        if( errno == EAGAIN || errno == EWOULDBLOCK ) {
+            Py_RETURN_NONE;
+        }
+
+        PyErr_SetString(PyExc_RuntimeError, errno_s);
+        return NULL;
+    }
+
+    if( !cf_socket_nonblock(fd, 0) )
+    {
+        Py_DECREF( (PyObject*)sock );
+        PyErr_SetString(PyExc_RuntimeError, errno_s);
+        return NULL;
+    }
+
+    sock->fd = fd;
+    sock->socket = NULL;
+    sock->family = op->data.socket->family;
+    sock->protocol = op->data.socket->protocol;
+
+    PyErr_SetObject(PyExc_StopIteration, (PyObject *)sock);
+    Py_DECREF((PyObject *)sock);
+
+    return NULL;
+}
+
+static PyObject* pysocket_async_recv( struct pysocket_op* op )
+{
+    ssize_t		ret;
+    const char	*ptr;
+    PyObject	*bytes;
+
+    if( !(op->data.evt.flags & CF_EVENT_READ) ) {
+        Py_RETURN_NONE;
+    }
+
+    if( (ret = read(op->data.fd, op->data.buffer.data, op->data.buffer.length)) == -1 )
+    {
+        if( errno == EAGAIN || errno == EWOULDBLOCK )
+        {
+            op->data.evt.flags &= ~CF_EVENT_READ;
+            Py_RETURN_NONE;
+        }
+
+        PyErr_SetString(PyExc_RuntimeError, errno_s);
+        return NULL;
+    }
+
+    if( ret == 0 )
+    {
+        PyErr_SetNone(PyExc_StopIteration);
+        return NULL;
+    }
+
+    ptr = (const char*)op->data.buffer.data;
+
+    if( (bytes = PyBytes_FromStringAndSize(ptr, ret)) != NULL )
+        PyErr_SetObject(PyExc_StopIteration, bytes);
+
+    return NULL;
+}
+
+static PyObject* pysocket_async_send( struct pysocket_op* op )
+{
+    ssize_t	ret;
+
+    if( !(op->data.evt.flags & CF_EVENT_WRITE) ) {
+        Py_RETURN_NONE;
+    }
+
+    ret = write(op->data.fd, op->data.buffer.data + op->data.buffer.offset, op->data.buffer.length - op->data.buffer.offset);
+
+    if( ret == -1 )
+    {
+        if( errno == EAGAIN || errno == EWOULDBLOCK )
+        {
+            op->data.evt.flags &= ~CF_EVENT_WRITE;
+            Py_RETURN_NONE;
+        }
+
+        PyErr_SetString(PyExc_RuntimeError, errno_s);
+        return NULL;
+    }
+
+    op->data.buffer.offset += (size_t)ret;
+
+    if( op->data.buffer.offset == op->data.buffer.length )
+    {
+        PyErr_SetNone(PyExc_StopIteration);
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
+}
+
+static void pysocket_evt_handle(void *arg, int error)
+{
+    struct pysocket_data* data = arg;
+    struct python_coro* coro = data->coro;
+
+    /*
+     * If we are a coroutine tied to an HTTP request wake-up the
+     * HTTP request instead. That in turn will wakeup the coro and
+     * continue it.
+     *
+     * Otherwise just wakeup the coroutine so it will run next tick.
+     */
+#ifndef CF_NO_HTTP
+    if (coro->request != NULL)
+        http_request_wakeup(coro->request);
+    else
+#endif
+        python_coro_wakeup(coro);
+
+    coro->error = error;
+}
+
 #ifndef CF_NO_HTTP
 
 static void pyhttp_dealloc( struct pyhttp_request *pyreq )
@@ -569,53 +1208,40 @@ static void pyhttp_dealloc( struct pyhttp_request *pyreq )
     PyObject_Del((PyObject *)pyreq);
 }
 
-static int python_coroutine_run( struct http_request *req )
-{
-    PyObject *item = NULL;
-
-    for (;;)
-    {
-        PyErr_Clear();
-        item = _PyGen_Send((PyGenObject *)req->py_coro, NULL);
-        if( item == NULL )
-        {
-            python_log_error("coroutine");
-            Py_DECREF(req->py_coro);
-            req->py_coro = NULL;
-            return CF_RESULT_OK;
-        }
-
-        if( item == Py_None )
-        {
-            Py_DECREF(item);
-            break;
-        }
-
-        Py_DECREF(item);
-    }
-
-    return CF_RESULT_RETRY;
-}
-
 static int python_runtime_http_request(void *addr, struct http_request *req)
 {
     PyObject *pyret, *pyreq, *args;
 
     PyObject *callable = (PyObject *)addr;
 
+    req_running = req;
+
     if( req->py_coro != NULL )
-        return python_coroutine_run(req);
+    {
+        python_coro_wakeup(req->py_coro);
+
+        if( python_coro_run(req->py_coro) == CF_RESULT_OK )
+        {
+            cf_python_coro_delete(req->py_coro);
+            req->py_coro = NULL;
+            req_running = NULL;
+            return CF_RESULT_OK;
+        }
+
+        req_running = NULL;
+        return CF_RESULT_RETRY;
+    }
+
+    callable = (PyObject*)addr;
 
     if( (pyreq = pyhttp_request_alloc(req)) == NULL )
         cf_fatal("python_runtime_http_request: pyreq alloc failed");
 
-    if( (args = PyTuple_New(1)) == NULL ) {
+    if( (args = PyTuple_New(1)) == NULL )
         cf_fatal("python_runtime_http_request: PyTuple_New failed");
-    }
 
-    if( PyTuple_SetItem(args, 0, pyreq) != 0 ) {
+    if( PyTuple_SetItem(args, 0, pyreq) != 0 )
         cf_fatal("python_runtime_http_request: PyTuple_SetItem failed");
-    }
 
     PyErr_Clear();
     pyret = PyObject_Call(callable, args, NULL);
@@ -623,21 +1249,33 @@ static int python_runtime_http_request(void *addr, struct http_request *req)
 
     if( pyret == NULL )
     {
-        python_log_error("python_runtime_http_request");
+        cf_python_log_error("python_runtime_http_request");
         http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
         return CF_RESULT_OK;
     }
 
     if( PyCoro_CheckExact(pyret) )
     {
-        req->py_coro = pyret;
-        return python_coroutine_run(req);
+        http_request_sleep(req);
+        req->py_coro = python_coro_create(pyret);
+        req_running = NULL;
+
+        /* XXX merge with the above python_coro_run() block */
+        if( python_coro_run(req->py_coro) == CF_RESULT_OK )
+        {
+            cf_python_coro_delete(req->py_coro);
+            req->py_coro = NULL;
+            req_running = NULL;
+            return CF_RESULT_OK;
+        }
+        return CF_RESULT_RETRY;
     }
 
     if( pyret != Py_None )
         cf_fatal("python_runtime_http_request: unexpected return type");
 
-    Py_DECREF( pyret );
+    Py_DECREF(pyret);
+    req_running = NULL;
 
     return CF_RESULT_OK;
 }
@@ -677,7 +1315,7 @@ static int python_runtime_validator( void *addr, struct http_request *req, const
 
     if( pyret == NULL )
     {
-        python_log_error("python_runtime_validator");
+        cf_python_log_error("python_runtime_validator");
         cf_fatal("failed to execute python call");
     }
 
@@ -731,7 +1369,7 @@ static void python_runtime_wsmessage(void *addr, struct connection *c, uint8_t o
 
     if( pyret == NULL )
     {
-        python_log_error("python_runtime_wsconnect");
+        cf_python_log_error("python_runtime_wsconnect");
         cf_fatal("failed to execute python call");
     }
 

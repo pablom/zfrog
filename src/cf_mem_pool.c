@@ -28,7 +28,10 @@ void cf_mem_pool_init(struct cf_mem_pool *pool, const char *name, size_t len, si
         cf_fatal("cf_mem_pool_init: strdup %s", errno_s);
     }
 
+#ifdef CF_TASKS
 	pool->lock = 0;
+#endif
+
 	pool->elms = 0;
 	pool->inuse = 0;
 	pool->elen = len;
@@ -44,7 +47,9 @@ void cf_mem_pool_init(struct cf_mem_pool *pool, const char *name, size_t len, si
  ****************************************************************/
 void cf_mem_pool_cleanup(struct cf_mem_pool *pool)
 {
+#ifdef CF_TASKS
 	pool->lock = 0;
+#endif
 	pool->elms = 0;
 	pool->inuse = 0;
 	pool->elen = 0;

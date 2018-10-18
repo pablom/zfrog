@@ -550,7 +550,11 @@ void http_request_free( struct http_request *req )
 #endif
 
 #ifdef CF_PYTHON
-    Py_XDECREF( req->py_coro );
+    if( req->py_coro != NULL )
+    {
+        cf_python_coro_delete(req->py_coro);
+        req->py_coro = NULL;
+    }
 #endif
 
 #ifdef CF_PGSQL
@@ -562,6 +566,9 @@ void http_request_free( struct http_request *req )
 #endif
 
     log_debug("http_request_free: %p->%p", req->owner, req);
+
+    /* Delete headers */
+    mem_free( req->headers );
 
 	req->host = NULL;
 	req->path = NULL;
@@ -1465,15 +1472,15 @@ int http_body_rewind( struct http_request* req )
 {
     if( req->http_body_fd != -1 )
     {
-
         if( lseek(req->http_body_fd, 0, SEEK_SET) == -1)
         {
             cf_log(LOG_ERR, "lseek(%s) failed: %s", req->http_body_path, errno_s);
             return CF_RESULT_ERROR;
         }
-    }
-    else
+    }     
+    else if( req->http_body != NULL ) {
         cf_buf_reset(req->http_body);
+    }
 
     req->http_body_offset = 0;
     req->http_body_length = req->content_length;

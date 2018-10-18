@@ -218,9 +218,17 @@ void cf_platform_schedule_write(int fd, void *data)
  *  Helper function add file descriptor to disable
  *  catch incoming data events
  ****************************************************************/
-void cf_platform_disable_read(int fd)
+void cf_platform_disable_read( int fd )
 {
     cf_platform_event_schedule(fd, EVFILT_READ, EV_DELETE, NULL);
+}
+/****************************************************************
+ *  Helper function add file descriptor to disable
+ *  catch write data events
+ ****************************************************************/
+void cf_platform_disable_write( int fd )
+{
+    cf_platform_event_schedule(fd, EVFILT_WRITE, EV_DELETE, NULL);
 }
 /****************************************************************
  *  Set proc title function
@@ -228,7 +236,7 @@ void cf_platform_disable_read(int fd)
 void cf_platform_proctitle( char *title )
 {
 #ifndef __MACH__
-	setproctitle("%s", title);
+    setproctitle("%s", title);
 #endif
 }
 

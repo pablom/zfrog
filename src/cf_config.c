@@ -36,12 +36,11 @@
     static int configure_load(char*);
 #else
     static FILE* config_file_write( void );
-    extern uint8_t	asset_builtin_core_conf[];
-    extern uint32_t asset_len_builtin_core_conf;
+    extern uint8_t	asset_builtin_zfrog_conf[];
+    extern uint32_t asset_len_builtin_zfrog_conf;
 #endif
 
 static void	parse_config_file(FILE*);
-static void	domain_tls_init(void);
 static int configure_include(char*);
 static int configure_bind(char*);
 static int configure_bind_unix(char*);
@@ -280,9 +279,7 @@ static void parse_config_file( FILE *fp )
 
         if( !strcmp(p, "}") && current_auth != NULL )
         {
-            if( current_auth->validator == NULL )
-            {
-                domain_tls_init();
+            if( current_auth->validator == NULL ) {
                 cf_fatal("no authentication validator for %s", current_auth->name);
 			}
 
@@ -293,7 +290,6 @@ static void parse_config_file( FILE *fp )
 #endif
 
         if( !strcmp(p, "}") && current_domain != NULL )
-            //domain_tls_init();
             current_domain = NULL;
 
         if( !strcmp(p, "}") )
@@ -332,6 +328,7 @@ static void parse_config_file( FILE *fp )
 
         if( config_names[i].name == NULL )
 			printf("ignoring \"%s\" on line %d\n", p, lineno);
+
 		lineno++;
 	}
 }
@@ -409,7 +406,7 @@ static FILE* config_file_write( void )
 
     for(;;)
     {
-        ret = write(fd, asset_builtin_core_conf, asset_len_builtin_core_conf);
+        ret = write(fd, asset_builtin_zfrog_conf, asset_len_builtin_zfrog_conf);
 
         if( ret == -1 )
         {
@@ -418,7 +415,7 @@ static FILE* config_file_write( void )
             cf_fatal("failed to write temporary config: %s", errno_s);
 		}
 
-        if( (size_t)ret != asset_len_builtin_core_conf ) {
+        if( (size_t)ret != asset_len_builtin_zfrog_conf ) {
             cf_fatal("failed to write temporary config");
         }
 
@@ -1422,12 +1419,6 @@ static int configure_socket_backlog( char *option )
 	}
 
     return CF_RESULT_OK;
-}
-
-static void domain_tls_init( void )
-{
-    cf_domain_tls_init( current_domain, NULL, 0 );
-	current_domain = NULL;
 }
 
 #ifdef CF_PGSQL

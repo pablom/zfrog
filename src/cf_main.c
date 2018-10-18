@@ -520,20 +520,30 @@ int cf_server_bind_unix( const char *path, const char *ccb )
 {
     struct listener		*l = NULL;
     struct sockaddr_un	sun;
+    socklen_t socklen;
+    int len = 0;
 
     memset(&sun, 0, sizeof(sun));
     sun.sun_family = AF_UNIX;
 
-    if( cf_strlcpy(sun.sun_path, path, sizeof(sun.sun_path) ) >= sizeof(sun.sun_path) )
+    len = snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
+    if( len == -1 || (size_t)len >= sizeof(sun.sun_path) )
     {
         cf_log(LOG_ERR, "unix socket path '%s' too long", path);
         return CF_RESULT_ERROR;
     }
 
+#if defined(__linux__)
+    if( sun.sun_path[0] == '@' )
+        sun.sun_path[0] = '\0';
+#endif
+
+    socklen = sizeof(sun.sun_family) + len;
+
     if( (l = listener_alloc(AF_UNIX, ccb)) == NULL )
         return CF_RESULT_ERROR;
 
-    if( bind(l->fd, (struct sockaddr *)&sun, sizeof(sun)) == -1 )
+    if( bind(l->fd, (struct sockaddr *)&sun, socklen) == -1 )
     {
         cf_log(LOG_ERR, "bind: %s", errno_s);
         listener_free(l);
@@ -622,7 +632,9 @@ static void server_start( void )
 {
     uint32_t  tmp;
     int	quit;
+#ifndef CF_SINGLE_BINARY
     struct cf_runtime_call *rcall = NULL;
+#endif
 
 #ifdef __sun
 
