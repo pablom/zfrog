@@ -19,19 +19,6 @@
 #define CORO_STATE_RUNNABLE         1
 #define CORO_STATE_SUSPENDED		2
 
-struct python_coro
-{
-    int                       state;
-    int                       error;
-    PyObject                  *obj;
-
-#ifndef CF_NO_HTTP
-    struct http_request       *request;
-#endif
-
-    TAILQ_ENTRY(python_coro)  list;
-};
-
 
 static PyMODINIT_FUNC   python_module_init(void);
 static PyObject*        python_import(const char*);
@@ -148,6 +135,9 @@ static PyMemAllocatorEx allocator =
 };
 
 static struct cf_mem_pool           coro_pool;
+static struct cf_mem_pool           queue_wait_pool;
+static struct cf_mem_pool           queue_object_pool;
+
 static int                          coro_count;
 static TAILQ_HEAD(, python_coro)	coro_runnable;
 static TAILQ_HEAD(, python_coro)	coro_suspended;
@@ -170,6 +160,8 @@ void cf_python_init(void)
     TAILQ_INIT(&coro_suspended);
 
     cf_mem_pool_init(&coro_pool, "coropool", sizeof(struct python_coro), 100);
+    cf_mem_pool_init(&queue_wait_pool, "queue_wait_pool", sizeof(struct pyqueue_waiting), 100);
+    cf_mem_pool_init(&queue_object_pool, "queue_object_pool", sizeof(struct pyqueue_object), 100);
 
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &allocator);
     PyMem_SetAllocator(PYMEM_DOMAIN_MEM, &allocator);
@@ -196,7 +188,7 @@ void cf_python_cleanup(void)
 /****************************************************************
  *  Python module add path function
  ****************************************************************/
-void cf_python_path(const char *path)
+void cf_python_path( const char* path )
 {
     python_append_path(path);
 }
@@ -215,6 +207,15 @@ void cf_python_coro_run(void)
         if( python_coro_run(coro) == CF_RESULT_OK )
             cf_python_coro_delete(coro);
     }
+
+    /*
+     * If something was woken up, let zFrog do HTTP processing
+     * so they run ASAP without having to wait for a tick from
+     * the event loop.
+     */
+#ifndef CF_NO_HTTP
+    http_process();
+#endif
 }
 
 void cf_python_coro_delete( void* obj )
@@ -232,7 +233,7 @@ void cf_python_coro_delete( void* obj )
     cf_mem_pool_put(&coro_pool, coro);
 }
 
-void cf_python_log_error(const char *function)
+void cf_python_log_error( const char* function )
 {
     PyObject *type, *value, *traceback;
 
@@ -258,34 +259,34 @@ void cf_python_log_error(const char *function)
     Py_DECREF(traceback);
 }
 
-static void* python_malloc(void *ctx, size_t len)
+static void* python_malloc( void* ctx, size_t len )
 {
     return mem_malloc(len);
 }
 
-static void* python_calloc(void *ctx, size_t memb, size_t len)
+static void* python_calloc( void* ctx, size_t memb, size_t len )
 {
     return mem_calloc(memb, len);
 }
 
-static void* python_realloc(void *ctx, void *ptr, size_t len)
+static void* python_realloc( void* ctx, void* ptr, size_t len )
 {
     return mem_realloc(ptr, len);
 }
 
-static void python_free(void *ctx, void *ptr)
+static void python_free( void* ctx, void* ptr )
 {
     mem_free(ptr);
 }
 
-static void python_module_free( struct cf_module *module )
+static void python_module_free( struct cf_module* module )
 {
     mem_free(module->path);
     Py_DECREF(module->handle);
     mem_free(module);
 }
 
-static void python_module_reload( struct cf_module *module )
+static void python_module_reload( struct cf_module* module )
 {
     PyObject *handle = NULL;
 
@@ -302,13 +303,13 @@ static void python_module_reload( struct cf_module *module )
     module->handle = handle;
 }
 
-static void python_module_load( struct cf_module *module )
+static void python_module_load( struct cf_module* module )
 {
     if( (module->handle = python_import(module->path)) == NULL )
         cf_fatal("%s: failed to import module", module->path);
 }
 
-static void * python_module_getsym( struct cf_module *module, const char *symbol )
+static void* python_module_getsym( struct cf_module* module, const char* symbol )
 {
     return python_callable(module->handle, symbol);
 }
@@ -546,6 +547,7 @@ static PyMODINIT_FUNC python_module_init(void)
     python_push_type("pysocket", py_obj, &pysocket_type);
     python_push_type("pysocket_op", py_obj, &pysocket_op_type);
     python_push_type("pyconnection", py_obj, &pyconnection_type);
+    python_push_type("pyqueue", py_obj, &pyqueue_type);
 
     for( i = 0; python_integers[i].symbol != NULL; i++ )
     {
@@ -595,7 +597,7 @@ static void python_push_integer( PyObject* module, const char* name, long value 
         cf_fatal("python_push_integer: failed to add %s", name);
 }
 
-static PyObject* python_log( PyObject *self, PyObject *args )
+static PyObject* python_log( PyObject* self, PyObject* args )
 {
     int prio;
     const char *message = NULL;
@@ -608,7 +610,7 @@ static PyObject* python_log( PyObject *self, PyObject *args )
     Py_RETURN_TRUE;
 }
 
-static PyObject* python_fatal( PyObject *self, PyObject *args )
+static PyObject* python_fatal( PyObject* self, PyObject* args )
 {
     const char *reason = NULL;
 
@@ -621,7 +623,7 @@ static PyObject* python_fatal( PyObject *self, PyObject *args )
     Py_RETURN_TRUE;
 }
 
-static PyObject* python_fatalx( PyObject *self, PyObject *args )
+static PyObject* python_fatalx( PyObject* self, PyObject* args )
 {
     const char* reason = NULL;
 
@@ -634,7 +636,7 @@ static PyObject* python_fatalx( PyObject *self, PyObject *args )
     Py_RETURN_TRUE;
 }
 
-static PyObject* python_bind(PyObject *self, PyObject *args)
+static PyObject* python_bind( PyObject* self, PyObject* args )
 {
     const char	*ip, *port;
 
@@ -650,7 +652,7 @@ static PyObject* python_bind(PyObject *self, PyObject *args)
     Py_RETURN_TRUE;
 }
 
-static PyObject* python_bind_unix( PyObject *self, PyObject *args )
+static PyObject* python_bind_unix( PyObject* self, PyObject* args )
 {
     const char* path = NULL;
 
@@ -666,7 +668,7 @@ static PyObject* python_bind_unix( PyObject *self, PyObject *args )
     Py_RETURN_TRUE;
 }
 
-static PyObject* python_task_create(PyObject *self, PyObject *args)
+static PyObject* python_task_create( PyObject* self, PyObject* args )
 {
     PyObject* obj = NULL;
 
@@ -956,11 +958,12 @@ static void pysocket_op_dealloc( struct pysocket_op* op )
     if( op->data.type == PYSOCKET_TYPE_RECV || op->data.type == PYSOCKET_TYPE_SEND )
         cf_buf_cleanup(&op->data.buffer);
 
-    Py_DECREF( op->data.socket );
+    Py_DECREF( op->data.socket );    
+    Py_DECREF( op->data.coro->obj );
     PyObject_Del((PyObject*)op);
 }
 
-static PyObject* pysocket_op_create(struct pysocket *sock, int type, const void *ptr, size_t len)
+static PyObject* pysocket_op_create( struct pysocket* sock, int type, const void* ptr, size_t len )
 {
     struct pysocket_op* op = NULL;
 
@@ -989,6 +992,7 @@ static PyObject* pysocket_op_create(struct pysocket *sock, int type, const void 
     op->data.evt.handle = pysocket_evt_handle;
 
     Py_INCREF(op->data.socket);
+    Py_INCREF(op->data.coro->obj);
 
     switch( type )
     {
@@ -1025,7 +1029,7 @@ static PyObject* pysocket_op_await( PyObject* obj )
     return obj;
 }
 
-static PyObject* pysocket_op_iternext(struct pysocket_op *op)
+static PyObject* pysocket_op_iternext( struct pysocket_op* op )
 {
     PyObject* ret = NULL;
 
@@ -1178,7 +1182,7 @@ static PyObject* pysocket_async_send( struct pysocket_op* op )
     Py_RETURN_NONE;
 }
 
-static void pysocket_evt_handle(void *arg, int error)
+static void pysocket_evt_handle( void* arg, int error )
 {
     struct pysocket_data* data = arg;
     struct python_coro* coro = data->coro;
@@ -1191,13 +1195,132 @@ static void pysocket_evt_handle(void *arg, int error)
      * Otherwise just wakeup the coroutine so it will run next tick.
      */
 #ifndef CF_NO_HTTP
-    if (coro->request != NULL)
+    if( coro->request != NULL )
         http_request_wakeup(coro->request);
     else
 #endif
         python_coro_wakeup(coro);
 
     coro->error = error;
+}
+
+static void pyqueue_dealloc( struct pyqueue* queue )
+{
+    PyObject_Del((PyObject *)queue);
+}
+
+static PyObject* python_queue( PyObject* self, PyObject* args )
+{
+    struct pyqueue* queue = NULL;
+
+    if( (queue = PyObject_New(struct pyqueue, &pyqueue_type)) == NULL )
+        return NULL;
+
+    TAILQ_INIT(&queue->objects);
+    TAILQ_INIT(&queue->waiting);
+
+    return (PyObject*)queue;
+}
+
+static PyObject* pyqueue_pop( struct pyqueue* queue, PyObject* args )
+{
+    struct pyqueue_op* op = NULL;
+    struct pyqueue_waiting* waiting = NULL;
+
+    if( (op = PyObject_New(struct pyqueue_op, &pyqueue_op_type)) == NULL )
+        return NULL;
+
+    op->queue = queue;
+
+    waiting = cf_mem_pool_get(&queue_wait_pool);
+
+    waiting->coro = coro_running;
+    TAILQ_INSERT_TAIL(&queue->waiting, waiting, list);
+
+    Py_INCREF( (PyObject*)queue );
+    Py_INCREF( waiting->coro->obj );
+
+    return (PyObject*)op;
+}
+
+static PyObject* pyqueue_push( struct pyqueue* queue, PyObject* args )
+{
+    PyObject* obj = NULL;
+    struct pyqueue_object* object = NULL;
+    struct pyqueue_waiting* waiting = NULL;
+
+    if( !PyArg_ParseTuple(args, "O", &obj) )
+        return NULL;
+
+    Py_INCREF(obj);
+
+    object = cf_mem_pool_get(&queue_object_pool);
+    object->obj = obj;
+
+    TAILQ_INSERT_TAIL(&queue->objects, object, list);
+
+    /* Wakeup first in line if any. */
+    if( (waiting = TAILQ_FIRST(&queue->waiting)) != NULL )
+    {
+        TAILQ_REMOVE(&queue->waiting, waiting, list);
+
+#ifndef CF_NO_HTTP
+        /* wakeup HTTP request if one is tied */
+        if( waiting->coro->request != NULL )
+            http_request_wakeup(waiting->coro->request);
+        else
+#endif
+            python_coro_wakeup(waiting->coro);
+
+        Py_DECREF(waiting->coro->obj);
+        cf_mem_pool_put(&queue_wait_pool, waiting);
+    }
+
+    Py_RETURN_TRUE;
+}
+
+static void pyqueue_op_dealloc( struct pyqueue_op* op )
+{
+    Py_DECREF( (PyObject*)op->queue );
+    PyObject_Del( (PyObject*)op );
+}
+
+static PyObject* pyqueue_op_await( PyObject* obj )
+{
+    Py_INCREF(obj);
+    return (obj);
+}
+
+static PyObject* pyqueue_op_iternext( struct pyqueue_op* op )
+{
+    PyObject* obj = NULL;
+    struct pyqueue_object* object = NULL;
+    struct pyqueue_waiting* waiting = NULL;
+
+    if( (object = TAILQ_FIRST(&op->queue->objects)) == NULL ) {
+        Py_RETURN_NONE;
+    }
+
+    TAILQ_REMOVE(&op->queue->objects, object, list);
+
+    obj = object->obj;
+    cf_mem_pool_put(&queue_object_pool, object);
+
+    TAILQ_FOREACH( waiting, &op->queue->waiting, list )
+    {
+        if( waiting->coro == coro_running )
+        {
+            TAILQ_REMOVE(&op->queue->waiting, waiting, list);
+            Py_DECREF(waiting->coro->obj);
+            cf_mem_pool_put(&queue_wait_pool, waiting);
+            break;
+        }
+    }
+
+    PyErr_SetObject(PyExc_StopIteration, obj);
+    Py_DECREF(obj);
+
+    return NULL;
 }
 
 #ifndef CF_NO_HTTP
@@ -1776,7 +1899,7 @@ static PyObject* pyhttp_file_lookup(struct pyhttp_request *pyreq, PyObject *args
     return pyfile;
 }
 
-static void pyhttp_file_dealloc(struct pyhttp_file *pyfile)
+static void pyhttp_file_dealloc( struct pyhttp_file* pyfile )
 {
     PyObject_Del((PyObject *)pyfile);
 }

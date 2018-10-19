@@ -739,7 +739,9 @@ void cf_fatalx(const char *fmt, ...)
 {
     va_list		args;
 
-    cf_msg_send(CF_MSG_PARENT, CF_MSG_SHUTDOWN, NULL, 0);
+    /* In case people call fatalx() from the parent context */
+    if( server.worker != NULL )
+        cf_msg_send(CF_MSG_PARENT, CF_MSG_SHUTDOWN, NULL, 0);
 
     va_start(args, fmt);
     fatal_log(fmt, args);

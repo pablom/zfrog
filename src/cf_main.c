@@ -54,7 +54,7 @@ struct zfrogServer  server; /* Server global state */
 
 /* Local static function declaration */
 static void init_server_config(void);
-static void	server_start(void);
+static void	server_start(int, char *[]);
 static void	server_sslstart(void);
 static void	write_pid(void);
 
@@ -315,15 +315,19 @@ int cf_tls_sni_cb( SSL *ssl, int *ad, void *arg )
 
     if( sname != NULL && (dom = cf_domain_lookup(sname)) != NULL )
     {
+        if( dom->ssl_ctx == NULL )
+        {
+            cf_log(LOG_NOTICE, "TLS configuration for %s not complete", dom->domain);
+            return SSL_TLSEXT_ERR_NOACK;
+        }
+
         log_debug("cf_tls_sni_cb(): Using %s CTX", sname);
 		SSL_set_SSL_CTX(ssl, dom->ssl_ctx);
 
-        if( dom->cafile != NULL )
-        {
+        if( dom->cafile != NULL ) {
 			SSL_set_verify(ssl, SSL_VERIFY_PEER |SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
         }
-        else
-        {
+        else {
 			SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL);
 		}
 
@@ -345,11 +349,13 @@ void cf_tls_info_callback( const SSL *ssl, int flags, int ret )
 	}
 }
 #endif
-
+/****************************************************************
+ *  Helper function to accept new one connection
+ ****************************************************************/
 static void listener_accept(void *arg, int error)
 {
-    struct connection	*c;
-    struct listener		*l = arg;
+    struct connection* c = NULL;
+    struct listener*   l = arg;
     uint32_t		accepted = 0;
 
     if( error )
@@ -366,7 +372,7 @@ static void listener_accept(void *arg, int error)
         if( !cf_connection_accept(l, &c) )
             break;
 
-        if (c == NULL)
+        if( c == NULL )
             break;
 
         accepted++;
@@ -572,9 +578,7 @@ void cf_listener_cleanup( void )
     while( !LIST_EMPTY(&server.listeners) )
     {
         l = LIST_FIRST(&server.listeners);
-		LIST_REMOVE(l, list);
-		close(l->fd);
-		mem_free(l);
+        listener_free( l );
 	}
 }
 /****************************************************************
@@ -597,6 +601,8 @@ void cf_signal_setup( void )
         cf_fatal("sigaction: %s", errno_s);
     if( sigaction(SIGTERM, &sa, NULL) == -1 )
         cf_fatal("sigaction: %s", errno_s);
+    if( sigaction(SIGUSR1, &sa, NULL) == -1 )
+        cf_fatal("sigaction: %s", errno_s);
 
     if( server.foreground )
     {
@@ -605,6 +611,8 @@ void cf_signal_setup( void )
     } else {
         signal(SIGINT, SIG_IGN);
     }
+
+    signal(SIGPIPE, SIG_IGN);
 }
 /****************************************************************
  *  Helper function to catch system signals
@@ -619,7 +627,7 @@ void cf_signal( int sig )
 static void server_sslstart( void )
 {
 #ifndef CF_NO_TLS
-    log_debug("cf_server_sslstart()");
+    log_debug("server_sslstart()");
 
 	SSL_library_init();
 	SSL_load_error_strings();
@@ -628,20 +636,28 @@ static void server_sslstart( void )
 /****************************************************************
  *  Helper function server start
  ****************************************************************/
-static void server_start( void )
+static void server_start( int argc, char *argv[] )
 {
     uint32_t  tmp;
     int	quit;
-#ifndef CF_SINGLE_BINARY
     struct cf_runtime_call *rcall = NULL;
-#endif
 
+    if( server.foreground == 0 )
+    {
 #ifdef __sun
-
 #else
-    if( server.foreground == 0 && daemon(1, 1) == -1 )
-        cf_fatal("cannot daemon(): %s", errno_s);
+        if( daemon(1, 0) == -1 )
+            cf_fatal("cannot daemon(): %s", errno_s);
 #endif
+
+#ifdef CF_SINGLE_BINARY
+        if( (rcall = cf_runtime_getcall("cf_parent_daemonized")) != NULL )
+        {
+            cf_runtime_execute( rcall );
+            mem_free(rcall);
+        }
+#endif
+    }
 
     if( !server.foreground )
         write_pid();
@@ -764,6 +780,10 @@ int main( int argc, char *argv[] )
     int	ch;
     int flags = 0;
 
+#ifdef CF_SINGLE_BINARY
+    struct cf_runtime_call* rcall = NULL;
+#endif
+
     /* Init default global variables */
     init_server_config();
 
@@ -841,13 +861,21 @@ int main( int argc, char *argv[] )
 
 #ifndef CF_SINGLE_BINARY
     if( server.config_file == NULL )
-        usage();
-#else
-    cf_module_load( NULL, NULL, CF_MODULE_NATIVE );
+        usage();    
 #endif
 
+    cf_module_load( NULL, NULL, CF_MODULE_NATIVE );
     /* Read configuration file */
     cf_parse_config();
+
+#ifdef CF_SINGLE_BINARY
+    if( (rcall = cf_runtime_getcall("cf_parent_configure")) != NULL )
+    {
+        cf_runtime_configure(rcall, argc, argv);
+        mem_free(rcall);
+    }
+#endif
+
     /* Platform initialization */
     cf_platform_init();
 
@@ -867,7 +895,7 @@ int main( int argc, char *argv[] )
     /* Setup signal catch functions */
     cf_signal_setup();
     /* Start server */
-    server_start();
+    server_start(argc, argv);
 
     cf_log(LOG_NOTICE, "server shutting down");
     cf_worker_shutdown();

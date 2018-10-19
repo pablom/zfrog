@@ -901,7 +901,7 @@ int cf_tcp_socket(const char *hostname, int type /*SOCK_STREAM*/);
 
 void cf_worker_configure(void);
 void cf_parent_configure(int, char**);
-
+void cf_parent_daemonized(void);
 
 /* Some macros to help */
 #define BITMASK_SET(x,y) ((x) |= (y))

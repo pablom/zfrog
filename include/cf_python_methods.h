@@ -9,6 +9,7 @@ static PyObject* python_bind(PyObject*, PyObject*);
 static PyObject* python_bind_unix(PyObject*, PyObject*);
 static PyObject* python_task_create(PyObject*, PyObject*);
 static PyObject* python_socket_wrap(PyObject*, PyObject*);
+static PyObject* python_queue(PyObject*, PyObject*);
 
 #ifndef CF_NO_HTTP
     static PyObject* python_websocket_broadcast(PyObject*, PyObject*);
@@ -28,6 +29,7 @@ static struct PyMethodDef pycf_methods[] =
     METHOD("log", python_log, METH_VARARGS),
     METHOD("fatal", python_fatal, METH_VARARGS),
     METHOD("fatalx", python_fatalx, METH_VARARGS),
+    METHOD("queue", python_queue, METH_VARARGS),
     METHOD("bind", python_bind, METH_VARARGS),
     METHOD("bind_unix", python_bind_unix, METH_VARARGS),
     METHOD("task_create", python_task_create, METH_VARARGS),
@@ -88,6 +90,19 @@ static PyTypeObject pysocket_type = {
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
 
+struct python_coro
+{
+    int                       state;
+    int                       error;
+    PyObject                  *obj;
+
+#ifndef CF_NO_HTTP
+    struct http_request       *request;
+#endif
+
+    TAILQ_ENTRY(python_coro)  list;
+};
+
 #define PYSOCKET_TYPE_ACCEPT	1
 #define PYSOCKET_TYPE_CONNECT	2
 #define PYSOCKET_TYPE_RECV      3
@@ -98,7 +113,7 @@ struct pysocket_data {
     int                 fd;
     int                 type;
     void                *self;
-    void                *coro;
+    struct python_coro  *coro;
     int                 state;
     size_t              length;
     struct cf_buf		buffer;
@@ -129,6 +144,70 @@ static PyTypeObject pysocket_op_type = {
     .tp_iternext = (iternextfunc)pysocket_op_iternext,
     .tp_basicsize = sizeof(struct pysocket_op),
     .tp_dealloc = (destructor)pysocket_op_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+};
+
+struct pyqueue_waiting {
+    struct python_coro		*coro;
+    TAILQ_ENTRY(pyqueue_waiting)	list;
+};
+
+struct pyqueue_object {
+    PyObject			*obj;
+    TAILQ_ENTRY(pyqueue_object)	list;
+};
+
+struct pyqueue {
+    PyObject_HEAD
+    TAILQ_HEAD(, pyqueue_object)	objects;
+    TAILQ_HEAD(, pyqueue_waiting)	waiting;
+};
+
+static PyObject *pyqueue_pop(struct pyqueue*, PyObject*);
+static PyObject *pyqueue_push(struct pyqueue*, PyObject*);
+
+static PyMethodDef pyqueue_methods[] = {
+    METHOD("pop", pyqueue_pop, METH_NOARGS),
+    METHOD("push", pyqueue_push, METH_VARARGS),
+    METHOD(NULL, NULL, -1)
+};
+
+static void	pyqueue_dealloc(struct pyqueue*);
+
+static PyTypeObject pyqueue_type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "zfrog.queue",
+    .tp_doc = "queue",
+    .tp_methods = pyqueue_methods,
+    .tp_basicsize = sizeof(struct pyqueue),
+    .tp_dealloc = (destructor)pyqueue_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+};
+
+struct pyqueue_op {
+    PyObject_HEAD
+    struct pyqueue		*queue;
+};
+
+static void	pyqueue_op_dealloc(struct pyqueue_op*);
+
+static PyObject* pyqueue_op_await(PyObject*);
+static PyObject* pyqueue_op_iternext(struct pyqueue_op*);
+
+static PyAsyncMethods pyqueue_op_async = {
+    (unaryfunc)pyqueue_op_await,
+    NULL,
+    NULL
+};
+
+static PyTypeObject pyqueue_op_type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "zfrog.queueop",
+    .tp_doc = "queue waitable",
+    .tp_as_async = &pyqueue_op_async,
+    .tp_iternext = (iternextfunc)pyqueue_op_iternext,
+    .tp_basicsize = sizeof(struct pyqueue_op),
+    .tp_dealloc = (destructor)pyqueue_op_dealloc,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
 

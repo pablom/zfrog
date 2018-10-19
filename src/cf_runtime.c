@@ -51,23 +51,28 @@ struct cf_runtime_call * cf_runtime_getcall(const char *symbol)
     return rcall;
 }
 
-void cf_runtime_execute(struct cf_runtime_call *rcall)
+void cf_runtime_execute( struct cf_runtime_call* rcall )
 {
     rcall->runtime->execute(rcall->addr);
 }
 
-int cf_runtime_onload(struct cf_runtime_call *rcall, int action)
+void cf_runtime_configure( struct cf_runtime_call* rcall, int argc, char **argv )
+{
+    rcall->runtime->configure(rcall->addr, argc, argv);
+}
+
+int cf_runtime_onload( struct cf_runtime_call* rcall, int action )
 {
 	return (rcall->runtime->onload(rcall->addr, action));
 }
 
-void cf_runtime_connect(struct cf_runtime_call *rcall, struct connection *c)
+void cf_runtime_connect( struct cf_runtime_call* rcall, struct connection* c )
 {
 	rcall->runtime->connect(rcall->addr, c);
 }
 
 #ifndef CF_NO_HTTP
-int cf_runtime_http_request(struct cf_runtime_call *rcall, struct http_request *req)
+int cf_runtime_http_request( struct cf_runtime_call* rcall, struct http_request* req )
 {
 	return (rcall->runtime->http_request(rcall->addr, req));
 }
@@ -77,7 +82,7 @@ int cf_runtime_validator(struct cf_runtime_call *rcall, struct http_request *req
 	return (rcall->runtime->validator(rcall->addr, req, data));
 }
 
-void cf_runtime_wsconnect(struct cf_runtime_call *rcall, struct connection *c)
+void cf_runtime_wsconnect( struct cf_runtime_call* rcall, struct connection* c )
 {
     rcall->runtime->wsconnect(rcall->addr, c);
 }
@@ -88,7 +93,7 @@ void cf_runtime_wsmessage( struct cf_runtime_call *rcall, struct connection *c,
     rcall->runtime->wsmessage(rcall->addr, c, op, data, len);
 }
 
-void cf_runtime_wsdisconnect(struct cf_runtime_call *rcall, struct connection *c)
+void cf_runtime_wsdisconnect( struct cf_runtime_call* rcall, struct connection* c )
 {
     rcall->runtime->wsdisconnect(rcall->addr, c);
 }
