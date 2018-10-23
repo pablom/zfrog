@@ -86,6 +86,7 @@ static inline int worker_acceptlock_release(uint64_t);
     static void worker_certificate_recv(struct cf_msg*, const void*);
 #endif
 
+static uint64_t          next_lock;
 static struct cf_worker* workers;       /* Array with all allocated workers structure */
 static int               worker_no_lock;
 static int               shm_accept_key;
@@ -317,8 +318,7 @@ static void worker_entry( struct cf_worker *kw )
     int quit = 0;
     int had_lock = 0;
     int r;
-    uint64_t now;
-    uint64_t next_lock = 0;
+    uint64_t now = 0;
     uint64_t netwait = 0;
     uint64_t timerwait = 0;
     uint64_t next_prune = 0;
@@ -352,6 +352,8 @@ static void worker_entry( struct cf_worker *kw )
 		exit(0);
 	}
 #endif
+
+    next_lock = 0;
 
     /* Network initialisation */
     net_init();
@@ -648,6 +650,7 @@ void cf_worker_make_busy(void)
     {
         worker_unlock();
         server.worker->has_lock = 0;
+        next_lock = cf_time_ms() + WORKER_LOCK_TIMEOUT;
     }
 }
 /****************************************************************

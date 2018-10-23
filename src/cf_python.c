@@ -134,9 +134,9 @@ static PyMemAllocatorEx allocator =
     .free    = python_free
 };
 
-static struct cf_mem_pool           coro_pool;
-static struct cf_mem_pool           queue_wait_pool;
-static struct cf_mem_pool           queue_object_pool;
+static struct cf_mem_pool   coro_pool;
+static struct cf_mem_pool   queue_wait_pool;
+static struct cf_mem_pool   queue_object_pool;
 
 static int                          coro_count;
 static TAILQ_HEAD(, python_coro)	coro_runnable;
@@ -548,6 +548,7 @@ static PyMODINIT_FUNC python_module_init(void)
     python_push_type("pysocket_op", py_obj, &pysocket_op_type);
     python_push_type("pyconnection", py_obj, &pyconnection_type);
     python_push_type("pyqueue", py_obj, &pyqueue_type);
+    python_push_type("pylock", py_obj, &pylock_type);
 
     for( i = 0; python_integers[i].symbol != NULL; i++ )
     {
@@ -1208,7 +1209,9 @@ static void pyqueue_dealloc( struct pyqueue* queue )
 {
     PyObject_Del((PyObject *)queue);
 }
-
+/****************************************************************
+ *  Python queue functions
+ ****************************************************************/
 static PyObject* python_queue( PyObject* self, PyObject* args )
 {
     struct pyqueue* queue = NULL;
@@ -1241,6 +1244,23 @@ static PyObject* pyqueue_pop( struct pyqueue* queue, PyObject* args )
     Py_INCREF( waiting->coro->obj );
 
     return (PyObject*)op;
+}
+
+static PyObject* pyqueue_popnow( struct pyqueue* queue, PyObject* args )
+{
+    PyObject* obj = NULL;
+    struct pyqueue_object* object = NULL;
+
+    if( (object = TAILQ_FIRST(&queue->objects)) == NULL ) {
+        Py_RETURN_NONE;
+    }
+
+    TAILQ_REMOVE(&queue->objects, object, list);
+
+    obj = object->obj;
+    cf_mem_pool_put(&queue_object_pool, object);
+
+    return obj;
 }
 
 static PyObject* pyqueue_push( struct pyqueue* queue, PyObject* args )
@@ -1281,14 +1301,21 @@ static PyObject* pyqueue_push( struct pyqueue* queue, PyObject* args )
 
 static void pyqueue_op_dealloc( struct pyqueue_op* op )
 {
+    if( op->waiting != NULL )
+    {
+        TAILQ_REMOVE(&op->queue->waiting, op->waiting, list);
+        cf_mem_pool_put(&queue_wait_pool, op->waiting);
+        op->waiting = NULL;
+    }
+
     Py_DECREF( (PyObject*)op->queue );
     PyObject_Del( (PyObject*)op );
 }
 
 static PyObject* pyqueue_op_await( PyObject* obj )
 {
-    Py_INCREF(obj);
-    return (obj);
+    Py_INCREF( obj );
+    return obj;
 }
 
 static PyObject* pyqueue_op_iternext( struct pyqueue_op* op )
@@ -1322,7 +1349,169 @@ static PyObject* pyqueue_op_iternext( struct pyqueue_op* op )
 
     return NULL;
 }
+/****************************************************************
+ *  Python lock functions
+ ****************************************************************/
+static PyObject* python_lock( PyObject* self, PyObject* args )
+{
+    struct pylock* lock = NULL;
 
+    if( (lock = PyObject_New(struct pylock, &pylock_type)) == NULL )
+        return NULL;
+
+    lock->owner = NULL;
+    TAILQ_INIT(&lock->ops);
+
+    return (PyObject*)lock;
+}
+
+static void pylock_dealloc( struct pylock* lock )
+{
+    struct pylock_op* op = NULL;
+
+    while( (op = TAILQ_FIRST(&lock->ops)) != NULL )
+    {
+        TAILQ_REMOVE(&lock->ops, op, list);
+        op->active = 0;
+        Py_DECREF((PyObject*)op);
+    }
+
+    PyObject_Del((PyObject*)op);
+}
+
+static PyObject* pylock_aenter( struct pylock* lock, PyObject* args )
+{
+    struct pylock_op* op = NULL;
+
+    if( lock->owner != NULL && lock->owner->id == coro_running->id )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "recursive lock detected");
+        return NULL;
+    }
+
+    if( (op = PyObject_New(struct pylock_op, &pylock_op_type)) == NULL )
+        return NULL;
+
+    op->active = 1;
+    op->lock = lock;
+    op->locking = 1;
+    op->coro = coro_running;
+
+    Py_INCREF((PyObject*)op);
+    Py_INCREF((PyObject*)lock);
+
+    TAILQ_INSERT_TAIL(&lock->ops, op, list);
+
+    return (PyObject*)op;
+}
+
+static PyObject* pylock_aexit(struct pylock *lock, PyObject *args)
+{
+    struct pylock_op* op = NULL;
+
+    if( lock->owner == NULL || lock->owner->id != coro_running->id )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "invalid lock owner");
+        return NULL;
+    }
+
+    if( (op = PyObject_New(struct pylock_op, &pylock_op_type)) == NULL )
+        return NULL;
+
+    op->active = 1;
+    op->lock = lock;
+    op->locking = 0;
+    op->coro = coro_running;
+
+    Py_INCREF((PyObject *)op);
+    Py_INCREF((PyObject *)lock);
+
+    TAILQ_INSERT_TAIL(&lock->ops, op, list);
+
+    return (PyObject*)op;
+}
+
+static void
+pylock_do_release(struct pylock *lock)
+{
+    struct pylock_op	*op;
+
+    lock->owner = NULL;
+
+    TAILQ_FOREACH(op, &lock->ops, list) {
+        if (op->locking == 0)
+            continue;
+
+        TAILQ_REMOVE(&op->lock->ops, op, list);
+
+        if (op->coro->request != NULL)
+            http_request_wakeup(op->coro->request);
+        else
+            python_coro_wakeup(op->coro);
+
+        op->active = 0;
+        Py_DECREF((PyObject *)op);
+        break;
+    }
+}
+
+static void
+pylock_op_dealloc(struct pylock_op *op)
+{
+    if (op->active) {
+        TAILQ_REMOVE(&op->lock->ops, op, list);
+        op->active = 0;
+    }
+
+    Py_DECREF((PyObject *)op->lock);
+    PyObject_Del((PyObject *)op);
+}
+
+static PyObject *
+pylock_op_await(PyObject *obj)
+{
+    Py_INCREF(obj);
+    return (obj);
+}
+
+static PyObject* pylock_op_iternext( struct pylock_op* op )
+{
+    if( op->locking == 0 )
+    {
+        if( op->lock->owner == NULL )
+        {
+            PyErr_SetString(PyExc_RuntimeError, "no lock owner set");
+            return NULL;
+        }
+
+        if( op->lock->owner->id != coro_running->id )
+        {
+            PyErr_SetString(PyExc_RuntimeError, "lock not owned by caller");
+            return NULL;
+        }
+
+        pylock_do_release(op->lock);
+    }
+    else
+    {
+        if( op->lock->owner != NULL ) {
+            Py_RETURN_NONE;
+        }
+
+        op->lock->owner = coro_running;
+    }
+
+    op->active = 0;
+    TAILQ_REMOVE(&op->lock->ops, op, list);
+    PyErr_SetNone(PyExc_StopIteration);
+
+    Py_DECREF((PyObject*)op);
+
+    return NULL;
+}
+/****************************************************************
+ *  Python HTTP functions
+ ****************************************************************/
 #ifndef CF_NO_HTTP
 
 static void pyhttp_dealloc( struct pyhttp_request *pyreq )

@@ -3,6 +3,7 @@
 
 /* Forward function declaration */
 static PyObject* python_log(PyObject*, PyObject*);
+static PyObject* python_lock(PyObject*, PyObject*);
 static PyObject* python_fatal(PyObject*, PyObject*);
 static PyObject* python_fatalx( PyObject*, PyObject*);
 static PyObject* python_bind(PyObject*, PyObject*);
@@ -29,6 +30,7 @@ static struct PyMethodDef pycf_methods[] =
     METHOD("log", python_log, METH_VARARGS),
     METHOD("fatal", python_fatal, METH_VARARGS),
     METHOD("fatalx", python_fatalx, METH_VARARGS),
+    METHOD("lock", python_lock, METH_NOARGS),
     METHOD("queue", python_queue, METH_VARARGS),
     METHOD("bind", python_bind, METH_VARARGS),
     METHOD("bind_unix", python_bind_unix, METH_VARARGS),
@@ -92,9 +94,11 @@ static PyTypeObject pysocket_type = {
 
 struct python_coro
 {
-    int                       state;
-    int                       error;
-    PyObject                  *obj;
+    uint64_t	    id;
+    int             state;
+    int             error;
+    PyObject        *obj;
+    struct pylock   *lock;
 
 #ifndef CF_NO_HTTP
     struct http_request       *request;
@@ -165,10 +169,12 @@ struct pyqueue {
 
 static PyObject *pyqueue_pop(struct pyqueue*, PyObject*);
 static PyObject *pyqueue_push(struct pyqueue*, PyObject*);
+static PyObject *pyqueue_popnow(struct pyqueue*, PyObject*);
 
 static PyMethodDef pyqueue_methods[] = {
     METHOD("pop", pyqueue_pop, METH_NOARGS),
     METHOD("push", pyqueue_push, METH_VARARGS),
+    METHOD("popnow", pyqueue_popnow, METH_NOARGS),
     METHOD(NULL, NULL, -1)
 };
 
@@ -186,7 +192,8 @@ static PyTypeObject pyqueue_type = {
 
 struct pyqueue_op {
     PyObject_HEAD
-    struct pyqueue		*queue;
+    struct pyqueue		   *queue;
+    struct pyqueue_waiting *waiting;
 };
 
 static void	pyqueue_op_dealloc(struct pyqueue_op*);
@@ -210,6 +217,64 @@ static PyTypeObject pyqueue_op_type = {
     .tp_dealloc = (destructor)pyqueue_op_dealloc,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
+
+struct pylock {
+    PyObject_HEAD
+    struct python_coro		*owner;
+    TAILQ_HEAD(, pylock_op)  ops;
+};
+
+static PyObject* pylock_aexit(struct pylock*, PyObject*);
+static PyObject* pylock_aenter(struct pylock*, PyObject*);
+static void	pylock_dealloc(struct pylock*);
+
+static PyMethodDef pylock_methods[] = {
+    METHOD("__aexit__", pylock_aexit, METH_VARARGS),
+    METHOD("__aenter__", pylock_aenter, METH_NOARGS),
+    METHOD(NULL, NULL, -1)
+};
+
+static PyTypeObject pylock_type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "zfrog.lock",
+    .tp_doc = "locking mechanism",
+    .tp_methods = pylock_methods,
+    .tp_basicsize = sizeof(struct pylock),
+    .tp_dealloc = (destructor)pylock_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+};
+
+struct pylock_op {
+    PyObject_HEAD
+    int			locking;
+    int			active;
+    struct pylock		*lock;
+    struct python_coro	*coro;
+    TAILQ_ENTRY(pylock_op)	list;
+};
+
+static void	pylock_op_dealloc(struct pylock_op*);
+
+static PyObject* pylock_op_await(PyObject*);
+static PyObject* pylock_op_iternext(struct pylock_op*);
+
+static PyAsyncMethods pylock_op_async = {
+    (unaryfunc)pylock_op_await,
+    NULL,
+    NULL
+};
+
+static PyTypeObject pylock_op_type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "zfrog.lockop",
+    .tp_doc = "lock awaitable",
+    .tp_as_async = &pylock_op_async,
+    .tp_iternext = (iternextfunc)pylock_op_iternext,
+    .tp_basicsize = sizeof(struct pylock_op),
+    .tp_dealloc = (destructor)pylock_op_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+};
+
 
 struct pyconnection
 {

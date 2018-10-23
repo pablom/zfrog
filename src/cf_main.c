@@ -367,7 +367,10 @@ static void listener_accept(void *arg, int error)
     while( server.worker_active_connections < server.worker_max_connections )
     {
         if( server.worker_accept_threshold != 0 && accepted >= server.worker_accept_threshold )
+        {
+            cf_worker_make_busy();
             break;
+        }
 
         if( !cf_connection_accept(l, &c) )
             break;
