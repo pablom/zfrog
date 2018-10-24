@@ -11,6 +11,9 @@ static PyObject* python_bind_unix(PyObject*, PyObject*);
 static PyObject* python_task_create(PyObject*, PyObject*);
 static PyObject* python_socket_wrap(PyObject*, PyObject*);
 static PyObject* python_queue(PyObject*, PyObject*);
+static PyObject* python_shutdown(PyObject*, PyObject*);
+static PyObject* python_timer(PyObject*, PyObject*);
+static PyObject* python_suspend(PyObject*, PyObject*);
 
 #ifndef CF_NO_HTTP
     static PyObject* python_websocket_broadcast(PyObject*, PyObject*);
@@ -31,11 +34,14 @@ static struct PyMethodDef pycf_methods[] =
     METHOD("fatal", python_fatal, METH_VARARGS),
     METHOD("fatalx", python_fatalx, METH_VARARGS),
     METHOD("lock", python_lock, METH_NOARGS),
+    METHOD("timer", python_timer, METH_VARARGS),
     METHOD("queue", python_queue, METH_VARARGS),
     METHOD("bind", python_bind, METH_VARARGS),
     METHOD("bind_unix", python_bind_unix, METH_VARARGS),
     METHOD("task_create", python_task_create, METH_VARARGS),
     METHOD("socket_wrap", python_socket_wrap, METH_VARARGS),
+    METHOD("shutdown", python_shutdown, METH_NOARGS),
+    METHOD("suspend", python_suspend, METH_VARARGS),
 #ifndef CF_NO_HTTP
     METHOD("websocket_broadcast", python_websocket_broadcast, METH_VARARGS),
 #endif
@@ -50,8 +56,74 @@ static struct PyModuleDef pycf_module =
     PyModuleDef_HEAD_INIT, "zfrog", NULL, -1, pycf_methods
 };
 
+#define PYSUSPEND_OP_INIT	1
+#define PYSUSPEND_OP_WAIT	2
+#define PYSUSPEND_OP_CONTINUE	3
 
-struct pysocket {
+struct pysuspend_op
+{
+    PyObject_HEAD
+    int                 state;
+    int                 delay;
+    struct python_coro	*coro;
+    struct cf_timer	    *timer;
+};
+
+static void pysuspend_op_dealloc(struct pysuspend_op*);
+
+static PyObject* pysuspend_op_await(PyObject*);
+static PyObject* pysuspend_op_iternext(struct pysuspend_op*);
+
+static PyAsyncMethods pysuspend_op_async =
+{
+    (unaryfunc)pysuspend_op_await,
+    NULL,
+    NULL
+};
+
+static PyTypeObject pysuspend_op_type =
+{
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "zfrog.suspend",
+    .tp_doc = "suspension operation",
+    .tp_as_async = &pysuspend_op_async,
+    .tp_iternext = (iternextfunc)pysuspend_op_iternext,
+    .tp_basicsize = sizeof(struct pysuspend_op),
+    .tp_dealloc = (destructor)pysuspend_op_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+};
+
+struct pytimer
+{
+    PyObject_HEAD
+    int			    flags;
+    struct cf_timer *run;
+    PyObject        *callable;
+};
+
+static PyObject* pytimer_close(struct pytimer*, PyObject*);
+
+static PyMethodDef pytimer_methods[] =
+{
+    METHOD("close", pytimer_close, METH_NOARGS),
+    METHOD(NULL, NULL, -1)
+};
+
+static void	pytimer_dealloc(struct pytimer*);
+
+ static PyTypeObject pytimer_type =
+ {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "zfrog.timer",
+    .tp_doc = "zfrog timer implementation",
+    .tp_methods = pytimer_methods,
+    .tp_basicsize = sizeof(struct pytimer),
+    .tp_dealloc = (destructor)pytimer_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+ };
+
+struct pysocket
+{
     PyObject_HEAD
     int			fd;
     int			family;

@@ -74,8 +74,8 @@ struct wlock
 };
 
 /* Forward static function declaration */
-static void worker_spawn(uint16_t, uint16_t);
-static void worker_entry(struct cf_worker*);
+static void worker_spawn(uint16_t, uint16_t, int);
+static void worker_entry(struct cf_worker*, int);
 static int	worker_trylock(void);
 static void	worker_unlock(void);
 static inline int worker_acceptlock_obtain(uint64_t);
@@ -140,7 +140,7 @@ void cf_worker_init(void)
 
     for( i = 0; i < server.worker_count; i++ )
     {
-        worker_spawn(i, cpu++);
+        worker_spawn(i, cpu++, 0);
         if( cpu == server.cpu_count )
 			cpu = 0;
 	}
@@ -148,7 +148,7 @@ void cf_worker_init(void)
 /****************************************************************
  *  Fork new one worker
  ****************************************************************/
-static void worker_spawn( uint16_t id, uint16_t cpu )
+static void worker_spawn( uint16_t id, uint16_t cpu, int restarted )
 {
     struct cf_worker *kw = NULL;
 
@@ -174,7 +174,7 @@ static void worker_spawn( uint16_t id, uint16_t cpu )
     if( kw->pid == 0 ) /* Child process started */
     {
 		kw->pid = getpid();
-        worker_entry(kw);
+        worker_entry(kw, restarted);
 		/* NOTREACHED */
 	}
 }
@@ -312,7 +312,7 @@ void cf_worker_privdrop( const char *runas, const char *root_path )
 /****************************************************************
  *  Worker main entry function
  ****************************************************************/
-static void worker_entry( struct cf_worker *kw )
+static void worker_entry( struct cf_worker *kw, int restarted )
 {
     char buf[16];
     int quit = 0;
@@ -393,6 +393,9 @@ static void worker_entry( struct cf_worker *kw )
 #ifndef CF_NO_TLS
     cf_msg_register(CF_MSG_ENTROPY_RESP, worker_entropy_recv);
     cf_msg_register(CF_MSG_CERTIFICATE, worker_certificate_recv);
+
+    if( restarted )
+        cf_msg_send(CF_WORKER_KEYMGR, CF_MSG_CERTIFICATE_REQ, NULL, 0);
 #endif 
 
 #ifdef CF_REDIS
@@ -514,6 +517,12 @@ static void worker_entry( struct cf_worker *kw )
 			break;
 	}
 
+    if( (rcall = cf_runtime_getcall("cf_worker_teardown")) != NULL )
+    {
+        cf_runtime_execute(rcall);
+        mem_free(rcall);
+    }
+
     /* Clean up resources */
     cf_platform_event_cleanup();
     cf_connection_cleanup();
@@ -622,7 +631,7 @@ void cf_worker_wait( int final )
 #endif
             cf_log(LOG_NOTICE, "restarting worker %d", kw->id);
             cf_msg_parent_remove(kw);
-            worker_spawn(kw->id, kw->cpu);
+            worker_spawn(kw->id, kw->cpu, 1);
             cf_msg_parent_add(kw);
         }
         else {

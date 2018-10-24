@@ -19,7 +19,7 @@
 
 void net_init( void )
 {
-    /* Add some overhead so we don't roll over for internal items. */
+    /* Add some overhead so we don't roll over for internal items */
     uint32_t elm = server.worker_max_connections + 10;
     cf_mem_pool_init(&server.nb_pool, "nb_pool", sizeof(struct netbuf), elm);
 }

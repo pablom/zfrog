@@ -197,13 +197,14 @@ TAILQ_HEAD(netbuf_head, netbuf);
 #define WEBSOCKET_OP_PING           0x09
 #define WEBSOCKET_OP_PONG           0x0A
 
-#define WEBSOCKET_BROADCAST_LOCAL           1
-#define WEBSOCKET_BROADCAST_GLOBAL          2
+#define WEBSOCKET_BROADCAST_LOCAL       1
+#define WEBSOCKET_BROADCAST_GLOBAL      2
 
-#define CF_TIMER_ONESHOT                    0x01
+#define CF_TIMER_ONESHOT                0x01
+#define CF_TIMER_FLAGS                  (CF_TIMER_ONESHOT)
 
-#define CF_CONNECTION_PRUNE_DISCONNECT      0
-#define CF_CONNECTION_PRUNE_ALL             1
+#define CF_CONNECTION_PRUNE_DISCONNECT  0
+#define CF_CONNECTION_PRUNE_ALL         1
 
 struct cf_event {
     int		type;
@@ -663,6 +664,10 @@ int  cf_proc_pidpath(pid_t, void*, size_t);
 #ifndef CF_NO_SENDFILE
     int	cf_platform_sendfile(struct connection*, struct netbuf*);
 #endif
+
+void cf_shutdown(void);
+void cf_worker_teardown(void);
+void cf_parent_teardown(void);
 
 void cf_accesslog_init(void);
 void cf_accesslog_worker_init(void);

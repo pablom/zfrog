@@ -782,10 +782,7 @@ int main( int argc, char *argv[] )
 {
     int	ch;
     int flags = 0;
-
-#ifdef CF_SINGLE_BINARY
     struct cf_runtime_call* rcall = NULL;
-#endif
 
     /* Init default global variables */
     init_server_config();
@@ -903,6 +900,12 @@ int main( int argc, char *argv[] )
     cf_log(LOG_NOTICE, "server shutting down");
     cf_worker_shutdown();
 
+    if( (rcall = cf_runtime_getcall("cf_parent_teardown")) != NULL )
+    {
+        cf_runtime_execute(rcall);
+        mem_free(rcall);
+    }
+
     if( !server.foreground )
         unlink( server.pidfile );
 
@@ -916,3 +919,13 @@ int main( int argc, char *argv[] )
     mem_cleanup();
     return 0;
 }
+
+void cf_shutdown(void)
+ {
+    if( server.worker != NULL ) {
+        cf_msg_send(CF_MSG_PARENT, CF_MSG_SHUTDOWN, NULL, 0);
+        return;
+    }
+
+    cf_fatal("cf_shutdown: called from parent");
+ }
