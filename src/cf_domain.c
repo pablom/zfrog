@@ -275,7 +275,7 @@ struct cf_domain* cf_domain_lookup( const char *domain )
  ****************************************************************/
 void cf_domain_closelogs( void )
 {
-    struct cf_domain *dom = NULL;
+    struct cf_domain* dom = NULL;
 
     TAILQ_FOREACH(dom, &server.domains, list)
     {
@@ -289,7 +289,7 @@ void cf_domain_closelogs( void )
  ****************************************************************/
 void cf_domain_load_crl( void )
 {
-    struct cf_domain *dom = NULL;
+    struct cf_domain* dom = NULL;
 
     TAILQ_FOREACH(dom, &server.domains, list)
         domain_load_crl(dom);
@@ -314,7 +314,7 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     EC_KEY* eckey = NULL;
     const SSL_METHOD* method = NULL;
 
-#if !defined(OPENSSL_NO_EC)
+#if defined(LIBRESSL_VERSION_TEXT) || OPENSSL_VERSION_NUMBER < 0x10100000L
     EC_KEY* ecdh = NULL;
 #endif
 
@@ -325,10 +325,11 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     if( (method = TLS_method()) == NULL )
-        cf_fatal("TLS_method(): %s", ssl_errno_s);
+        cf_fatalx("TLS_method(): %s", ssl_errno_s);
 #else
     switch( tls_version )
     {
+    case CF_TLS_VERSION_1_3:
     case CF_TLS_VERSION_1_2:
         method = TLSv1_2_server_method();
         break;
@@ -353,10 +354,15 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_VERSION) )
-        cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
+        cf_fatalx("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
 
+#if OPENSSL_VERSION_NUMBER >= 0x10101004L
+    if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_3_VERSION) )
+        cf_fatalx("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
+#else
     if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_2_VERSION) )
-        cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
+        cf_fatalx("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
+#endif
 
     switch( server.tls_version )
     {
@@ -388,23 +394,28 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     x509 = domain_load_certificate_chain(dom->ssl_ctx, pem, pemlen);
 
     if( (pkey = X509_get_pubkey(x509)) == NULL )
-        cf_fatal("certificate has no public key");
+        cf_fatalx("certificate has no public key");
 
     switch( EVP_PKEY_id(pkey) )
     {
     case EVP_PKEY_RSA:
+
         if( (rsa = EVP_PKEY_get1_RSA(pkey)) == NULL )
-            cf_fatal("no RSA public key present");
+            cf_fatalx("no RSA public key present");
         RSA_set_app_data(rsa, dom);
+
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
         RSA_set_method(rsa, keymgr_rsa_meth);
 #else
         RSA_set_method(rsa, &keymgr_rsa);
 #endif
         break;
+
     case EVP_PKEY_EC:
+
         if( (eckey = EVP_PKEY_get1_EC_KEY(pkey)) == NULL )
-            cf_fatal("no EC public key present");
+            cf_fatalx("no EC public key present");
+
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
         EC_KEY_set_ex_data(eckey, 0, dom);
         EC_KEY_set_method(eckey, keymgr_ec_meth);
@@ -413,27 +424,34 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
         ECDSA_set_method(eckey, &keymgr_ecdsa);
 #endif
         break;
+
     default:
-        cf_fatal("unknown public key in certificate");
+        cf_fatalx("unknown public key in certificate");
     }
 
     if( !SSL_CTX_use_PrivateKey(dom->ssl_ctx, pkey) )
-        cf_fatal("SSL_CTX_use_PrivateKey(): %s", ssl_errno_s);
+        cf_fatalx("SSL_CTX_use_PrivateKey(): %s", ssl_errno_s);
 
     if( !SSL_CTX_check_private_key(dom->ssl_ctx) )
-        cf_fatal("Public/Private key for %s do not match", dom->domain);
+        cf_fatalx("Public/Private key for %s do not match", dom->domain);
 
     if( server.tls_dhparam == NULL )
-        cf_fatal("No DH parameters given");
+        cf_fatalx("No DH parameters given");
 
     SSL_CTX_set_tmp_dh(dom->ssl_ctx, server.tls_dhparam);
     SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_SINGLE_DH_USE);
 
+#if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
+    if( !SSL_CTX_set_ecdh_auto(dom->ssl_ctx, 1) )
+        cf_fatalx("SSL_CTX_set_ecdh_auto: %s", ssl_errno_s);
+#else
+
     if( (ecdh = EC_KEY_new_by_curve_name(NID_secp384r1)) == NULL )
-        cf_fatal("EC_KEY_new_by_curve_name: %s", ssl_errno_s);
+        cf_fatalx("EC_KEY_new_by_curve_name: %s", ssl_errno_s);
 
     SSL_CTX_set_tmp_ecdh(dom->ssl_ctx, ecdh);
     EC_KEY_free(ecdh);
+#endif
 
     SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
     SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_COMPRESSION);
@@ -442,7 +460,7 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     {
         if( (certs = SSL_load_client_CA_file(dom->cafile)) == NULL )
         {
-            cf_fatal("SSL_load_client_CA_file(%s): %s", dom->cafile, ssl_errno_s);
+            cf_fatalx("SSL_load_client_CA_file(%s): %s", dom->cafile, ssl_errno_s);
         }
 
         SSL_CTX_load_verify_locations(dom->ssl_ctx, dom->cafile, NULL);
@@ -458,6 +476,7 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     {
         SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_SSLv2);
         SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_SSLv3);
+        SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_TLSv1);
         SSL_CTX_set_options(dom->ssl_ctx, SSL_OP_NO_TLSv1_1);
     }
 
@@ -803,7 +822,9 @@ static X509* domain_load_certificate_chain( SSL_CTX* ctx, const void* data, size
     SSL_CTX_clear_chain_certs(ctx);
 #endif
 
+    /* Clear current errors */
     ERR_clear_error();
+
     while( (ca = PEM_read_bio_X509(in, NULL, NULL, NULL)) != NULL )
     {
         /* ca its reference count won't be increased. */

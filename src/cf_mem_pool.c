@@ -6,6 +6,8 @@
 
 #include "zfrog.h"
 
+#define POOL_MIN_ELEMENTS		16
+
 #define POOL_ELEMENT_BUSY		0
 #define POOL_ELEMENT_FREE		1
 
@@ -24,6 +26,9 @@ void cf_mem_pool_init(struct cf_mem_pool *pool, const char *name, size_t len, si
 {
     log_debug("cf_mem_pool_init(%p, %s, %zu, %zu)", pool, name, len, elm);
 
+    if( elm < POOL_MIN_ELEMENTS )
+        elm = POOL_MIN_ELEMENTS;
+
     if( (pool->name = strdup(name)) == NULL ) {
         cf_fatal("cf_mem_pool_init: strdup %s", errno_s);
     }
@@ -35,6 +40,7 @@ void cf_mem_pool_init(struct cf_mem_pool *pool, const char *name, size_t len, si
 	pool->elms = 0;
 	pool->inuse = 0;
 	pool->elen = len;
+    pool->growth = elm * 0.25f;
     pool->slen = pool->elen + sizeof(struct cf_mem_pool_entry);
 
 	LIST_INIT(&(pool->regions));
@@ -75,11 +81,9 @@ void* cf_mem_pool_get( struct cf_mem_pool *pool )
     pool_lock( pool );
 #endif
 
-    if( LIST_EMPTY(&(pool->freelist)) )
-    {
-        //cf_log(LOG_NOTICE, "pool %s is exhausted (%zu/%zu)", pool->name, pool->inuse, pool->elms);
-		pool_region_create(pool, pool->elms);
-	}
+    if( LIST_EMPTY(&(pool->freelist)) ) {
+        pool_region_create(pool, pool->growth);
+    }
 
 	entry = LIST_FIRST(&(pool->freelist));
     if( entry->state != POOL_ELEMENT_FREE )
@@ -160,7 +164,7 @@ static void pool_region_create(struct cf_mem_pool *pool, size_t elms)
 		entry->state = POOL_ELEMENT_FREE;
 		LIST_INSERT_HEAD(&(pool->freelist), entry, list);
 
-        p = ((uint8_t *)p + pool->slen);
+        p = ((uint8_t*)p + pool->slen);
 	}
 
 	pool->elms += elms;

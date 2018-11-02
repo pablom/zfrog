@@ -473,6 +473,7 @@ struct cf_mem_pool
 	size_t			slen;
 	size_t			elms;
 	size_t			inuse;
+    size_t			growth;
 
 #ifdef CF_TASKS
     volatile int	lock;

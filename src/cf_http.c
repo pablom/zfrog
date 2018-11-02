@@ -228,8 +228,16 @@ static struct http_request* http_request_new( struct connection *c, const char *
 
     if( strcasecmp(version, "http/1.1") )
     {
-        http_error_response(c, HTTP_STATUS_BAD_VERSION);
-        return NULL;
+        if( strcasecmp(version, "http/1.0") ) {
+            http_error_response(c, HTTP_STATUS_BAD_VERSION);
+            return NULL;
+        }
+
+        flags = HTTP_VERSION_1_0;
+        c->flags |= CONN_CLOSE_EMPTY;
+    }
+    else {
+        flags = HTTP_VERSION_1_1;
     }
 
     if( (p = strchr(path, '?')) != NULL )
@@ -279,43 +287,53 @@ static struct http_request* http_request_new( struct connection *c, const char *
     if( !strcasecmp(method, "get") )
     {
 		m = HTTP_METHOD_GET;
-		flags = HTTP_REQUEST_COMPLETE;
+        flags |= HTTP_REQUEST_COMPLETE;
     }
     else if( !strcasecmp(method, "delete") )
     {
 		m = HTTP_METHOD_DELETE;
-		flags = HTTP_REQUEST_COMPLETE;
+        flags |= HTTP_REQUEST_COMPLETE;
     }
     else if( !strcasecmp(method, "post") )
     {
 		m = HTTP_METHOD_POST;
-		flags = HTTP_REQUEST_EXPECT_BODY;
+        flags |= HTTP_REQUEST_EXPECT_BODY;
     }
     else if( !strcasecmp(method, "put") )
     {
 		m = HTTP_METHOD_PUT;
-		flags = HTTP_REQUEST_EXPECT_BODY;
+        flags |= HTTP_REQUEST_EXPECT_BODY;
     }
     else if( !strcasecmp(method, "head") )
     {
 		m = HTTP_METHOD_HEAD;
-		flags = HTTP_REQUEST_COMPLETE;
+        flags |= HTTP_REQUEST_COMPLETE;
     } 
     else if( !strcasecmp(method, "options") )
     {
         m = HTTP_METHOD_OPTIONS;
-        flags = HTTP_REQUEST_COMPLETE;
+        flags |= HTTP_REQUEST_COMPLETE;
     }
     else if( !strcasecmp(method, "patch") )
     {
         m = HTTP_METHOD_PATCH;
-        flags = HTTP_REQUEST_EXPECT_BODY;
+        flags |= HTTP_REQUEST_EXPECT_BODY;
     }
     else
     {
         http_error_response(c, HTTP_STATUS_BAD_REQUEST);
         return NULL;
 	}
+
+    if( flags & HTTP_VERSION_1_0 )
+    {
+        if( m != HTTP_METHOD_GET && m != HTTP_METHOD_POST &&
+            m != HTTP_METHOD_HEAD )
+        {
+            http_error_response(c, HTTP_STATUS_METHOD_NOT_ALLOWED);
+            return NULL;
+        }
+    }
 
     if( !(hdlr->methods & m) )
     {
@@ -1949,11 +1967,23 @@ static void http_response_normal( struct http_request *req, struct connection *c
     struct http_header *hdr = NULL;
     struct http_cookie *ck = NULL;
     const char         *conn = NULL;
+    char			   version;
     int                connection_close;
 
     cf_buf_reset(header_buf);
 
-    cf_buf_appendf(header_buf, "HTTP/1.1 %d %s\r\n", status, http_status_text(status));
+    if( req != NULL )
+    {
+        if( req->flags & HTTP_VERSION_1_0 )
+            version = '0';
+        else
+            version = '1';
+    }
+    else {
+        version = '1';
+    }
+
+    cf_buf_appendf(header_buf, "HTTP/1.%c %d %s\r\n", version, status, http_status_text(status));
     cf_buf_append(header_buf, http_version, http_version_len);
 
     if( c->flags & CONN_CLOSE_EMPTY )

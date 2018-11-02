@@ -1,6 +1,6 @@
-zFrog NOHTTP example
+zFrog pure TCP/IP example
 
-Note that this example only works if zfrog was built with CF_NOHTTP=1
+Note that this example only works if zfrog was built with CF_NO_HTTP=1
 
 Test:
 

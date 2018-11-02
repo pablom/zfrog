@@ -102,7 +102,9 @@ void cf_keymgr_run( void )
         cf_log(LOG_WARNING, "no rand_file location specified");
     }
 
+    /* Reload (init) private keys */
     keymgr_reload();
+
     /* Initialize random pool */
     RAND_poll();
 
@@ -183,6 +185,8 @@ static void keymgr_reload(void)
 
     /* Cleanup current loaded keys */
     cf_keymgr_cleanup(0);
+    /* Reinit key's list */
+    TAILQ_INIT( &keys );
 
     cf_domain_callback(keymgr_load_privatekey);
 

@@ -1,6 +1,7 @@
 // cf_python.c
 
 #include <sys/param.h>
+#include <sys/wait.h>
 #include <libgen.h>
 
 #include "zfrog.h"
@@ -16,9 +17,6 @@
 #include "cf_python.h"
 #include "cf_python_methods.h"
 
-#define CORO_STATE_RUNNABLE         1
-#define CORO_STATE_SUSPENDED		2
-
 
 static PyMODINIT_FUNC python_module_init(void);
 static PyObject*      python_import(const char*);
@@ -26,11 +24,18 @@ static PyObject*      pyconnection_alloc(struct connection*);
 static PyObject*      python_callable(PyObject*, const char*);
 static void           pytimer_run(void*, uint64_t);
 static void		      pysuspend_wakeup(void*, uint64_t);
+static void		      pygather_reap_coro(struct pygather_op*, struct python_coro*);
+static void	 	      pyproc_timeout(void*, uint64_t);
 
-static struct python_coro* python_coro_create(PyObject*);
+static struct python_coro* python_coro_create(PyObject*
+#ifndef CF_NO_HTTP
+                                              , struct http_request*
+#endif
+                                              );
 static int python_coro_run(struct python_coro*);
 static void python_coro_wakeup(struct python_coro*);
 
+static struct pysocket* pysocket_alloc(void);
 static PyObject* pysocket_op_create(struct pysocket*,int,const void*, size_t);
 static void pysocket_evt_handle(void*, int);
 static PyObject* pysocket_async_recv(struct pysocket_op*);
@@ -137,20 +142,20 @@ static PyMemAllocatorEx allocator =
     .free    = python_free
 };
 
+static TAILQ_HEAD(, pyproc)	procs;
+
 static struct cf_mem_pool   coro_pool;
 static struct cf_mem_pool   queue_wait_pool;
 static struct cf_mem_pool   queue_object_pool;
+static struct cf_mem_pool   gather_coro_pool;
+static struct cf_mem_pool   gather_result_pool;
 
-static uint64_t			          coro_id;
-static int                        coro_count;
-static TAILQ_HEAD(, python_coro)  coro_runnable;
-static TAILQ_HEAD(, python_coro)  coro_suspended;
+static uint64_t			    coro_id;
+static int                  coro_count;
+static struct coro_list     coro_runnable;
+static struct coro_list     coro_suspended;
 
 extern const char *__progname;
-
-#ifndef CF_NO_HTTP
-    static struct http_request* req_running = NULL;
-#endif
 
 static struct python_coro*  coro_running = NULL;
 
@@ -167,6 +172,8 @@ void cf_python_init(void)
     cf_mem_pool_init(&coro_pool, "coropool", sizeof(struct python_coro), 100);
     cf_mem_pool_init(&queue_wait_pool, "queue_wait_pool", sizeof(struct pyqueue_waiting), 100);
     cf_mem_pool_init(&queue_object_pool, "queue_object_pool", sizeof(struct pyqueue_object), 100);
+    cf_mem_pool_init(&gather_coro_pool, "gather_coro_pool", sizeof(struct pygather_coro), 100);
+    cf_mem_pool_init(&gather_result_pool, "gather_result_pool", sizeof(struct pygather_result), 100);
 
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &allocator);
     PyMem_SetAllocator(PYMEM_DOMAIN_MEM, &allocator);
@@ -200,6 +207,7 @@ void cf_python_path( const char* path )
 
 void cf_python_coro_run(void)
 {
+    struct pygather_op  *op = NULL;
     struct python_coro	*coro, *next;
 
     for( coro = TAILQ_FIRST(&coro_runnable); coro != NULL; coro = next )
@@ -210,7 +218,24 @@ void cf_python_coro_run(void)
             cf_fatal("non-runnable coro on coro_runnable");
 
         if( python_coro_run(coro) == CF_RESULT_OK )
-            cf_python_coro_delete(coro);
+        {
+            if( coro->gatherop != NULL )
+            {
+                op = coro->gatherop;
+#ifndef CF_NO_HTTP
+                if( op->coro->request != NULL )
+                    http_request_wakeup(op->coro->request);
+                else
+#endif
+                    python_coro_wakeup(op->coro);
+
+                pygather_reap_coro(op, coro);
+            }
+            else
+            {
+                cf_python_coro_delete(coro);
+            }
+        }
     }
 
     /*
@@ -229,6 +254,7 @@ void cf_python_coro_delete( void* obj )
 
     coro_count--;
     Py_DECREF(coro->obj);
+    coro_running = NULL;
 
     if( coro->state == CORO_STATE_RUNNABLE )
         TAILQ_REMOVE(&coro_runnable, coro, list);
@@ -240,7 +266,8 @@ void cf_python_coro_delete( void* obj )
 
 void cf_python_log_error( const char* function )
 {
-    PyObject *type, *value, *traceback;
+    const char	*sval = NULL;
+    PyObject *repr, *type, *value, *traceback;
 
     if( !PyErr_Occurred() || PyErr_ExceptionMatches(PyExc_StopIteration) )
         return;
@@ -253,17 +280,39 @@ void cf_python_log_error( const char* function )
         return;
     }
 
-    cf_log( LOG_ERR,"python exception in '%s' - type:%s - value:%s - trace:%s",
-            function,
-            PyUnicode_AsUTF8AndSize(type, NULL),
-            PyUnicode_AsUTF8AndSize(value, NULL),
-            PyUnicode_AsUTF8AndSize(traceback, NULL));
+    if( value == NULL || !PyObject_IsInstance(value, type) )
+        PyErr_NormalizeException(&type, &value, &traceback);
+
+    /*
+     * If we're in an active coroutine and it was tied to a gather
+     * operation we have to make sure we can use the Exception that
+     * was thrown as the result value so we can propagate it via the
+     * return list of kore.gather().
+     */
+    if( coro_running != NULL && coro_running->gatherop != NULL )
+    {
+        PyErr_SetObject(PyExc_StopIteration, value);
+    }
+    else
+    {
+        if( (repr = PyObject_Repr(value)) == NULL )
+            sval = "unknown";
+        else
+            sval = PyUnicode_AsUTF8(repr);
+
+        cf_log(LOG_ERR, "uncaught exception %s in '%s'", sval, function);
+
+        Py_XDECREF(repr);
+    }
 
     Py_DECREF(type);
     Py_DECREF(value);
     Py_DECREF(traceback);
 }
 
+/* ==========================================================================
+ *  Python memory function
+ * ==========================================================================*/
 static void* python_malloc( void* ctx, size_t len )
 {
     return mem_malloc(len);
@@ -321,7 +370,11 @@ static void* python_module_getsym( struct cf_module* module, const char* symbol 
 /* ==========================================================================
  *  Coroutine python function
  * ==========================================================================*/
-static struct python_coro* python_coro_create( PyObject* obj )
+static struct python_coro* python_coro_create( PyObject* obj
+#ifndef CF_NO_HTTP
+                                               , struct http_request *req
+#endif
+                                               )
 {
     struct python_coro* coro = NULL;
 
@@ -331,11 +384,16 @@ static struct python_coro* python_coro_create( PyObject* obj )
     coro = cf_mem_pool_get(&coro_pool);
     coro_count++;
 
+    coro->sockop = NULL;
+    coro->gatherop = NULL;
+    coro->exception = NULL;
+    coro->exception_msg = NULL;
     coro->obj = obj;
-    coro->error = 0;
+
 #ifndef CF_NO_HTTP
-    coro->request = req_running;
+    coro->request = req;
 #endif
+
     coro->id = coro_id++;
     coro->state = CORO_STATE_RUNNABLE;
 
@@ -363,9 +421,6 @@ static int python_coro_run( struct python_coro* coro )
     for(;;)
     {
         PyErr_Clear();
-
-        if( coro->error )
-            PyErr_SetString(PyExc_RuntimeError, "i/o error");
 
         item = _PyGen_Send((PyGenObject *)coro->obj, NULL);
 
@@ -688,7 +743,12 @@ static PyObject* python_task_create( PyObject* self, PyObject* args )
     if( !PyCoro_CheckExact(obj) )
         cf_fatal("%s: object is not a coroutine", __func__);
 
+#ifndef CF_NO_HTTP
+    python_coro_create(obj, NULL);
+#else
     python_coro_create(obj);
+#endif
+
     Py_INCREF(obj);
 
     Py_RETURN_NONE;
@@ -1008,6 +1068,21 @@ static PyObject* pyconnection_get_addr(struct pyconnection *pyc, void *closure)
     return result;
 }
 
+static struct pysocket* pysocket_alloc( void )
+{
+    struct pysocket* sock = NULL;
+
+    if( (sock = PyObject_New(struct pysocket, &pysocket_type)) == NULL )
+        return NULL;
+
+    sock->fd = -1;
+    sock->family = -1;
+    sock->protocol = -1;
+    sock->socket = NULL;
+
+    return sock;
+}
+
 static void pysocket_dealloc( struct pysocket* sock )
 {
     PyObject_Del((PyObject *)sock);
@@ -1200,6 +1275,26 @@ static PyObject* pysocket_op_iternext( struct pysocket_op* op )
 {
     PyObject* ret = NULL;
 
+    if( op->data.eof )
+    {
+        if( op->data.coro->exception != NULL )
+        {
+            PyErr_SetString(op->data.coro->exception,op->data.coro->exception_msg);
+            op->data.coro->exception = NULL;
+            return NULL;
+        }
+
+        if( op->data.type != PYSOCKET_TYPE_RECV )
+        {
+            PyErr_SetString(PyExc_RuntimeError, "socket EOF");
+            return NULL;
+        }
+
+        /* Drain the recv socket. */
+        op->data.evt.flags |= CF_EVENT_READ;
+        return pysocket_async_recv(op);
+    }
+
     switch( op->data.type )
     {
     case PYSOCKET_TYPE_CONNECT:
@@ -1246,7 +1341,7 @@ static PyObject* pysocket_async_accept( struct pysocket_op* op )
     int fd;
     struct pysocket* sock = NULL;
 
-    if( (sock = PyObject_New(struct pysocket, &pysocket_type)) == NULL )
+    if( (sock = pysocket_alloc() ) == NULL )
         return NULL;
 
     sock->addr_len = sizeof(sock->addr);
@@ -1275,7 +1370,7 @@ static PyObject* pysocket_async_accept( struct pysocket_op* op )
     sock->protocol = op->data.socket->protocol;
 
     PyErr_SetObject(PyExc_StopIteration, (PyObject *)sock);
-    Py_DECREF((PyObject *)sock);
+    Py_DECREF((PyObject*)sock);
 
     return NULL;
 }
@@ -1349,10 +1444,13 @@ static PyObject* pysocket_async_send( struct pysocket_op* op )
     Py_RETURN_NONE;
 }
 
-static void pysocket_evt_handle( void* arg, int error )
+static void pysocket_evt_handle( void* arg, int eof )
 {
     struct pysocket_data* data = arg;
     struct python_coro* coro = data->coro;
+
+    if( coro->sockop == NULL )
+        cf_fatal("pysocket_evt_handle: sockop == NULL");
 
     /*
      * If we are a coroutine tied to an HTTP request wake-up the
@@ -1368,7 +1466,7 @@ static void pysocket_evt_handle( void* arg, int error )
 #endif
         python_coro_wakeup(coro);
 
-    coro->error = error;
+    coro->sockop->data.eof = eof;
 }
 /*==========================================================================
  *  Python queue functions
@@ -1388,26 +1486,42 @@ static PyObject* python_queue( PyObject* self, PyObject* args )
 
 static void pyqueue_dealloc( struct pyqueue* queue )
 {
+    struct pyqueue_object* object = NULL;
+    struct pyqueue_waiting* waiting = NULL;
+
+    while( (object = TAILQ_FIRST(&queue->objects)) != NULL )
+    {
+        TAILQ_REMOVE(&queue->objects, object, list);
+        Py_DECREF(object->obj);
+        cf_mem_pool_put(&queue_object_pool, object);
+    }
+
+    while( (waiting = TAILQ_FIRST(&queue->waiting)) != NULL )
+    {
+        TAILQ_REMOVE(&queue->waiting, waiting, list);
+        if( waiting->op != NULL )
+            waiting->op->waiting = NULL;
+        cf_mem_pool_put(&queue_wait_pool, waiting);
+    }
+
     PyObject_Del((PyObject *)queue);
 }
 
 static PyObject* pyqueue_pop( struct pyqueue* queue, PyObject* args )
 {
     struct pyqueue_op* op = NULL;
-    struct pyqueue_waiting* waiting = NULL;
 
     if( (op = PyObject_New(struct pyqueue_op, &pyqueue_op_type)) == NULL )
         return NULL;
 
     op->queue = queue;
+    op->waiting = cf_mem_pool_get(&queue_wait_pool);
+    op->waiting->op = op;
 
-    waiting = cf_mem_pool_get(&queue_wait_pool);
-
-    waiting->coro = coro_running;
-    TAILQ_INSERT_TAIL(&queue->waiting, waiting, list);
+    op->waiting->coro = coro_running;
+    TAILQ_INSERT_TAIL(&queue->waiting, op->waiting, list);
 
     Py_INCREF( (PyObject*)queue );
-    Py_INCREF( waiting->coro->obj );
 
     return (PyObject*)op;
 }
@@ -1458,7 +1572,7 @@ static PyObject* pyqueue_push( struct pyqueue* queue, PyObject* args )
 #endif
             python_coro_wakeup(waiting->coro);
 
-        Py_DECREF(waiting->coro->obj);
+        waiting->op->waiting = NULL;
         cf_mem_pool_put(&queue_wait_pool, waiting);
     }
 
@@ -1504,7 +1618,6 @@ static PyObject* pyqueue_op_iternext( struct pyqueue_op* op )
         if( waiting->coro == coro_running )
         {
             TAILQ_REMOVE(&op->queue->waiting, waiting, list);
-            Py_DECREF(waiting->coro->obj);
             cf_mem_pool_put(&queue_wait_pool, waiting);
             break;
         }
@@ -1676,6 +1789,481 @@ static PyObject* pylock_op_iternext( struct pylock_op* op )
 
     return NULL;
 }
+
+static PyObject* python_time( PyObject* self, PyObject* args )
+{
+    uint64_t now = cf_time_ms();
+    return (PyLong_FromUnsignedLongLong(now));
+}
+/*==========================================================================
+ *  Python proc functions
+ *==========================================================================*/
+static PyObject* python_proc(PyObject *self, PyObject *args)
+{
+    const char *cmd = NULL;
+    struct pyproc* proc = NULL;
+    char *copy, *argv[30];
+    int	in_pipe[2], out_pipe[2], timeo = -1;
+
+    if( coro_running == NULL )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "zfrog.proc only available in coroutines");
+        return NULL;
+    }
+
+    if( !PyArg_ParseTuple(args, "s|i", &cmd, &timeo) )
+        return NULL;
+
+    if( pipe(in_pipe) == -1 )
+    {
+        PyErr_SetString(PyExc_RuntimeError, errno_s);
+        return NULL;
+    }
+
+    if( pipe(out_pipe) == -1 )
+    {
+        close(in_pipe[0]);
+        close(in_pipe[1]);
+        PyErr_SetString(PyExc_RuntimeError, errno_s);
+        return NULL;
+    }
+
+    if( (proc = PyObject_New(struct pyproc, &pyproc_type)) == NULL )
+    {
+        close(in_pipe[0]);
+        close(in_pipe[1]);
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        return NULL;
+    }
+
+    proc->pid = -1;
+    proc->reaped = 0;
+    proc->status = 0;
+    proc->timer = NULL;
+    proc->coro = coro_running;
+    proc->in = pysocket_alloc();
+    proc->out = pysocket_alloc();
+
+    if( proc->in == NULL || proc->out == NULL )
+    {
+        Py_DECREF((PyObject *)proc);
+        return NULL;
+    }
+
+    TAILQ_INSERT_TAIL(&procs, proc, list);
+
+    proc->pid = fork();
+    if( proc->pid == -1 )
+    {
+        if( errno == ENOSYS )
+        {
+            Py_DECREF((PyObject *)proc);
+            PyErr_SetString(PyExc_RuntimeError, errno_s);
+            return NULL;
+        }
+
+        cf_fatal("python_proc: fork(): %s", errno_s);
+    }
+
+    if( proc->pid == 0 )
+    {
+        close(in_pipe[1]);
+        close(out_pipe[0]);
+
+        if( dup2(out_pipe[1], STDOUT_FILENO) == -1 ||
+            dup2(out_pipe[1], STDERR_FILENO) == -1 ||
+            dup2(in_pipe[0], STDIN_FILENO) == -1 )
+            cf_fatal("dup2: %s", errno_s);
+
+        copy = mem_strdup(cmd);
+        cf_split_string(copy, " ", argv, 30);
+        execve(argv[0], argv, NULL);
+        printf("zfrog.proc failed to execute %s (%s)\n", argv[0], errno_s);
+        exit(1);
+    }
+
+    close(in_pipe[0]);
+    close(out_pipe[1]);
+
+    if( !cf_socket_nonblock(in_pipe[1], 0) ||
+        !cf_socket_nonblock(out_pipe[0], 0))
+        cf_fatal("failed to mark zfrog.proc pipes are non-blocking");
+
+    proc->in->fd = in_pipe[1];
+    proc->out->fd = out_pipe[0];
+
+    if( timeo != -1 )
+    {
+        proc->timer = cf_timer_add(pyproc_timeout,timeo, proc, CF_TIMER_ONESHOT);
+    }
+
+    return (PyObject *)proc;
+}
+
+static void pyproc_timeout(void *arg, uint64_t now)
+{
+    struct pyproc* proc = arg;
+
+    proc->timer = NULL;
+
+    if( proc->coro->sockop != NULL )
+        proc->coro->sockop->data.eof = 1;
+
+    proc->coro->exception = PyExc_TimeoutError;
+    proc->coro->exception_msg = "timeout before process exited";
+
+#ifndef CF_NO_HTTP
+    if( proc->coro->request != NULL )
+        http_request_wakeup(proc->coro->request);
+    else
+#endif
+        python_coro_wakeup(proc->coro);
+}
+
+static void pyproc_dealloc(struct pyproc *proc)
+{
+    int	status;
+
+    TAILQ_REMOVE(&procs, proc, list);
+
+    if( proc->timer != NULL )
+    {
+        cf_timer_remove(proc->timer);
+        proc->timer = NULL;
+    }
+
+    if( proc->pid != -1 )
+    {
+        if( kill(proc->pid, SIGKILL) == -1 )
+        {
+            cf_log(LOG_NOTICE, "zfrog.proc failed to send SIGKILL %d (%s)", proc->pid, errno_s);
+        }
+
+        for(;;)
+        {
+            if( waitpid(proc->pid, &status, 0) == -1 )
+            {
+                if( errno == EINTR )
+                    continue;
+                cf_log(LOG_NOTICE, "zfrog.proc failed to wait for %d (%s)", proc->pid, errno_s);
+            }
+            break;
+        }
+    }
+
+    if( proc->in != NULL )
+    {
+        Py_DECREF((PyObject *)proc->in);
+        proc->in = NULL;
+    }
+
+    if( proc->out != NULL )
+    {
+        Py_DECREF((PyObject *)proc->out);
+        proc->out = NULL;
+    }
+
+    PyObject_Del((PyObject *)proc);
+}
+
+static PyObject* pyproc_kill(struct pyproc *proc, PyObject *args)
+{
+    if( proc->pid != -1 && kill(proc->pid, SIGKILL) == -1 )
+        cf_log(LOG_NOTICE, "kill(%d): %s", proc->pid, errno_s);
+
+    Py_RETURN_TRUE;
+}
+
+static PyObject* pyproc_reap(struct pyproc *proc, PyObject *args)
+{
+    struct pyproc_op* op = NULL;
+
+    if( proc->timer != NULL )
+    {
+        cf_timer_remove(proc->timer);
+        proc->timer = NULL;
+    }
+
+    if( (op = PyObject_New(struct pyproc_op, &pyproc_op_type)) == NULL )
+        return NULL;
+
+    op->proc = proc;
+
+    Py_INCREF((PyObject*)proc);
+
+    return (PyObject*)op;
+}
+
+static PyObject* pyproc_recv( struct pyproc* proc, PyObject* args )
+{
+    Py_ssize_t	len;
+
+    if( proc->out == NULL )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "stdout closed");
+        return NULL;
+    }
+
+    if( !PyArg_ParseTuple(args, "n", &len) )
+        return NULL;
+
+    return pysocket_op_create(proc->out, PYSOCKET_TYPE_RECV, NULL, len);
+}
+
+static PyObject* pyproc_send(struct pyproc *proc, PyObject *args)
+{
+    Py_buffer buf;
+    PyObject* ret = NULL;
+
+    if( proc->in == NULL )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "stdin closed");
+        return NULL;
+    }
+
+    if( !PyArg_ParseTuple(args, "y*", &buf) )
+        return NULL;
+
+    ret = pysocket_op_create(proc->in, PYSOCKET_TYPE_SEND, buf.buf, buf.len);
+
+    return ret;
+}
+
+static PyObject* pyproc_close_stdin(struct pyproc *proc, PyObject *args)
+{
+    if( proc->in != NULL )
+    {
+        Py_DECREF((PyObject*)proc->in);
+        proc->in = NULL;
+    }
+
+    Py_RETURN_TRUE;
+}
+
+static void pyproc_op_dealloc( struct pyproc_op* op )
+{
+    Py_DECREF((PyObject*)op->proc);
+    PyObject_Del((PyObject*)op);
+}
+
+static PyObject* pyproc_op_await( PyObject* sop )
+{
+    Py_INCREF(sop);
+    return sop;
+}
+
+static PyObject* pyproc_op_iternext( struct pyproc_op* op )
+{
+    int	ret;
+    PyObject* res = NULL;
+
+    if( op->proc->coro->exception != NULL )
+    {
+        PyErr_SetString(op->proc->coro->exception, op->proc->coro->exception_msg);
+        op->proc->coro->exception = NULL;
+        return NULL;
+    }
+
+    if( op->proc->reaped == 0 )
+        Py_RETURN_NONE;
+
+    if( WIFSTOPPED(op->proc->status) )
+    {
+        op->proc->reaped = 0;
+        Py_RETURN_NONE;
+    }
+
+    if( WIFEXITED(op->proc->status) )
+    {
+        ret = WEXITSTATUS(op->proc->status);
+    }
+    else
+    {
+        ret = op->proc->status;
+    }
+
+    if( (res = PyLong_FromLong(ret)) == NULL )
+        return NULL;
+
+    PyErr_SetObject(PyExc_StopIteration, res);
+    Py_DECREF(res);
+
+    return NULL;
+}
+
+static PyObject* python_gather(PyObject *self, PyObject *args)
+{
+    struct pygather_op* op = NULL;
+    PyObject* obj = NULL;
+    struct pygather_coro* coro = NULL;
+    Py_ssize_t	sz, idx;
+
+    if( coro_running == NULL )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "zfrog.gather only available in coroutines");
+        return NULL;
+    }
+
+    sz = PyTuple_Size(args);
+
+    if( sz > INT_MAX )
+    {
+        PyErr_SetString(PyExc_TypeError, "too many arguments");
+        return NULL;
+    }
+
+    if( (op = PyObject_New(struct pygather_op, &pygather_op_type)) == NULL )
+        return NULL;
+
+    op->count = (int)sz;
+    op->coro = coro_running;
+
+    TAILQ_INIT(&op->results);
+    TAILQ_INIT(&op->coroutines);
+
+    for( idx = 0; idx < sz; idx++ )
+    {
+        if( (obj = PyTuple_GetItem(args, idx)) == NULL )
+        {
+            Py_DECREF((PyObject *)op);
+            return NULL;
+        }
+
+        if( !PyCoro_CheckExact(obj) )
+        {
+            Py_DECREF((PyObject *)op);
+            PyErr_SetString(PyExc_TypeError, "not a coroutine");
+            return NULL;
+        }
+
+        Py_INCREF(obj);
+
+        coro = cf_mem_pool_get(&gather_coro_pool);
+
+        coro->coro = python_coro_create(obj, NULL);
+        coro->coro->gatherop = op;
+
+        TAILQ_INSERT_TAIL(&op->coroutines, coro, list);
+    }
+
+    return (PyObject *)op;
+}
+
+static void pygather_reap_coro( struct pygather_op* op, struct python_coro* reap )
+{
+    struct pygather_coro	*coro;
+    struct pygather_result	*result;
+
+    TAILQ_FOREACH(coro, &op->coroutines, list)
+    {
+        if( coro->coro->id == reap->id )
+            break;
+    }
+
+    if( coro == NULL )
+        cf_fatal("coroutine %" PRIu64 " not found in gather", reap->id);
+
+    result = cf_mem_pool_get(&gather_result_pool);
+    result->obj = NULL;
+
+    if( _PyGen_FetchStopIterationValue(&result->obj) == -1 )
+    {
+        result->obj = Py_None;
+        Py_INCREF(Py_None);
+    }
+
+    TAILQ_INSERT_TAIL(&op->results, result, list);
+
+    TAILQ_REMOVE(&op->coroutines, coro, list);
+    cf_mem_pool_put(&gather_coro_pool, coro);
+
+    cf_python_coro_delete(reap);
+}
+
+static void pygather_op_dealloc(struct pygather_op *op)
+{
+    struct python_coro* old = NULL;
+    struct pygather_coro	*coro, *next;
+    struct pygather_result	*res, *rnext;
+
+    /*
+     * Since we are calling kore_python_coro_delete() on all the
+     * remaining coroutines in this gather op we must remember the
+     * original coroutine that is running as the removal will end
+     * up setting coro_running to NULL.
+     */
+    old = coro_running;
+
+    for( coro = TAILQ_FIRST(&op->coroutines); coro != NULL; coro = next )
+    {
+        next = TAILQ_NEXT(coro, list);
+        TAILQ_REMOVE(&op->coroutines, coro, list);
+
+        /* Make sure we don't end up in pygather_reap_coro(). */
+        coro->coro->gatherop = NULL;
+
+        cf_python_coro_delete(coro->coro);
+        cf_mem_pool_put(&gather_coro_pool, coro);
+    }
+
+    coro_running = old;
+
+    for( res = TAILQ_FIRST(&op->results); res != NULL; res = rnext )
+    {
+        rnext = TAILQ_NEXT(res, list);
+        TAILQ_REMOVE(&op->results, res, list);
+
+        Py_DECREF(res->obj);
+        cf_mem_pool_put(&gather_result_pool, res);
+    }
+
+    PyObject_Del((PyObject *)op);
+}
+
+static PyObject* pygather_op_await( PyObject* obj )
+{
+    Py_INCREF(obj);
+    return obj;
+}
+
+static PyObject* pygather_op_iternext(struct pygather_op *op)
+{
+    int idx;
+    struct pygather_result *res, *next;
+    PyObject *list, *obj;
+
+    if( !TAILQ_EMPTY(&op->coroutines) )
+    {
+        Py_RETURN_NONE;
+    }
+
+    if( (list = PyList_New(op->count)) == NULL )
+        return NULL;
+
+    idx = 0;
+
+    for( res = TAILQ_FIRST(&op->results); res != NULL; res = next )
+    {
+        next = TAILQ_NEXT(res, list);
+        TAILQ_REMOVE(&op->results, res, list);
+
+        obj = res->obj;
+        res->obj = NULL;
+        cf_mem_pool_put(&gather_result_pool, res);
+
+        if( PyList_SetItem(list, idx++, obj) != 0 )
+        {
+            Py_DECREF(list);
+            return NULL;
+        }
+    }
+
+    PyErr_SetObject(PyExc_StopIteration, list);
+    Py_DECREF(list);
+
+    return NULL;
+}
 /*==========================================================================
  *  Python HTTP functions
  *==========================================================================*/
@@ -1690,10 +2278,7 @@ static void pyhttp_dealloc( struct pyhttp_request *pyreq )
 static int python_runtime_http_request(void *addr, struct http_request *req)
 {
     PyObject *pyret, *pyreq, *args;
-
-    PyObject *callable = (PyObject *)addr;
-
-    req_running = req;
+    PyObject *callable = (PyObject*)addr;
 
     if( req->py_coro != NULL )
     {
@@ -1703,15 +2288,11 @@ static int python_runtime_http_request(void *addr, struct http_request *req)
         {
             cf_python_coro_delete(req->py_coro);
             req->py_coro = NULL;
-            req_running = NULL;
             return CF_RESULT_OK;
         }
 
-        req_running = NULL;
         return CF_RESULT_RETRY;
     }
-
-    callable = (PyObject*)addr;
 
     if( (pyreq = pyhttp_request_alloc(req)) == NULL )
         cf_fatal("python_runtime_http_request: pyreq alloc failed");
@@ -1735,18 +2316,17 @@ static int python_runtime_http_request(void *addr, struct http_request *req)
 
     if( PyCoro_CheckExact(pyret) )
     {
-        http_request_sleep(req);
-        req->py_coro = python_coro_create(pyret);
-        req_running = NULL;
+        req->py_coro = python_coro_create(pyret, req);
 
-        /* XXX merge with the above python_coro_run() block */
         if( python_coro_run(req->py_coro) == CF_RESULT_OK )
         {
             cf_python_coro_delete(req->py_coro);
             req->py_coro = NULL;
-            req_running = NULL;
             return CF_RESULT_OK;
         }
+
+        http_request_sleep( req );
+
         return CF_RESULT_RETRY;
     }
 
@@ -1754,7 +2334,6 @@ static int python_runtime_http_request(void *addr, struct http_request *req)
         cf_fatal("python_runtime_http_request: unexpected return type");
 
     Py_DECREF(pyret);
-    req_running = NULL;
 
     return CF_RESULT_OK;
 }
