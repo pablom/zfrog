@@ -1085,6 +1085,15 @@ static struct pysocket* pysocket_alloc( void )
 
 static void pysocket_dealloc( struct pysocket* sock )
 {
+    if( sock->socket != NULL )
+    {
+        Py_DECREF(sock->socket);
+    }
+    else if( sock->fd != -1 ) {
+        /* Close socket */
+        close(sock->fd);
+    }
+
     PyObject_Del((PyObject *)sock);
 }
 
