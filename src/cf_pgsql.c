@@ -320,8 +320,9 @@ void cf_pgsql_handle( void *c, int err )
 		return;
 	}
 
-    if( !(conn->evt.flags & CF_EVENT_READ) )
+    if( !(conn->evt.flags & CF_EVENT_READ) ) {
         cf_fatal("%s: read event not set", __func__);
+    }
 
 	pgsql = conn->job->pgsql;
 
@@ -678,7 +679,7 @@ static void pgsql_conn_release( struct cf_pgsql *pgsql )
         if( pgsql->flags & CF_PGSQL_SCHEDULED )
         {
 			fd = PQsocket(pgsql->conn->db);
-            cf_platform_disable_events( fd );
+            cf_platform_disable_read( fd );
 
             if( pgsql->state != CF_PGSQL_STATE_DONE )
                 pgsql_cancel(pgsql);

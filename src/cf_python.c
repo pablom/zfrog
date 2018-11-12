@@ -164,6 +164,8 @@ static struct python_coro*  coro_running = NULL;
  ****************************************************************/
 void cf_python_init(void)
 {
+    struct cf_runtime_call* rcall = NULL;
+
     coro_id = 0;
     coro_count = 0;
     TAILQ_INIT(&coro_runnable);
@@ -182,6 +184,12 @@ void cf_python_init(void)
 
     if( PyImport_AppendInittab("zfrog", &python_module_init) == -1 ) {
         cf_fatal("cf_python_init: failed to add new module");
+    }
+
+    if( (rcall = cf_runtime_getcall("cf_python_preinit")) != NULL )
+    {
+        cf_runtime_execute( rcall );
+        mem_free(rcall);
     }
 
     Py_Initialize();
@@ -1175,8 +1183,8 @@ static PyObject* pysocket_close( struct pysocket* sock, PyObject* args )
 {
     if( sock->socket != NULL )
     {
-        PyObject_CallMethod(sock->socket, "close", NULL);
         Py_DECREF(sock->socket);
+        sock->socket = NULL;
     }
     else if( sock->fd != -1 ) {
         close(sock->fd);
