@@ -239,7 +239,7 @@ static void init_server_config( void )
     server.worker_set_affinity = 1;
     server.worker_max_connections = 250;
     server.worker_active_connections = 0;
-    server.worker_accept_threshold = 0;
+    server.worker_accept_threshold = 16;
 
     server.socket_backlog = 5000;
 

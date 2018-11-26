@@ -47,7 +47,7 @@ workers		4
 # This is disabled by default. If you wish to enable this
 # specify the number of connections a worker will accept
 # before returning from the accept loop.
-#worker_accept_threshold	0
+#worker_accept_threshold	16
 
 # Workers bind themselves to a single CPU by default.
 # Turn this off by setting this option to 0

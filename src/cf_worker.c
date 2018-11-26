@@ -61,7 +61,7 @@
     #define WORKER_SOLO_COUNT	1
 #endif
 
-#define WORKER_LOCK_TIMEOUT     500
+#define WORKER_LOCK_TIMEOUT     100
 
 #define WORKER(id)						\
     (struct cf_worker *)((uint8_t *)workers +	\

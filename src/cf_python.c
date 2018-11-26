@@ -50,6 +50,7 @@ static void python_push_type(const char*, PyObject*, PyTypeObject*);
 #ifndef CF_NO_HTTP
     static PyObject *pyhttp_request_alloc(const struct http_request *);
     static PyObject *pyhttp_file_alloc(struct http_file*);
+    static int		 pyhttp_response_sent(struct netbuf*);
     static int  python_runtime_http_request(void*, struct http_request*);
     static int  python_runtime_validator(void*, struct http_request*, const void*);
     static void python_runtime_wsmessage(void*, struct connection*, uint8_t, const void*, size_t);
@@ -2485,28 +2486,46 @@ static PyObject* pyhttp_file_alloc(struct http_file *file)
     return (PyObject *)pyfile;
 }
 
-static PyObject* pyhttp_response(struct pyhttp_request *pyreq, PyObject *args)
+static PyObject* pyhttp_response( struct pyhttp_request *pyreq, PyObject *args )
 {
-    const char *body = NULL;
-    int status, len = -1;
+    char *ptr = NULL;
+    PyObject *data = NULL;
+    Py_ssize_t length = -1;
+    int	status;
 
-    if( !PyArg_ParseTuple(args, "iy#", &status, &body, &len) )
+
+    if( !PyArg_ParseTuple(args, "iS", &status, &data) )
         return NULL;
 
-    if( len < 0 )
+    if( PyBytes_AsStringAndSize(data, &ptr, &length) == -1 )
+        return NULL;
+
+    if( length < 0 )
     {
         PyErr_SetString(PyExc_TypeError, "invalid length");
         return NULL;
     }
 
-    http_response(pyreq->req, status, body, len);
+    Py_INCREF(data);
+
+    http_response_stream(pyreq->req, status, ptr, length, pyhttp_response_sent, data);
 
     Py_RETURN_TRUE;
 }
 
-static PyObject* pyhttp_response_header(struct pyhttp_request *pyreq, PyObject *args)
+static int pyhttp_response_sent( struct netbuf *nb )
 {
-    const char  *header, *value;
+    PyObject *data = NULL;
+
+    data = nb->extra;
+    Py_DECREF(data);
+
+    return CF_RESULT_OK;
+}
+
+static PyObject* pyhttp_response_header( struct pyhttp_request *pyreq, PyObject *args )
+{
+    const char *header, *value;
 
     if( !PyArg_ParseTuple(args, "ss", &header, &value) )
         return NULL;
