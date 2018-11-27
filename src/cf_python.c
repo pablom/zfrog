@@ -158,7 +158,7 @@ static struct coro_list     coro_suspended;
 
 extern const char *__progname;
 
-static struct python_coro*  coro_running = NULL;
+static struct python_coro *coro_running = NULL;
 
 /****************************************************************
  *  Python module init function
@@ -839,18 +839,46 @@ static PyObject* python_import( const char *path )
 
 static PyObject* python_callable( PyObject *module, const char *symbol )
 {
+    char* method = NULL;
+    PyObject *res = NULL;
     PyObject *obj = NULL;
+    PyObject *meth = NULL;
+    char *base = mem_strdup(symbol);
 
-    if( (obj = PyObject_GetAttrString(module, symbol)) == NULL )
-        return NULL;
+    if( (method = strchr(base, '.')) != NULL )
+        *(method)++ = '\0';
 
-    if( !PyCallable_Check(obj) )
+    if( (obj = PyObject_GetAttrString(module, base)) )
     {
-        Py_DECREF(obj);
-        return NULL;
+        if( method != NULL )
+        {
+            if( (meth = PyObject_GetAttrString(obj, method)) )
+            {
+                Py_DECREF( obj );
+                obj = meth;
+            }
+            else
+            {
+                Py_DECREF(obj);
+                obj = NULL;
+            }
+        }
+
+        if( obj )
+        {
+            if( PyCallable_Check(obj) )
+            {
+                res = obj;
+                obj = NULL;
+            }
+            else
+                Py_DECREF(obj);
+        }
     }
 
-    return obj;
+    mem_free(base);
+
+    return res;
 }
 
 static PyObject* python_shutdown(PyObject *self, PyObject *args)
@@ -2247,7 +2275,7 @@ static PyObject* pygather_op_await( PyObject* obj )
 
 static PyObject* pygather_op_iternext(struct pygather_op *op)
 {
-    int idx;
+    int idx = 0;
     struct pygather_result *res, *next;
     PyObject *list, *obj;
 
@@ -2258,8 +2286,6 @@ static PyObject* pygather_op_iternext(struct pygather_op *op)
 
     if( (list = PyList_New(op->count)) == NULL )
         return NULL;
-
-    idx = 0;
 
     for( res = TAILQ_FIRST(&op->results); res != NULL; res = next )
     {
