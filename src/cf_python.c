@@ -159,6 +159,7 @@ static struct coro_list     coro_suspended;
 extern const char *__progname;
 
 static struct python_coro *coro_running = NULL;
+static PyObject* python_tracer_obj = NULL;
 
 /****************************************************************
  *  Python module init function
@@ -276,7 +277,7 @@ void cf_python_coro_delete( void* obj )
 void cf_python_log_error( const char* function )
 {
     const char	*sval = NULL;
-    PyObject *repr, *type, *value, *traceback;
+    PyObject *repr, *type, *value, *traceback, *ret;
 
     if( !PyErr_Occurred() || PyErr_ExceptionMatches(PyExc_StopIteration) )
         return;
@@ -301,6 +302,13 @@ void cf_python_log_error( const char* function )
     if( coro_running != NULL && coro_running->gatherop != NULL )
     {
         PyErr_SetObject(PyExc_StopIteration, value);
+
+    } else if( python_tracer_obj != NULL) {
+        /*
+         * Call the user-supplied tracer callback.
+         */
+        ret = PyObject_CallFunctionObjArgs(python_tracer_obj, type, value, traceback, NULL);
+        Py_XDECREF(ret);
     }
     else
     {
@@ -1104,6 +1112,39 @@ static PyObject* pyconnection_get_addr(struct pyconnection *pyc, void *closure)
 
     return result;
 }
+#ifndef CF_NO_TLS
+static PyObject* pyconnection_get_peer_x509(struct pyconnection* pyc, void* closure)
+{
+    int	len;
+    PyObject* bytes = NULL;
+    uint8_t	*der, *pp;
+
+    if( pyc->c->cert == NULL ) {
+        Py_RETURN_NONE;
+    }
+
+    if( (len = i2d_X509(pyc->c->cert, NULL)) <= 0 )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "i2d_X509 failed");
+        return NULL;
+    }
+
+    der = mem_calloc(1, len);
+    pp = der;
+
+    if( i2d_X509(pyc->c->cert, &pp) <= 0 )
+    {
+        mem_free(der);
+        PyErr_SetString(PyExc_RuntimeError, "i2d_X509 failed");
+        return NULL;
+    }
+
+    bytes = PyBytes_FromStringAndSize((char *)der, len);
+    mem_free(der);
+
+    return bytes;
+}
+#endif
 
 static struct pysocket* pysocket_alloc( void )
 {
@@ -2137,6 +2178,32 @@ static PyObject* pyproc_op_iternext( struct pyproc_op* op )
 
     return NULL;
 }
+
+static PyObject* python_tracer( PyObject* self, PyObject* args )
+{
+    PyObject* obj = NULL;
+
+    if( python_tracer_obj != NULL )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "tracer already set");
+        return NULL;
+    }
+
+    if( !PyArg_ParseTuple(args, "O", &obj) )
+        return NULL;
+
+    if( !PyCallable_Check(obj) )
+    {
+        PyErr_SetString(PyExc_RuntimeError, "object not callable");
+        Py_DECREF(obj);
+        return NULL;
+    }
+
+    Py_INCREF( obj );
+    python_tracer_obj = obj;
+
+    Py_RETURN_TRUE;
+ }
 
 static PyObject* python_gather(PyObject *self, PyObject *args)
 {

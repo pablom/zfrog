@@ -21,6 +21,7 @@ static PyObject* python_suspend(PyObject*, PyObject*);
 static PyObject* python_time(PyObject*, PyObject*);
 static PyObject* python_proc(PyObject*, PyObject*);
 static PyObject* python_gather(PyObject*, PyObject*);
+static PyObject* python_tracer(PyObject*, PyObject*);
 
 #ifndef CF_NO_HTTP
     static PyObject* python_websocket_broadcast(PyObject*, PyObject*);
@@ -52,6 +53,7 @@ static struct PyMethodDef pycf_methods[] =
     METHOD("time", python_time, METH_NOARGS),
     METHOD("proc", python_proc, METH_VARARGS),
     METHOD("gather", python_gather, METH_VARARGS),
+    METHOD("tracer", python_tracer, METH_VARARGS),
 #ifndef CF_NO_HTTP
     METHOD("websocket_broadcast", python_websocket_broadcast, METH_VARARGS),
 #endif
@@ -494,9 +496,16 @@ static PyMethodDef pyconnection_methods[] = {
 static PyObject* pyconnection_get_fd(struct pyconnection*, void*);
 static PyObject* pyconnection_get_addr(struct pyconnection*, void*);
 
+#ifndef CF_NO_TLS
+    static PyObject* pyconnection_get_peer_x509(struct pyconnection*, void*);
+#endif
+
 static PyGetSetDef pyconnection_getset[] = {
     GETTER("fd", pyconnection_get_fd),
     GETTER("addr", pyconnection_get_addr),
+#ifndef CF_NO_TLS
+    GETTER("x509", pyconnection_get_peer_x509),
+#endif
 	GETTER(NULL, NULL),
 };
 
