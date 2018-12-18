@@ -120,7 +120,7 @@ void cf_filemap_resolve_paths( void )
 int filemap_resolve( struct http_request* req )
 {
     size_t best_len;
-	struct filemap_entry	*entry, *best;
+    struct filemap_entry *entry, *best;
 
     if( req->method != HTTP_METHOD_GET && req->method != HTTP_METHOD_HEAD )
     {
@@ -164,8 +164,10 @@ static void filemap_serve( struct http_request* req, struct filemap_entry* map )
     struct stat	st;
     struct cf_fileref* ref = NULL;
     const char* path = NULL;
-    int	len, fd, index;
-    char fpath[MAXPATHLEN];
+    int	len, fd;
+    int index = 0;
+    char fpath[PATH_MAX];
+    char rpath[PATH_MAX];
 
     path = req->path + map->root_len;
 
@@ -183,15 +185,36 @@ static void filemap_serve( struct http_request* req, struct filemap_entry* map )
 		return;
 	}
 
-    if( strstr(fpath, "..") )
-    {
-		http_response(req, HTTP_STATUS_NOT_FOUND, NULL, 0);
-		return;
-	}
-
-	index = 0;
-
 lookup:
+
+    if( realpath(fpath, rpath) == NULL )
+    {
+        if( errno == ENOENT )
+        {
+            if( index == 0 && server.filemap_ext != NULL )
+            {
+                len = snprintf(fpath, sizeof(fpath),"%s/%s%s", map->ondisk, path, server.filemap_ext);
+
+                if( len == -1 || (size_t)len >= sizeof(fpath) )
+                {
+                    http_response(req, HTTP_STATUS_INTERNAL_ERROR, NULL, 0);
+                    return;
+                }
+
+                index++;
+                goto lookup;
+            }
+        }
+
+        http_response(req, HTTP_STATUS_NOT_FOUND, NULL, 0);
+        return;
+    }
+
+    if (strncmp(rpath, fpath, map->ondisk_len)) {
+        http_response(req, HTTP_STATUS_NOT_FOUND, NULL, 0);
+        return;
+    }
+
     if( (ref = cf_fileref_get(fpath)) == NULL )
     {
         if( (fd = open(fpath, O_RDONLY | O_NOFOLLOW)) == -1 )
@@ -251,6 +274,15 @@ lookup:
         }
         else if( S_ISDIR(st.st_mode) && index == 0 )
         {
+            close(fd);
+            if( req->path[strlen(req->path) - 1] != '/' )
+            {
+                snprintf(fpath,sizeof(fpath), "%s/", req->path);
+                http_response_header(req, "location", fpath);
+                http_response(req, HTTP_STATUS_FOUND, NULL, 0);
+                return;
+            }
+
             len = snprintf(fpath, sizeof(fpath), "%s/%s%s", map->ondisk, path, server.filemap_index != NULL ? server.filemap_index : "index.html");
             if( len == -1 || (size_t)len >= sizeof(fpath) )
             {

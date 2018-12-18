@@ -34,7 +34,7 @@ LDFLAGS += -L$(LIBDIR)
 LDFLAGS_CLI = $(LDFLAGS)
 
 # Download urls for dependency libraries
-OPENSSL_URL=https://www.openssl.org/source/openssl-1.1.1.tar.gz
+OPENSSL_URL=https://www.openssl.org/source/openssl-1.1.1a.tar.gz
 YAJL_URL=https://github.com/lloyd/yajl/archive/2.1.0.tar.gz
 LUAJIT_URL=https://luajit.org/download/LuaJIT-2.0.5.tar.gz
 LIBSODIUM_URL=https://github.com/jedisct1/libsodium/releases/download/1.0.16/libsodium-1.0.16.tar.gz
