@@ -57,7 +57,7 @@ static void	keymgr_msg_recv(struct cf_msg*, const void*);
 static void	keymgr_entropy_request(struct cf_msg*, const void*);
 static void	keymgr_certificate_request(struct cf_msg*, const void*);
 static void	keymgr_submit_certificates(struct cf_domain*, uint16_t);
-
+static void	keymgr_submit_file(uint8_t, struct cf_domain*, const char*, uint16_t, int);
 static void	keymgr_rsa_encrypt(struct cf_msg*, const void*, struct key*);
 static void	keymgr_ecdsa_sign(struct cf_msg*, const void*, struct key*);
 static void keymgr_pkcs11_rsa_encrypt(struct cf_msg*, const void*, struct key*);
@@ -470,25 +470,37 @@ static void keymgr_certificate_request( struct cf_msg* msg, const void* data )
 
 static void keymgr_submit_certificates( struct cf_domain* dom, uint16_t dst)
 {
-    int                 fd;
-    struct stat         st;
-    ssize_t             ret;
-    size_t              len;
-    struct cf_x509_msg  *msg = NULL;
-    uint8_t             *payload = NULL;
+    keymgr_submit_file(CF_MSG_CERTIFICATE, dom, dom->certfile, dst, 0);
 
-    if( (fd = open(dom->certfile, O_RDONLY)) == -1 )
-        cf_fatal("open(%s): %s", dom->certfile, errno_s);
+    if (dom->crlfile != NULL)
+        keymgr_submit_file(CF_MSG_CRL, dom, dom->crlfile, dst, 1);
+}
+
+static void keymgr_submit_file( u_int8_t id, struct cf_domain* dom, const char *file, uint16_t dst, int can_fail )
+{
+    int				fd;
+    struct stat			st;
+    ssize_t				ret;
+    size_t				len;
+    struct cf_x509_msg	*msg = NULL;
+    uint8_t			    *payload = NULL;
+
+    if( (fd = open(file, O_RDONLY)) == -1 )
+    {
+        if( errno == ENOENT && can_fail )
+            return;
+        cf_fatal("open(%s): %s", file, errno_s);
+    }
 
     if( fstat(fd, &st) == -1 )
-        cf_fatal("stat(%s): %s", dom->certfile, errno_s);
+        cf_fatal("stat(%s): %s", file, errno_s);
 
     if( !S_ISREG(st.st_mode) )
-        cf_fatal("%s is not a file", dom->certfile);
+        cf_fatal("%s is not a file", file);
 
     if( st.st_size <= 0 || st.st_size > (1024 * 1024 * 5) )
     {
-        cf_fatal("%s length is not valid (%jd)", dom->certfile,(intmax_t)st.st_size);
+        cf_fatal("%s length is not valid (%jd)", file, (intmax_t)st.st_size);
     }
 
     len = sizeof(*msg) + st.st_size;
@@ -502,15 +514,19 @@ static void keymgr_submit_certificates( struct cf_domain* dom, uint16_t dst)
 
     msg->data_len = st.st_size;
     ret = read(fd, &msg->data[0], msg->data_len);
+
+    if( ret == -1 )
+        cf_fatal("failed to read from %s: %s", file, errno_s);
+
     if( ret == 0 )
-        cf_fatal("eof while reading %s", dom->certfile);
+        cf_fatal("eof while reading %s", file);
 
     if( (size_t)ret != msg->data_len )
     {
-        cf_fatal("bad read on %s: expected %zu, got %zd", dom->certfile, msg->data_len, ret);
+        cf_fatal("bad read on %s: expected %zu, got %zd", file, msg->data_len, ret);
     }
 
-    cf_msg_send(dst, CF_MSG_CERTIFICATE, payload, len);
-    mem_free( payload );
+    cf_msg_send(dst, id, payload, len);
+    mem_free(payload);
     close(fd);
 }

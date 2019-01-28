@@ -86,9 +86,11 @@ void cf_redis_handle(void*, int);
 
 void cf_redis_continue(struct cf_redis*);
 void cf_redis_logerror(struct cf_redis*);
-void cf_redis_bind_request(struct cf_redis*, struct http_request*);
 void cf_redis_bind_callback(struct cf_redis*, void (*cb)(struct cf_redis*, void *), void *arg);
 
+#ifndef CF_NO_HTTP
+void cf_redis_bind_request(struct cf_redis*, struct http_request*);
+#endif
 
 int cf_redis_format_command(char**, const char*, ...);
 int cf_redis_query(struct cf_redis*, const char*, size_t);

@@ -275,6 +275,7 @@ lookup:
         else if( S_ISDIR(st.st_mode) && index == 0 )
         {
             close(fd);
+
             if( req->path[strlen(req->path) - 1] != '/' )
             {
                 snprintf(fpath,sizeof(fpath), "%s/", req->path);

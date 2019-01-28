@@ -242,7 +242,11 @@ int cf_redis_setup( struct cf_redis *redis, const char *dbname, int flags )
     /* Check that request is async */
     if( flags & CF_REDIS_ASYNC )
     {
+#ifndef CF_NO_HTTP
         if( redis->req == NULL && redis->cb == NULL )
+#else
+        if( redis->cb == NULL )
+#endif
         {
             redis_set_error(redis, "nothing was bound");
             return CF_RESULT_ERROR;

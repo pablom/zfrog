@@ -492,6 +492,8 @@ run-jsonrpc:
 run-redis:
 	cd examples/redis && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/redis/conf/redis.conf && cd -
 
+run-sock-serv-echo:
+	cd examples/sock_serv_echo && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/sock_serv_echo/conf/sock_serv_echo.conf && cd -
 
 .DEFAULT_GOAL := all
 

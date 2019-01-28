@@ -83,7 +83,8 @@ static inline int worker_acceptlock_release(uint64_t);
 
 #ifndef CF_NO_TLS
     static void worker_entropy_recv(struct cf_msg*, const void*);
-    static void worker_certificate_recv(struct cf_msg*, const void*);
+    static void	worker_keymgr_response(struct cf_msg*, const void *);
+    static int	worker_keymgr_response_verify(struct cf_msg*, const void*, struct cf_domain**);
 #endif
 
 static uint64_t          next_lock;
@@ -143,39 +144,6 @@ void cf_worker_init(void)
         worker_spawn(i, cpu++, 0);
         if( cpu == server.cpu_count )
 			cpu = 0;
-	}
-}
-/****************************************************************
- *  Fork new one worker
- ****************************************************************/
-static void worker_spawn( uint16_t id, uint16_t cpu, int restarted )
-{
-    struct cf_worker *kw = NULL;
-
-	kw = WORKER(id);
-	kw->id = id;
-	kw->cpu = cpu;
-	kw->has_lock = 0;
-	kw->active_hdlr = NULL;
-
-    if( socketpair(AF_UNIX, SOCK_STREAM, 0, kw->pipe) == -1 )
-		cf_fatal("socketpair(): %s", errno_s);
-
-    if( !cf_socket_nonblock(kw->pipe[0], 0) ||
-        !cf_socket_nonblock(kw->pipe[1], 0))
-		cf_fatal("could not set pipe fds to nonblocking: %s", errno_s);
-
-    /* Create a child process */
-	kw->pid = fork();
-
-    if( kw->pid == -1 )
-		cf_fatal("could not spawn worker child: %s", errno_s);
-
-    if( kw->pid == 0 ) /* Child process started */
-    {
-		kw->pid = getpid();
-        worker_entry(kw, restarted);
-		/* NOTREACHED */
 	}
 }
 /****************************************************************
@@ -310,6 +278,145 @@ void cf_worker_privdrop( const char *runas, const char *root_path )
 
 }
 /****************************************************************
+ *  Helper function to wait worker end
+ ****************************************************************/
+void cf_worker_wait( int final )
+{
+    uint16_t  id;
+    pid_t     pid;
+
+    struct cf_worker *kw = NULL;
+    int status;
+
+    if( final )
+        pid = waitpid(WAIT_ANY, &status, 0);
+    else
+        pid = waitpid(WAIT_ANY, &status, WNOHANG);
+
+    if( pid == -1 ) {
+        log_debug("waitpid(): %s", errno_s);
+        return;
+    }
+
+    if( pid == 0 )
+        return;
+
+    for( id = 0; id < server.worker_count; id++ )
+    {
+        kw = WORKER(id);
+        if( kw->pid != pid )
+            continue;
+
+        if( WIFEXITED(status) ) {
+            cf_log(LOG_NOTICE, "worker %d (%d)-> exited: %d, status: [%d]", kw->id, pid, WEXITSTATUS(status), status);
+        } else if (WIFSIGNALED(status)) {
+            cf_log(LOG_NOTICE, "worker %d (%d)-> killed by signal: %d, status: [%d]", kw->id, pid, WTERMSIG(status), status);
+        } else if (WIFSTOPPED(status)) {
+            cf_log(LOG_NOTICE, "worker %d (%d)-> stopped by signal: %d, status: [%d]", kw->id, pid, WSTOPSIG(status), status);
+        } else if (WIFCONTINUED(status)) {
+            cf_log(LOG_NOTICE, "worker %d (%d)-> continued, status: [%d]", kw->id, pid, status);
+        }
+
+        if( final )
+        {
+            kw->pid = 0;
+            break;
+        }
+
+        if( WEXITSTATUS(status) || WTERMSIG(status) || WCOREDUMP(status) )
+        {
+            cf_log(LOG_NOTICE, "worker %d (pid: %d) (hdlr: %s) gone", kw->id, kw->pid, (kw->active_hdlr != NULL) ? kw->active_hdlr->func :"none");
+
+#ifndef CF_NO_TLS
+            if( id == CF_WORKER_KEYMGR )
+            {
+                cf_log(LOG_CRIT, "keymgr gone, stopping");
+                kw->pid = 0;
+
+                if( raise(SIGTERM) != 0 ) {
+                    cf_log(LOG_WARNING, "failed to raise SIGTERM signal");
+                }
+                break;
+            }
+#endif
+
+            if( kw->pid == accept_lock->current && worker_no_lock == 0 )
+                worker_unlock();
+
+#ifndef CF_NO_HTTP
+            if( kw->active_hdlr != NULL )
+            {
+                kw->active_hdlr->errors++;
+                cf_log(LOG_NOTICE, "hdlr %s has caused %d error(s)", kw->active_hdlr->func, kw->active_hdlr->errors);
+            }
+#endif
+            cf_log(LOG_NOTICE, "restarting worker %d", kw->id);
+            cf_msg_parent_remove(kw);
+            worker_spawn(kw->id, kw->cpu, 1);
+            cf_msg_parent_add(kw);
+        }
+        else {
+            cf_log(LOG_NOTICE, "worker %d (pid: %d) signaled us (%d)", kw->id, kw->pid, status);
+        }
+
+        break;
+    }
+}
+/****************************************************************************
+ *  Calling this from your page handler will cause your current worker
+ *  to give up the acceptlock (if it holds it).
+ *
+ *  This is particularly useful if you are about to run code that may block
+ *  a bit longer then you are comfortable with. Calling this will cause
+ *  the acceptlock to shuffle to another free worker which in turn makes
+ *  sure your application can keep accepting requests.
+ ****************************************************************************/
+void cf_worker_make_busy(void)
+{
+    if( server.worker_count == WORKER_SOLO_COUNT || worker_no_lock == 1 )
+        return;
+
+    if( server.worker->has_lock )
+    {
+        worker_unlock();
+        server.worker->has_lock = 0;
+        next_lock = cf_time_ms() + WORKER_LOCK_TIMEOUT;
+    }
+}
+/****************************************************************
+ *  Fork new one worker
+ ****************************************************************/
+static void worker_spawn( uint16_t id, uint16_t cpu, int restarted )
+{
+    struct cf_worker *kw = NULL;
+
+    kw = WORKER(id);
+    kw->id = id;
+    kw->cpu = cpu;
+    kw->has_lock = 0;
+    kw->active_hdlr = NULL;
+
+    if( socketpair(AF_UNIX, SOCK_STREAM, 0, kw->pipe) == -1 )
+        cf_fatal("socketpair(): %s", errno_s);
+
+    if( !cf_socket_nonblock(kw->pipe[0], 0) ||
+        !cf_socket_nonblock(kw->pipe[1], 0))
+        cf_fatal("could not set pipe fds to nonblocking: %s", errno_s);
+
+    /* Create a child process */
+    kw->pid = fork();
+
+    if( kw->pid == -1 )
+        cf_fatal("could not spawn worker child: %s", errno_s);
+
+    if( kw->pid == 0 ) /* Child process started */
+    {
+        kw->pid = getpid();
+        worker_entry(kw, restarted);
+        /* NOTREACHED */
+    }
+}
+/****************************************************************
  *  Worker main entry function
  ****************************************************************/
 static void worker_entry( struct cf_worker *kw, int restarted )
@@ -392,7 +499,8 @@ static void worker_entry( struct cf_worker *kw, int restarted )
 
 #ifndef CF_NO_TLS
     cf_msg_register(CF_MSG_ENTROPY_RESP, worker_entropy_recv);
-    cf_msg_register(CF_MSG_CERTIFICATE, worker_certificate_recv);
+    cf_msg_register(CF_MSG_CERTIFICATE, worker_keymgr_response);
+    cf_msg_register(CF_MSG_CRL, worker_keymgr_response);
 
     if( restarted )
         cf_msg_send(CF_WORKER_KEYMGR, CF_MSG_CERTIFICATE_REQ, NULL, 0);
@@ -556,112 +664,7 @@ static void worker_entry( struct cf_worker *kw, int restarted )
     mem_cleanup();
     exit( 0 );
 }
-/****************************************************************
- *  Helper function to wait worker end
- ****************************************************************/
-void cf_worker_wait( int final )
-{
-    uint16_t  id;
-    pid_t     pid;
 
-    struct cf_worker *kw = NULL;
-    int status;
-
-    if( final )
-		pid = waitpid(WAIT_ANY, &status, 0);
-	else
-		pid = waitpid(WAIT_ANY, &status, WNOHANG);
-
-    if( pid == -1 ) {
-        log_debug("waitpid(): %s", errno_s);
-		return;
-	}
-
-    if( pid == 0 )
-		return;
-
-    for( id = 0; id < server.worker_count; id++ )
-    {
-		kw = WORKER(id);
-        if( kw->pid != pid )
-			continue;
-
-        if( WIFEXITED(status) ) {
-            cf_log(LOG_NOTICE, "worker %d (%d)-> exited: %d, status: [%d]", kw->id, pid, WEXITSTATUS(status), status);
-        } else if (WIFSIGNALED(status)) {
-            cf_log(LOG_NOTICE, "worker %d (%d)-> killed by signal: %d, status: [%d]", kw->id, pid, WTERMSIG(status), status);
-        } else if (WIFSTOPPED(status)) {
-            cf_log(LOG_NOTICE, "worker %d (%d)-> stopped by signal: %d, status: [%d]", kw->id, pid, WSTOPSIG(status), status);
-        } else if (WIFCONTINUED(status)) {
-            cf_log(LOG_NOTICE, "worker %d (%d)-> continued, status: [%d]", kw->id, pid, status);
-        }
-
-        if( final )
-        {
-			kw->pid = 0;
-			break;
-		}
-
-        if( WEXITSTATUS(status) || WTERMSIG(status) || WCOREDUMP(status) )
-        {
-            cf_log(LOG_NOTICE, "worker %d (pid: %d) (hdlr: %s) gone", kw->id, kw->pid, (kw->active_hdlr != NULL) ? kw->active_hdlr->func :"none");
-
-#ifndef CF_NO_TLS
-            if( id == CF_WORKER_KEYMGR )
-            {
-                cf_log(LOG_CRIT, "keymgr gone, stopping");
-				kw->pid = 0;
-
-                if( raise(SIGTERM) != 0 ) {
-                    cf_log(LOG_WARNING, "failed to raise SIGTERM signal");
-				}
-				break;
-			}
-#endif
-
-            if( kw->pid == accept_lock->current && worker_no_lock == 0 )
-				worker_unlock();
-
-#ifndef CF_NO_HTTP
-            if( kw->active_hdlr != NULL )
-            {
-				kw->active_hdlr->errors++;
-                cf_log(LOG_NOTICE, "hdlr %s has caused %d error(s)", kw->active_hdlr->func, kw->active_hdlr->errors);
-			}
-#endif
-            cf_log(LOG_NOTICE, "restarting worker %d", kw->id);
-            cf_msg_parent_remove(kw);
-            worker_spawn(kw->id, kw->cpu, 1);
-            cf_msg_parent_add(kw);
-        }
-        else {
-            cf_log(LOG_NOTICE, "worker %d (pid: %d) signaled us (%d)", kw->id, kw->pid, status);
-		}
-
-		break;
-	}
-}
-/****************************************************************************
- *  Calling this from your page handler will cause your current worker
- *  to give up the acceptlock (if it holds it).
- *
- *  This is particularly useful if you are about to run code that may block
- *  a bit longer then you are comfortable with. Calling this will cause
- *  the acceptlock to shuffle to another free worker which in turn makes
- *  sure your application can keep accepting requests.
- ****************************************************************************/
-void cf_worker_make_busy(void)
-{
-    if( server.worker_count == WORKER_SOLO_COUNT || worker_no_lock == 1 )
-        return;
-
-    if( server.worker->has_lock )
-    {
-        worker_unlock();
-        server.worker->has_lock = 0;
-        next_lock = cf_time_ms() + WORKER_LOCK_TIMEOUT;
-    }
-}
 /****************************************************************
  *  Helper function
  ****************************************************************/
@@ -758,28 +761,52 @@ static void worker_entropy_recv( struct cf_msg *msg, const void *data )
     RAND_seed(data, msg->length);
 }
 
-static void worker_certificate_recv( struct cf_msg* msg, const void* data )
+static void worker_keymgr_response( struct cf_msg* msg, const void* data )
 {
-    struct cf_domain* dom = NULL;
-    const struct cf_x509_msg* req = NULL;
+    struct cf_domain         *dom = NULL;
+    const struct cf_x509_msg *req = NULL;
+
+    if( !worker_keymgr_response_verify(msg, data, &dom) )
+        return;
+
+    req = (const struct cf_x509_msg*)data;
+
+    switch( msg->id )
+    {
+    case CF_MSG_CERTIFICATE:
+        cf_domain_tls_init(dom, req->data, req->data_len); /* reinitialize the domain TLS context */
+        break;
+    case CF_MSG_CRL:
+        cf_domain_crl_add(dom, req->data, req->data_len);
+        break;
+    default:
+        cf_log(LOG_WARNING, "unknown keymgr request %u", msg->id);
+        break;
+    }
+}
+
+static int worker_keymgr_response_verify( struct cf_msg* msg, const void* data, struct cf_domain** out )
+{
+    struct cf_domain         *dom = NULL;
+    const struct cf_x509_msg *req = NULL;
 
     if( msg->length < sizeof(*req) )
     {
-        cf_log(LOG_WARNING, "short CF_MSG_CERTIFICATE message (%zu)", msg->length);
-        return;
+        cf_log(LOG_WARNING, "short keymgr message (%zu)", msg->length);
+        return CF_RESULT_ERROR;
     }
 
-    req = (const struct cf_x509_msg*)data;
+    req = (const struct cf_x509_msg *)data;
     if( msg->length != (sizeof(*req) + req->data_len) )
     {
-        cf_log(LOG_WARNING, "invalid CF_MSG_CERTIFICATE payload (%zu)", msg->length);
-        return;
+        cf_log(LOG_WARNING, "invalid keymgr payload (%zu)", msg->length);
+        return CF_RESULT_ERROR;
     }
 
     if( req->domain_len > CF_DOMAINNAME_LEN )
     {
-        cf_log(LOG_WARNING, "invalid CF_MSG_CERTIFICATE domain (%u)", req->domain_len);
-        return;
+        cf_log(LOG_WARNING, "invalid keymgr domain (%u)", req->domain_len);
+        return CF_RESULT_ERROR;
     }
 
     dom = NULL;
@@ -791,12 +818,13 @@ static void worker_certificate_recv( struct cf_msg* msg, const void* data )
 
     if( dom == NULL )
     {
-        cf_log(LOG_WARNING,"got CF_MSG_CERTIFICATE for domain that does not exist");
-        return;
+        cf_log(LOG_WARNING,"got keymgr response for domain that does not exist");
+        return CF_RESULT_ERROR;
     }
 
-    /* reinitialize the domain TLS context. */
-    cf_domain_tls_init(dom, req->data, req->data_len);
+    *out = dom;
+
+    return CF_RESULT_OK;
 }
 
 #endif

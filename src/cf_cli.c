@@ -135,6 +135,7 @@ static void	cli_fatal(const char *, ...) __attribute__((noreturn));
 static void	cli_file_close(int);
 static void	cli_run_zfrog(void);
 static void	cli_generate_certs(void);
+static int  cli_add_certs_extension(X509*, int, char*);
 static void	cli_compile_zfrog(void*);
 static void	cli_link_application(void*);
 static void	cli_compile_source_file(void*);
@@ -1378,7 +1379,8 @@ static void cli_generate_certs(void)
         cli_fatal("EVP_PKEY_assign_RSA(): %s", ssl_errno_s);
 
     /* Set serial number to current timestamp */
-	time(&now);
+    time( &now );
+
     if( !ASN1_INTEGER_set(X509_get_serialNumber(x509), now) )
         cli_fatal("ASN1_INTEGER_set(): %s", ssl_errno_s);
 
@@ -1410,6 +1412,9 @@ static void cli_generate_certs(void)
 
     if( !X509_set_issuer_name(x509, name) )
         cli_fatal("X509_set_issuer_name(): %s", ssl_errno_s);
+
+    //cli_add_certs_extension(x509, NID_ext_key_usage, "critical,codeSigning,1.2.3.4" );
+    cli_add_certs_extension(x509, NID_ext_key_usage, "serverAuth,clientAuth" );
 
     if( !X509_sign(x509, pkey, EVP_sha256()) )
         cli_fatal("X509_sign(): %s", ssl_errno_s);
@@ -2550,4 +2555,29 @@ static void file_create_gitignore(void)
     cli_file_create(name, data, l);
     free( name );
     free( data );
+}
+/****************************************************************
+ *  Helper function to add extension using V3 code: we can set
+ *  the config file as NULL because we wont reference any other sections
+ ****************************************************************/
+static int cli_add_certs_extension( X509* cert, int nid, char* value )
+{
+    X509_EXTENSION *ex = NULL;
+    X509V3_CTX ctx;
+
+    /* This sets the 'context' of the extensions. No configuration database */
+    X509V3_set_ctx_nodb(&ctx);
+
+    /* Issuer and subject certs: both the target since it is self signed, no request and no CRL */
+    X509V3_set_ctx(&ctx, cert, cert, NULL, NULL, 0);
+
+    if( !(ex = X509V3_EXT_conf_nid(NULL, &ctx, nid, value)) )
+        return 0;
+
+    /* Try to add extensions */
+    X509_add_ext(cert, ex, -1);
+
+    /* Delete temporary extension */
+    X509_EXTENSION_free( ex );
+    return 1;
 }

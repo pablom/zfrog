@@ -324,10 +324,10 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
         SSL_CTX_free(dom->ssl_ctx);
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
-    if( (method = TLS_method()) == NULL )
+    if( (method = TLS_server_method()) == NULL )
         cf_fatalx("TLS_method(): %s", ssl_errno_s);
 #else
-    switch( tls_version )
+    switch( server.tls_version )
     {
     case CF_TLS_VERSION_1_3:
     case CF_TLS_VERSION_1_2:
@@ -370,8 +370,6 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
 #if OPENSSL_VERSION_NUMBER >= 0x10101004L
         if( !SSL_CTX_set_min_proto_version(dom->ssl_ctx, TLS1_3_VERSION))
             cf_fatal("SSL_CTX_set_min_proto_version: %s", ssl_errno_s);
-        if( !SSL_CTX_set_max_proto_version(dom->ssl_ctx, TLS1_3_VERSION) )
-            cf_fatal("SSL_CTX_set_max_proto_version: %s", ssl_errno_s);
         break;
 #endif
     case CF_TLS_VERSION_1_2:
@@ -487,6 +485,56 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
     SSL_CTX_set_tlsext_servername_callback(dom->ssl_ctx, cf_tls_sni_cb);
 
     X509_free( x509 );
+}
+
+void cf_domain_crl_add( struct cf_domain* dom, const void* pem, size_t pemlen )
+{
+    int			err;
+    BIO*        in = NULL;
+    X509_CRL*   crl = NULL;
+    X509_STORE* store = NULL;
+
+    ERR_clear_error();
+    in = domain_bio_mem(pem, pemlen);
+
+    if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
+    {
+        BIO_free(in);
+        cf_log(LOG_ERR, "SSL_CTX_get_cert_store(): %s", ssl_errno_s);
+        return;
+    }
+
+    for(;;)
+    {
+        if( (crl = PEM_read_bio_X509_CRL(in, NULL, NULL, NULL)) == NULL )
+        {
+            if( (err = ERR_GET_REASON(ERR_peek_last_error())) == PEM_R_NO_START_LINE )
+            {
+                ERR_clear_error();
+                break;
+            }
+
+            cf_log(LOG_WARNING, "failed to read CRL %s: %s", dom->crlfile, ssl_errno_s);
+            continue;
+        }
+
+        if( !X509_STORE_add_crl(store, crl) )
+        {
+            if( (err = ERR_GET_REASON(ERR_peek_last_error())) == X509_R_CERT_ALREADY_IN_HASH_TABLE )
+            {
+                X509_CRL_free(crl);
+                continue;
+            }
+
+            cf_log(LOG_WARNING, "failed to add CRL %s: %s", dom->crlfile, ssl_errno_s);
+            X509_CRL_free(crl);
+            continue;
+        }
+    }
+
+    BIO_free(in);
+
+    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
 }
 
 static void keymgr_init(void)

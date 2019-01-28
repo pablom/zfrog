@@ -2,6 +2,7 @@
 
 #include <sys/param.h>
 #include <sys/socket.h>
+#include <inttypes.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <fcntl.h>

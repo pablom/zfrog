@@ -431,11 +431,11 @@ TAILQ_HEAD(cf_domain_header, cf_domain);
 
 struct cf_validator
 {
-    uint8_t   type;
-    char	  *name;
-    char	  *arg;
-    regex_t	  rctx;
-    struct cf_runtime_call* rcall;
+    uint8_t                type;
+    char	               *name;
+    char	               *arg;
+    regex_t	               rctx;
+    struct cf_runtime_call *rcall;
 
     TAILQ_ENTRY(cf_validator) list;
 };
@@ -508,6 +508,7 @@ struct cf_timer
 #define CF_MSG_ENTROPY_RESP         7
 #define CF_MSG_CERTIFICATE          8
 #define CF_MSG_CERTIFICATE_REQ      9
+#define CF_MSG_CRL			        10
 
 /* Predefined message targets */
 #define CF_MSG_PARENT               1000
@@ -692,6 +693,7 @@ int cf_server_bind_unix( const char*, const char*);
     void cf_tls_info_callback(const SSL*,int,int);
     void cf_domain_keymgr_init(void);
     void cf_domain_tls_init(struct cf_domain*,const void*,size_t);
+    void cf_domain_crl_add(struct cf_domain*,const void*,size_t);
     void cf_domain_load_crl(void);
 #endif
 

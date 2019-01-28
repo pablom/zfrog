@@ -931,7 +931,7 @@ static void pytimer_run( void* arg, uint64_t now )
 
     PyErr_Clear();
     ret = PyObject_CallObject(timer->callable, NULL);
-    Py_DECREF(ret);
+    Py_XDECREF(ret);
 
     if( timer->flags & CF_TIMER_ONESHOT )
     {
@@ -1702,9 +1702,10 @@ static PyObject* pyqueue_op_iternext( struct pyqueue_op* op )
 
     TAILQ_FOREACH( waiting, &op->queue->waiting, list )
     {
-        if( waiting->coro == coro_running )
+        if( waiting->coro->id == coro_running->id )
         {
             TAILQ_REMOVE(&op->queue->waiting, waiting, list);
+            waiting->op->waiting = NULL;
             cf_mem_pool_put(&queue_wait_pool, waiting);
             break;
         }
@@ -2254,7 +2255,11 @@ static PyObject* python_gather(PyObject *self, PyObject *args)
 
         coro = cf_mem_pool_get(&gather_coro_pool);
 
+#ifndef CF_NO_HTTP
         coro->coro = python_coro_create(obj, NULL);
+#else
+        coro->coro = python_coro_create(obj);
+#endif
         coro->coro->gatherop = op;
 
         TAILQ_INSERT_TAIL(&op->coroutines, coro, list);

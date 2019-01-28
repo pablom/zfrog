@@ -345,7 +345,9 @@ void cf_tls_info_callback( const SSL *ssl, int flags, int ret )
     {
         if( (c = SSL_get_app_data(ssl)) == NULL )
             cf_fatal("no SSL_get_app_data");
-		c->tls_reneg++;
+
+        if( SSL_version(ssl) != TLS1_3_VERSION )
+            c->tls_reneg++;
 	}
 }
 #endif
