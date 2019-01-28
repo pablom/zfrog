@@ -452,7 +452,7 @@ example-ttyd:
 example-nohttp:
 	cd examples/nohttp && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-example-sock_serv_echo:
+example-sock-serv-echo:
 	cd examples/sock_serv_echo && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
 example-tls-proxy:
@@ -461,7 +461,7 @@ example-tls-proxy:
 example-tasks:
 	cd examples/tasks && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
-example-json_yajl:
+example-json-yajl:
 	cd examples/json_yajl && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 
 example-python-echo:
@@ -495,6 +495,9 @@ run-redis:
 run-sock-serv-echo:
 	cd examples/sock_serv_echo && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/sock_serv_echo/conf/sock_serv_echo.conf && cd -
 
+run-json-yajl:
+	cd examples/json_yajl && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/json_yajl/conf/json_yajl.conf && cd -
+	
 .DEFAULT_GOAL := all
 
 .PHONY: all clean install uninstall
