@@ -446,6 +446,9 @@ example-redis-jsonrpc:
 
 example-ttyd:
 	cd examples/ttyd && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
+
+example-hsm-gateway:
+	cd examples/hsm-gateway && $(PWD)/$(ZFROG_CLI) build && $(PWD)/$(ZFROG_CLI) clean
 ########################################################################
 # no HTTP support examples 
 ########################################################################
@@ -497,7 +500,10 @@ run-sock-serv-echo:
 
 run-json-yajl:
 	cd examples/json_yajl && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/json_yajl/conf/json_yajl.conf && cd -
-	
+
+run-hsm-gateway:
+	cd examples/hsm-gateway && $(PWD)/$(ZFROG) -fnr -c $(PWD)/examples/hsm-gateway/conf/hsm-gateway.conf && cd -
+
 .DEFAULT_GOAL := all
 
 .PHONY: all clean install uninstall

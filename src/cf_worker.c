@@ -103,6 +103,7 @@ void cf_worker_init(void)
     size_t len;
     uint16_t i = 0;
     uint16_t cpu = 0;
+    struct cf_worker* kw = NULL;
 
     /* Init no lock workers */
     worker_no_lock = 0;
@@ -138,6 +139,13 @@ void cf_worker_init(void)
     if( server.worker_count > server.cpu_count ) {
         log_debug("cf_worker_init(): more workers than cpu's");
 	}
+
+    /* Setup log buffers */
+    for( i = 0; i < server.worker_count; i++ )
+    {
+        kw = WORKER(i);
+        kw->lb.offset = 0;
+    }
 
     for( i = 0; i < server.worker_count; i++ )
     {
@@ -424,7 +432,6 @@ static void worker_entry( struct cf_worker *kw, int restarted )
     char buf[16];
     int quit = 0;
     int had_lock = 0;
-    int r;
     uint64_t now = 0;
     uint64_t netwait = 0;
     uint64_t timerwait = 0;
@@ -481,7 +488,6 @@ static void worker_entry( struct cf_worker *kw, int restarted )
     cf_fileref_init();
 
 #ifndef CF_NO_TLS
-    cf_domain_load_crl();
     cf_domain_keymgr_init();
 #endif
 
@@ -526,25 +532,6 @@ static void worker_entry( struct cf_worker *kw, int restarted )
 
     for(;;)
     {
-        if (sig_recv != 0)
-        {
-            switch( sig_recv )
-            {
-			case SIGHUP:
-                cf_module_reload(1);
-				break;
-			case SIGQUIT:
-			case SIGINT:
-			case SIGTERM:
-				quit = 1;
-				break;
-			default:
-				break;
-			}
-
-			sig_recv = 0;
-		}
-
         netwait = 100;
         /* Get current time in milliseconds */
 		now = cf_time_ms();
@@ -587,9 +574,10 @@ static void worker_entry( struct cf_worker *kw, int restarted )
         if( timerwait < netwait )
             netwait = timerwait;
 
-        r = cf_platform_event_wait(netwait);
+        /* Wait system events */
+        cf_platform_event_wait(netwait);
 
-        if( server.worker->has_lock && r > 0 )
+        if( server.worker->has_lock )
         {
             if( netwait > 10 )
                 now = cf_time_ms();
@@ -606,6 +594,33 @@ static void worker_entry( struct cf_worker *kw, int restarted )
                 cf_platform_disable_accept();
             }
         }
+
+        if( sig_recv != 0 )
+        {
+            switch( sig_recv )
+            {
+            case SIGHUP:
+                cf_module_reload(1);
+                break;
+            case SIGQUIT:
+            case SIGINT:
+            case SIGTERM:
+                quit = 1;
+                break;
+            case SIGCHLD:
+#ifdef CF_PYTHON
+                cf_python_proc_reap();
+#endif
+                break;
+            default:
+                break;
+            }
+
+            sig_recv = 0;
+        }
+
+        if( quit )
+            break;
 
 #ifndef CF_NO_HTTP
 		http_process();
@@ -642,12 +657,12 @@ static void worker_entry( struct cf_worker *kw, int restarted )
 #endif
 	net_cleanup();
 
-#ifdef CF_PGSQL
-    cf_pgsql_sys_cleanup();
-#endif
-
 #ifdef CF_PYTHON
     cf_python_cleanup();
+#endif
+
+#ifdef CF_PGSQL
+    cf_pgsql_sys_cleanup();
 #endif
 
 #ifdef CF_LUA

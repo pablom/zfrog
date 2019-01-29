@@ -287,6 +287,8 @@ static void keymgr_pkcs11_rsa_encrypt( struct cf_msg* msg, const void* data, str
     if( req->data_len > keylen || keylen > sizeof(buf) )
         return;
 
+    cf_log(LOG_NOTICE,"PKCS11 RSA data len = %d, keylen = %lu, padding = %d", req->data_len, keylen, req->padding);
+
     ret = cf_pkcs11_private_encrypt( key->p11_key, req->data, req->data_len, buf );
 
     cf_msg_send(msg->src, CF_MSG_KEYMGR_RESP, buf, ret);
@@ -308,6 +310,8 @@ static void keymgr_rsa_encrypt( struct cf_msg* msg, const void* data, struct key
 #endif
 
     keylen = RSA_size(rsa);
+
+    cf_log(LOG_NOTICE,"RSA data len = %d, keylen = %lu, padding = %d", req->data_len, keylen, req->padding);
 
     if( req->data_len > keylen || keylen > sizeof(buf) )
         return;

@@ -497,7 +497,7 @@ void cf_connection_remove( struct connection *c )
     {
 		next = TAILQ_NEXT(nb, list);
         nb->flags &= ~NETBUF_MUST_RESEND;
-        net_remove_netbuf(&(c->send_queue), nb);
+        net_remove_netbuf(c, nb);
 	}
 
     if( c->rnb != NULL )

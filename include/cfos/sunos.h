@@ -28,6 +28,9 @@
     #define INET6_ADDRSTRLEN   46
 #endif
 
+#ifndef FNM_CASEFOLD
+    #define FNM_CASEFOLD    0
+#endif
 
 char* strsep(char** stringp, const char* delim);
 int vasprintf(char **ptr, const char *format, va_list ap);

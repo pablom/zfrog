@@ -392,6 +392,20 @@ struct cf_module_handle
     TAILQ_ENTRY(cf_module_handle)	list;
 };
 
+/*
+ * The workers get a 128KB log buffer per worker, and parent will fetch their
+ * logs when it reached at least 75% of that or if its been > 1 second since
+ * it was last synced.
+ */
+#define CF_ACCESSLOG_BUFLEN		131072U
+#define CF_ACCESSLOG_SYNC		98304U
+
+struct cf_alog_header
+{
+    uint16_t		domain;
+    uint16_t		loglen;
+} __attribute__((packed));
+
 struct cf_worker
 {
     uint8_t                 id;
@@ -402,12 +416,24 @@ struct cf_worker
     uint8_t                 has_lock;
     uint64_t                time_locked;
     struct cf_module_handle	*active_hdlr;
+
+    /* Used by the workers to store accesslogs. */
+    struct {
+        int			lock;
+        size_t		offset;
+        char		buf[CF_ACCESSLOG_BUFLEN];
+    } lb;
 };
 
 struct cf_domain
 {
-    char    *domain;
-    int     accesslog;
+    uint16_t id;
+    char     *domain;
+    int      accesslog;
+
+    struct cf_buf* logbuf;
+    int            logerr;
+    uint64_t       logwarn;
 
 #ifndef CF_NO_TLS
     char    *cafile;
@@ -499,16 +525,15 @@ struct cf_timer
 #define CF_WORKER_KEYMGR            0
 
 /* Reserved message ids, registered on workers */
-#define CF_MSG_ACCESSLOG            1
-#define CF_MSG_WEBSOCKET            2
-#define CF_MSG_KEYMGR_REQ           3
-#define CF_MSG_KEYMGR_RESP          4
-#define CF_MSG_SHUTDOWN             5
-#define CF_MSG_ENTROPY_REQ          6
-#define CF_MSG_ENTROPY_RESP         7
-#define CF_MSG_CERTIFICATE          8
-#define CF_MSG_CERTIFICATE_REQ      9
-#define CF_MSG_CRL			        10
+#define CF_MSG_WEBSOCKET            1
+#define CF_MSG_KEYMGR_REQ           2
+#define CF_MSG_KEYMGR_RESP          3
+#define CF_MSG_SHUTDOWN             4
+#define CF_MSG_ENTROPY_REQ          5
+#define CF_MSG_ENTROPY_RESP         6
+#define CF_MSG_CERTIFICATE          7
+#define CF_MSG_CERTIFICATE_REQ      8
+#define CF_MSG_CRL			        9
 
 /* Predefined message targets */
 #define CF_MSG_PARENT               1000
@@ -655,7 +680,7 @@ void cf_platform_disable_read(int);
 void cf_platform_disable_write(int);
 void cf_platform_enable_accept(void);
 void cf_platform_disable_accept(void);
-int	 cf_platform_event_wait(uint64_t);
+void cf_platform_event_wait(uint64_t);
 void cf_platform_event_all(int, void*);
 void cf_platform_schedule_read(int, void*);
 void cf_platform_schedule_write(int, void*);
@@ -671,9 +696,9 @@ void cf_shutdown(void);
 void cf_worker_teardown(void);
 void cf_parent_teardown(void);
 
-void cf_accesslog_init(void);
 void cf_accesslog_worker_init(void);
-int  cf_accesslog_write(const void*, uint32_t);
+void cf_accesslog_run(void*, uint64_t);
+void cf_accesslog_gather(void*, uint64_t, int);
 
 /* Timer functions */
 void cf_timer_init(void);
@@ -694,7 +719,6 @@ int cf_server_bind_unix( const char*, const char*);
     void cf_domain_keymgr_init(void);
     void cf_domain_tls_init(struct cf_domain*,const void*,size_t);
     void cf_domain_crl_add(struct cf_domain*,const void*,size_t);
-    void cf_domain_load_crl(void);
 #endif
 
 /* List of support client & backend functions */
@@ -778,24 +802,26 @@ void cf_msg_parent_remove(struct cf_worker*);
 void cf_msg_send(uint16_t, uint8_t, const void*, size_t);
 int	 cf_msg_register(uint8_t, void (*cb)(struct cf_msg*, const void*));
 
+/* Domain functions definitions */
 void cf_domain_init(void);
 void cf_domain_cleanup(void);
 int  cf_domain_new(char*);
 void cf_domain_free(struct cf_domain*);
-
-void cf_module_init(void);
-void cf_module_cleanup(void);
-void cf_module_reload(int);
-void cf_module_onload(void);
-int	 cf_module_loaded(void);
-
+struct cf_domain* cf_domain_lookup(const char*);
+struct cf_domain* cf_domain_byid(uint16_t);
 void cf_domain_closelogs(void);
-void *cf_module_getsym(const char*, struct cf_runtime**);
-
-void cf_module_load(const char*, const char*, int);
 void cf_domain_callback(void (*cb)(struct cf_domain*));
-int	 cf_module_handler_new(const char*, const char*, const char*, const char*, int);
-void cf_module_handler_free(struct cf_module_handle*);
+
+/* Module functions definitions */
+void  cf_module_init(void);
+void  cf_module_cleanup(void);
+void  cf_module_reload(int);
+void  cf_module_onload(void);
+int	  cf_module_loaded(void);
+void* cf_module_getsym(const char*, struct cf_runtime**);
+void  cf_module_load(const char*, const char*, int);
+int	  cf_module_handler_new(const char*, const char*, const char*, const char*, int);
+void  cf_module_handler_free(struct cf_module_handle*);
 
 void cf_runtime_execute(struct cf_runtime_call*);
 struct cf_runtime_call* cf_runtime_getcall(const char*);
@@ -840,7 +866,6 @@ struct cf_fileref* cf_fileref_create(const char*, int, off_t,struct timespec*);
 void cf_fileref_release(struct cf_fileref*);
 void cf_fileref_init(void);
 
-struct cf_domain* cf_domain_lookup(const char*);
 struct cf_module_handle* cf_module_handler_find(const char*, const char*);
 
 void cf_fatal(const char*, ...) __attribute__((noreturn));
@@ -865,7 +890,7 @@ int	 net_read_tls(struct connection*, size_t*);
 int	 net_write(struct connection*, size_t, size_t*);
 int	 net_write_tls(struct connection*, size_t, size_t*);
 void net_recv_reset(struct connection*, size_t, int (*cb)(struct netbuf*));
-void net_remove_netbuf(struct netbuf_head*, struct netbuf*);
+void net_remove_netbuf(struct connection*, struct netbuf*);
 void net_recv_queue(struct connection*, size_t, int, int (*cb)(struct netbuf*));
 void net_recv_expand(struct connection*, size_t, int (*cb)(struct netbuf*));
 void net_send_queue(struct connection*, const void*, size_t);

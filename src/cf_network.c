@@ -237,7 +237,7 @@ int net_send( struct connection *c )
 
     if( c->snb->s_off == c->snb->b_len || (c->snb->flags & NETBUF_FORCE_REMOVE) )
     {
-		net_remove_netbuf(&(c->send_queue), c->snb);
+        net_remove_netbuf(c, c->snb);
 		c->snb = NULL;
 	}
 
@@ -298,9 +298,9 @@ int net_recv_flush( struct connection *c )
     return CF_RESULT_OK;
 }
 
-void net_remove_netbuf( struct netbuf_head *list, struct netbuf *nb )
+void net_remove_netbuf( struct connection *c, struct netbuf *nb )
 {
-    log_debug("net_remove_netbuf(%p, %p)", list, nb);
+    log_debug("net_remove_netbuf(%p, %p)", c, nb);
 
     if( nb->type == NETBUF_RECV )
         cf_fatal("net_remove_netbuf(): cannot remove recv netbuf");
@@ -324,7 +324,7 @@ void net_remove_netbuf( struct netbuf_head *list, struct netbuf *nb )
     if( nb->flags & NETBUF_IS_FILEREF )
         cf_fileref_release( nb->file_ref );
 
-	TAILQ_REMOVE(list, nb, list);
+    TAILQ_REMOVE(&(c->send_queue), nb, list);
     cf_mem_pool_put(&server.nb_pool, nb);
 }
 

@@ -93,9 +93,9 @@ void cf_platform_event_cleanup( void )
 /****************************************************************
  *  Event platform wait function
  ****************************************************************/
-int cf_platform_event_wait( uint64_t timer )
+void cf_platform_event_wait( uint64_t timer )
 {
-    uint32_t r = 0; /* return value */
+    uint32_t r = 0;
     struct cf_event	*evt = NULL;
     int	n, i;
 
@@ -105,7 +105,7 @@ int cf_platform_event_wait( uint64_t timer )
     if( n == -1 )
     {
         if( errno == EINTR )
-            return 0;
+            return;
 		cf_fatal("epoll_wait(): %s", errno_s);
 	}
 
@@ -135,8 +135,6 @@ int cf_platform_event_wait( uint64_t timer )
 
         evt->handle(events[i].data.ptr, r);
     }
-
-    return r;
 }
 /****************************************************************
  *  Helper function add file descriptor to catch
@@ -258,7 +256,7 @@ int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
 
     if( sent == 0 || nb->fd_off == nb->fd_len )
     {
-        net_remove_netbuf(&(c->send_queue), nb);
+        net_remove_netbuf(c, nb);
         c->snb = NULL;
     }
 

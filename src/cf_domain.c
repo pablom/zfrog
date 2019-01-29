@@ -16,18 +16,12 @@
 #include <fnmatch.h>
 #include "zfrog.h"
 
-#if (__sun && __SVR4)
-    #ifndef FNM_CASEFOLD
-        #define FNM_CASEFOLD    0
-    #endif
-#endif
-
-
 #ifndef CF_NO_HTTP
     #include "cf_http.h"
 #endif
 
-#define SSL_SESSION_ID	"zfrog_ssl_sessionid"
+#define DOMAIN_CACHE_SIZE	16
+#define SSL_SESSION_ID      "zfrog_ssl_sessionid"
 
 #ifndef CF_NO_TLS
     static uint8_t	keymgr_buf[2048];
@@ -41,7 +35,6 @@
     static BIO* domain_bio_mem(const void*, size_t);
     static int domain_x509_verify(int, X509_STORE_CTX*);
     static X509* domain_load_certificate_chain(SSL_CTX*, const void*, size_t);
-    static void	domain_load_crl(struct cf_domain*);
 
     /* Key manager forward function declaration */
     static void	keymgr_init(void);
@@ -108,12 +101,19 @@ static RSA_METHOD keymgr_rsa =
 #endif /* OPENSSL_VERSION_NUMBER */
 #endif /* CF_NO_TLS */
 
+static struct cf_domain* cached[DOMAIN_CACHE_SIZE];
+
 /****************************************************************
  *  Init domains
  ****************************************************************/
 void cf_domain_init(void)
 {
+    int	i;
+
     TAILQ_INIT(&server.domains);
+
+    for( i = 0; i < DOMAIN_CACHE_SIZE; i++ )
+        cached[i] = NULL;
 
 #ifndef CF_NO_TLS
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
@@ -194,6 +194,13 @@ int cf_domain_new( char *domain )
     TAILQ_INIT(&(dom->handlers));
 #endif
 
+    if( dom->id < DOMAIN_CACHE_SIZE )
+    {
+        if( cached[dom->id] != NULL )
+            cf_fatal("non free domain cache slot");
+        cached[dom->id] = dom;
+    }
+
     TAILQ_INSERT_TAIL(&server.domains, dom, list);
 
     if( server.primary_dom == NULL )
@@ -207,7 +214,7 @@ int cf_domain_new( char *domain )
 void cf_domain_free( struct cf_domain *dom )
 {
 #ifndef CF_NO_HTTP
-    struct cf_module_handle *hdlr;
+    struct cf_module_handle *hdlr = NULL;
 #endif
     if( dom == NULL )
 		return;
@@ -271,6 +278,24 @@ struct cf_domain* cf_domain_lookup( const char *domain )
     return NULL;
 }
 /****************************************************************
+ *  Find domain structure function by domain id
+ ****************************************************************/
+struct cf_domain* cf_domain_byid( uint16_t id )
+{
+    struct cf_domain* dom = NULL;
+
+    if( id < DOMAIN_CACHE_SIZE )
+        return cached[id];
+
+    TAILQ_FOREACH(dom, &server.domains, list)
+    {
+        if( dom->id == id )
+            return dom;
+    }
+
+    return NULL;
+}
+/****************************************************************
  *  Close logs for all domains
  ****************************************************************/
 void cf_domain_closelogs( void )
@@ -284,16 +309,6 @@ void cf_domain_closelogs( void )
 	}
 }
 #ifndef CF_NO_TLS
-/****************************************************************
- *  Load certificates for all domains
- ****************************************************************/
-void cf_domain_load_crl( void )
-{
-    struct cf_domain* dom = NULL;
-
-    TAILQ_FOREACH(dom, &server.domains, list)
-        domain_load_crl(dom);
-}
 /****************************************************************
  *  Init key manager function
  ****************************************************************/
@@ -486,7 +501,9 @@ void cf_domain_tls_init( struct cf_domain* dom, const void *pem, size_t pemlen )
 
     X509_free( x509 );
 }
-
+/****************************************************************
+ *  Load domain certificate
+ ****************************************************************/
 void cf_domain_crl_add( struct cf_domain* dom, const void* pem, size_t pemlen )
 {
     int			err;
@@ -532,6 +549,7 @@ void cf_domain_crl_add( struct cf_domain* dom, const void* pem, size_t pemlen )
         }
     }
 
+    /* Delete temporary buffer */
     BIO_free(in);
 
     X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
@@ -570,7 +588,8 @@ static int keymgr_rsa_init( RSA *rsa )
     return 0;
 }
 
-static int keymgr_rsa_privenc(int flen, const unsigned char* from, unsigned char* to, RSA* rsa, int padding)
+static int keymgr_rsa_privenc( int flen, const unsigned char* from, unsigned char* to,
+                               RSA* rsa, int padding )
 {
     int	ret;
     size_t len;
@@ -626,7 +645,8 @@ static int keymgr_rsa_finish( RSA *rsa )
     return 1;
 }
 
-static ECDSA_SIG* keymgr_ecdsa_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *in_kinv, const BIGNUM *in_r, EC_KEY *eckey)
+static ECDSA_SIG* keymgr_ecdsa_sign( const unsigned char *dgst, int dgst_len, const BIGNUM* in_kinv,
+                                     const BIGNUM* in_r, EC_KEY* eckey )
 {
     size_t len;
     ECDSA_SIG *sig;
@@ -809,38 +829,6 @@ static int domain_x509_verify(int ok, X509_STORE_CTX *ctx)
 	}
 
     return ok;
-}
-/****************************************************************
- *  Load certificates for specific domain
- ****************************************************************/
-static void domain_load_crl( struct cf_domain* dom )
-{
-    X509_STORE* store = NULL;
-
-    if( dom->cafile == NULL )
-        return;
-
-    if( dom->crlfile == NULL ) {
-        cf_log(LOG_WARNING, "WARNING: no CRL configured for '%s'", dom->domain);
-        return;
-    }
-
-    /* Clear errors */
-    ERR_clear_error();
-
-    if( (store = SSL_CTX_get_cert_store(dom->ssl_ctx)) == NULL )
-    {
-        cf_log(LOG_ERR, "SSL_CTX_get_cert_store(): %s", ssl_errno_s);
-        return;
-    }
-
-    if( !X509_STORE_load_locations(store, dom->crlfile, NULL) )
-    {
-        cf_log(LOG_ERR, "X509_STORE_load_locations(): %s", ssl_errno_s);
-        return;
-    }
-
-    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
 }
 /*******************************************************************
  *  What follows is basically a reimplementation of

@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <signal.h>
 #include "zfrog.h"
+
 #ifndef CF_NO_HTTP
     #include "cf_http.h"
 #endif
@@ -16,7 +17,7 @@ struct msg_type
 
 TAILQ_HEAD(, msg_type)	msg_types;
 
-static struct msg_type	*msg_type_lookup(uint8_t);
+static struct msg_type* msg_type_lookup(uint8_t);
 static int msg_recv_packet(struct netbuf*);
 static int msg_recv_data(struct netbuf*);
 static void msg_disconnected_parent(struct connection*, int);
@@ -24,7 +25,6 @@ static void msg_disconnected_worker(struct connection*, int);
 static void msg_type_shutdown(struct cf_msg*, const void*);
 
 #ifndef CF_NO_HTTP
-    static void	msg_type_accesslog(struct cf_msg*, const void*);
     static void	msg_type_websocket(struct cf_msg*, const void*);
 #endif /* CF_NO_HTTP */
 
@@ -45,10 +45,6 @@ void cf_msg_parent_init( void )
 	}
 
     cf_msg_register(CF_MSG_SHUTDOWN, msg_type_shutdown);
-
-#ifndef CF_NO_HTTP
-    cf_msg_register(CF_MSG_ACCESSLOG, msg_type_accesslog);
-#endif
 }
 
 void cf_msg_parent_add( struct cf_worker *kw )
@@ -203,6 +199,7 @@ static int msg_recv_data( struct netbuf *nb )
 static void msg_disconnected_parent( struct connection *c, int err )
 {
     cf_log(LOG_ERR, "parent gone, shutting down");
+
     if( kill(server.worker->pid, SIGQUIT) == -1 )
         cf_log(LOG_ERR, "failed to send SIGQUIT: %s", errno_s);
 }
@@ -216,16 +213,9 @@ static void msg_type_shutdown( struct cf_msg *msg, const void *data )
 {    
     cf_log(LOG_NOTICE,"shutdown requested by worker %u, going down", msg->src);
     raise(SIGQUIT);
-    //cf_signal(SIGQUIT);
 }
 
 #ifndef CF_NO_HTTP
-static void msg_type_accesslog( struct cf_msg *msg, const void *data )
-{
-    if( cf_accesslog_write(data, msg->length) == -1 )
-        cf_log(LOG_WARNING, "failed to write to accesslog");
-}
-
 static void msg_type_websocket(struct cf_msg *msg, const void *data)
 {
     struct connection *c = NULL;

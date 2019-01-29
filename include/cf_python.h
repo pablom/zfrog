@@ -18,6 +18,7 @@ void cf_python_path(const char*);
 void cf_python_coro_run(void);
 void cf_python_coro_delete(void*);
 void cf_python_log_error(const char*);
+void cf_python_proc_reap(void);
 
 PyObject* cf_python_callable(PyObject*, const char*);
 

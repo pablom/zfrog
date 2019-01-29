@@ -235,9 +235,9 @@ static void init_server_config( void )
 #endif
 
     server.worker_count = 0;
-    server.worker_rlimit_nofiles = 1024;
+    server.worker_rlimit_nofiles = 768;
     server.worker_set_affinity = 1;
-    server.worker_max_connections = 250;
+    server.worker_max_connections = 512;
     server.worker_active_connections = 0;
     server.worker_accept_threshold = 16;
 
@@ -841,10 +841,6 @@ int main( int argc, char *argv[] )
 
     cf_log_init();
 
-#ifdef CF_PYTHON
-     cf_python_init();
-#endif
-
 #ifdef CF_LUA
      cf_lua_init();
 #endif
@@ -867,6 +863,11 @@ int main( int argc, char *argv[] )
 #endif
 
     cf_module_load( NULL, NULL, CF_MODULE_NATIVE );
+
+#ifdef CF_PYTHON
+     cf_python_init();
+#endif
+
     /* Read configuration file */
     cf_parse_config();
 
@@ -882,8 +883,6 @@ int main( int argc, char *argv[] )
     cf_platform_init();
 
 #ifndef CF_NO_HTTP
-    cf_accesslog_init();
-
     if( server.http_body_disk_offload > 0 )
     {
         if( mkdir(server.http_body_disk_path, 0700) == -1 && errno != EEXIST )
