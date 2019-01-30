@@ -272,7 +272,9 @@ static void keymgr_msg_recv( struct cf_msg* msg, const void* data )
         }
     }
 }
-
+/****************************************************************
+ *  Helper function to make RSA encrypt by PKCS11 library
+ ****************************************************************/
 static void keymgr_pkcs11_rsa_encrypt( struct cf_msg* msg, const void* data, struct key* key )
 {
     int ret;
@@ -280,7 +282,7 @@ static void keymgr_pkcs11_rsa_encrypt( struct cf_msg* msg, const void* data, str
     size_t	keylen;
     uint8_t buf[1024];
 
-    req = (const struct cf_keyreq *)data;
+    req = (const struct cf_keyreq*)data;
 
     keylen = 256;
 
@@ -289,11 +291,13 @@ static void keymgr_pkcs11_rsa_encrypt( struct cf_msg* msg, const void* data, str
 
     cf_log(LOG_NOTICE,"PKCS11 RSA data len = %d, keylen = %lu, padding = %d", req->data_len, keylen, req->padding);
 
-    ret = cf_pkcs11_private_encrypt( key->p11_key, req->data, req->data_len, buf );
+    ret = cf_pkcs11_rsa_private_encrypt( key->p11_key, req->data, req->data_len, buf, req->padding );
 
     cf_msg_send(msg->src, CF_MSG_KEYMGR_RESP, buf, ret);
 }
-
+/****************************************************************
+ *  Helper function to make RSA encrypt by OpenSSL library
+ ****************************************************************/
 static void keymgr_rsa_encrypt( struct cf_msg* msg, const void* data, struct key* key )
 {
     int	ret;
@@ -301,7 +305,7 @@ static void keymgr_rsa_encrypt( struct cf_msg* msg, const void* data, struct key
     size_t keylen = 0;
     uint8_t	buf[1024];
 
-    const struct cf_keyreq *req = (const struct cf_keyreq *)data;
+    const struct cf_keyreq *req = (const struct cf_keyreq*)data;
 
 #if !defined(LIBRESSL_VERSION_TEXT) && OPENSSL_VERSION_NUMBER >= 0x10100000L
     rsa = EVP_PKEY_get0_RSA(key->pkey);
@@ -309,15 +313,14 @@ static void keymgr_rsa_encrypt( struct cf_msg* msg, const void* data, struct key
     rsa = key->pkey->pkey.rsa;
 #endif
 
+    /* Get RSA key length in bytes */
     keylen = RSA_size(rsa);
 
-    cf_log(LOG_NOTICE,"RSA data len = %d, keylen = %lu, padding = %d", req->data_len, keylen, req->padding);
-
+    /* Check incoming data length, compare with key size */
     if( req->data_len > keylen || keylen > sizeof(buf) )
         return;
 
-    ret = RSA_private_encrypt(req->data_len, req->data, buf, rsa, req->padding );
-    if( ret != RSA_size(rsa) )
+    if( (ret = RSA_private_encrypt(req->data_len, req->data, buf, rsa, req->padding )) != (int)keylen )
         return;
 
     cf_msg_send(msg->src, CF_MSG_KEYMGR_RESP, buf, ret);

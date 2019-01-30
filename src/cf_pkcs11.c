@@ -1,35 +1,17 @@
 // cf_pkcs11.c
 
-#include <sys/param.h>
-#include <openssl/evp.h>
+
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <signal.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#include <sys/param.h>
+#include <openssl/evp.h>
 
 #include "zfrog.h"
 #include "cf_pkcs11.h"
-
-#define CK_PTR *
-#ifndef NULL_PTR
-#define NULL_PTR 0
-#endif
-
-/* Unix case */
-#define CK_DEFINE_FUNCTION(returnType, name) \
-returnType name
-
-#define CK_DECLARE_FUNCTION(returnType, name) \
-returnType name
-
-#define CK_DECLARE_FUNCTION_POINTER(returnType, name) \
-returnType (* name)
-
-#define CK_CALLBACK_FUNCTION(returnType, name) \
-returnType (* name)
-
-#include <pkcs11/pkcs11.h>
 
 /* Forward function declaration */
 static int p11_find_token_by_label( CK_FUNCTION_LIST_PTR flp, const char *label, CK_SLOT_ID* slot_id );
@@ -37,9 +19,9 @@ static void p11_open_session( CK_FUNCTION_LIST *flp , CK_SLOT_ID slot_id, CK_SES
 static CK_ULONG p11_find_object_by_label(CK_FUNCTION_LIST_PTR flp, CK_SESSION_HANDLE sh, char *label,
                                           CK_OBJECT_CLASS obj_class, CK_OBJECT_HANDLE_PTR pObj, CK_ULONG size );
 
-struct pkcs11_key {
-    CK_SESSION_HANDLE sh;
-    CK_OBJECT_HANDLE  oh;
+struct pkcs11_obj {
+    CK_SESSION_HANDLE sh;  /* PKCS11 open session handle */
+    CK_OBJECT_HANDLE  oh;  /* PKCS11 object handle  */
 };
 
 
@@ -264,7 +246,7 @@ void cf_init_pkcs11_module(void)
 
 void *cf_pkcs11_load_privatekey( char* privkey )
 {
-    struct pkcs11_key* pkey = NULL;
+    struct pkcs11_obj* pkey = NULL;
 
     if( privkey && p11_module.flp )
     {
@@ -293,13 +275,23 @@ void *cf_pkcs11_load_privatekey( char* privkey )
 
     return pkey;
 }
-
-int cf_pkcs11_private_encrypt(void* ctx, const void* data, int data_len, unsigned char* to )
+/************************************************************************
+ *  RSA private PKCS11 key encription function
+ ************************************************************************/
+int cf_pkcs11_rsa_private_encrypt(void* ctx, const void* data, int data_len, unsigned char* to, int padding)
 {
     CK_RV rv;
-    struct pkcs11_key* pkey = (struct pkcs11_key*) ctx;
-    CK_MECHANISM  mech = { CKM_RSA_PKCS, NULL_PTR, 0 };
+    struct pkcs11_obj* pkey = (struct pkcs11_obj*) ctx;
+    /* By deafult set clear RSA sign mechanism */
+    CK_MECHANISM  mech = { CKM_RSA_X_509, NULL_PTR, 0 };
     CK_ULONG  enc_len = 0;
+
+    /* Redefine PKCS11 mechanism for PKCS1 padding */
+    if( padding == RSA_PKCS1_PADDING )
+        mech.mechanism = CKM_RSA_PKCS;
+
+
+    cf_pkcs11_get_object_attribute(ctx, CKA_SIGN, NULL, NULL);
 
     if( (rv = p11_module.flp->C_SignInit(pkey->sh, &mech, pkey->oh)) == CKR_OK )
     {
@@ -322,5 +314,31 @@ int cf_pkcs11_private_encrypt(void* ctx, const void* data, int data_len, unsigne
     return enc_len;
 }
 
+/******************************************************************************
+ * Query pkcs11 attributes functions
+ ******************************************************************************/
 
+/************************************************************************
+ *  Helper function to get PKCS11 object's attribute
+ ************************************************************************/
+int cf_pkcs11_get_object_attribute( void* ctx, uint32_t type, void** pValue, size_t* ulValueLen )
+{
+    struct pkcs11_obj* pobj = (struct pkcs11_obj*) ctx;
 
+    if( pobj )
+    {
+        CK_RV rv;
+        CK_ATTRIBUTE attr = {type, NULL_PTR, 0};
+
+        if( pValue == NULL || *pValue == NULL || *ulValueLen == 0 )
+        {
+            if( (rv = p11_module.flp->C_GetAttributeValue(pobj->sh, pobj->oh, &attr, 1)) != CKR_OK )
+                return CF_RESULT_ERROR;
+        }
+
+        if( (rv = p11_module.flp->C_GetAttributeValue(pobj->sh, pobj->oh, &attr, 1)) == CKR_OK )
+            return CF_RESULT_OK;
+    }
+
+    return CF_RESULT_ERROR;
+}
