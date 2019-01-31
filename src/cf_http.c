@@ -234,7 +234,6 @@ static struct http_request* http_request_new( struct connection *c, const char *
         }
 
         flags = HTTP_VERSION_1_0;
-        c->flags |= CONN_CLOSE_EMPTY;
     }
     else {
         flags = HTTP_VERSION_1_1;
@@ -1986,7 +1985,7 @@ static void http_response_normal( struct http_request *req, struct connection *c
     cf_buf_appendf(header_buf, "HTTP/1.%c %d %s\r\n", version, status, http_status_text(status));
     cf_buf_append(header_buf, http_version, http_version_len);
 
-    if( c->flags & CONN_CLOSE_EMPTY )
+    if( (c->flags & CONN_CLOSE_EMPTY) || (req->flags & HTTP_VERSION_1_0) )
 		connection_close = 1;
 	else
 		connection_close = 0;

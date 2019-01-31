@@ -113,7 +113,7 @@ void cf_platform_event_cleanup( void )
 /****************************************************************
  *  Event platform wait function
  ****************************************************************/
-int cf_platform_event_wait(uint64_t timer)
+void cf_platform_event_wait(uint64_t timer)
 {
     uint32_t  r = 0;
     struct cf_event	*evt = NULL;
@@ -127,7 +127,7 @@ int cf_platform_event_wait(uint64_t timer)
     if( n == -1 )
     {
         if( errno == EINTR )
-            return 0;
+            return;
 		cf_fatal("kevent(): %s", errno_s);
 	}
 
@@ -154,8 +154,6 @@ int cf_platform_event_wait(uint64_t timer)
 
         evt->handle(events[i].udata, r);
     }
-
-    return r;
 }
 /****************************************************************
  *  Helper function add file descriptor to catch
