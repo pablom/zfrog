@@ -275,7 +275,7 @@ int cf_platform_sendfile( struct connection* c, struct netbuf* nb )
 
     if( len == 0 || nb->fd_off == nb->fd_len )
     {
-        net_remove_netbuf(&(c->send_queue), nb);
+        net_remove_netbuf(c, nb);
         c->snb = NULL;
     }
 
