@@ -737,7 +737,7 @@ void cf_fatal( const char *fmt, ... )
  ****************************************************************/
 void cf_fatalx(const char *fmt, ...)
 {
-    va_list		args;
+    va_list	args;
 
     /* In case people call fatalx() from the parent context */
     if( server.worker != NULL )

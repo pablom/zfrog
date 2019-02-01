@@ -1,13 +1,34 @@
-deps/
+# Object files
 obj/
-tmp/
-examples/**/*so
-examples/**/*.pem
+*.o
+*.ko
+*.obj
+*.elf
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Executables & build configurations
 zfrog
 zfrog_cli
 features
+
+# Qt Creator project files
 zfrog.config
-zfrog.creator
+zfrog.creator*
 zfrog.files
 zfrog.includes
-zfrog.creator.user
+#zfrog.creator.user
+
+# External dependency
+deps/
+
+# Examples (binary and certificates)
+examples/**/*so
+examples/**/*.pem
+examples/**/*.p12
+examples/**/*.pyc
+examples/**/*.log
